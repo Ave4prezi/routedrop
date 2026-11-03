@@ -1,7 +1,7 @@
 'use strict';
 const test=require('node:test');
 const assert=require('node:assert/strict');
-const {livePaymentsAllowed,checkoutOutcome,refundableAmount,disputeState,cancellationEligibility,refundStatus}=require('../payment-safeguards');
+const {livePaymentsAllowed,checkoutOutcome,refundableAmount,disputeState,cancellationEligibility,refundStatus,refundOperation}=require('../payment-safeguards');
 test('live keys stay locked until explicit approval',()=>{
  assert.equal(livePaymentsAllowed('sk_live_example',undefined),false);
  assert.equal(livePaymentsAllowed('sk_live_example','false'),false);
@@ -47,4 +47,18 @@ test('refund result never treats pending or failed as refunded',()=>{
  assert.equal(refundStatus({status:'requires_action'}),'processing');
  assert.equal(refundStatus({status:'failed'}),'needs_review');
  assert.equal(refundStatus({status:'canceled'}),'needs_review');
+});
+
+test('full refund reverses provider transfer and platform fee with stable idempotency',()=>{
+ const booking={id:7,booking_id:81,price_cents:2500,payment_intent_id:'pi_test_81'};
+ const first=refundOperation(booking),second=refundOperation({...booking});
+ assert.equal(first.params.amount,2500);
+ assert.equal(first.params.reverse_transfer,true);
+ assert.equal(first.params.refund_application_fee,true);
+ assert.equal(first.params.payment_intent,'pi_test_81');
+ assert.equal(first.params.metadata.routedrop_booking_id,'81');
+ assert.equal(first.options.idempotencyKey,'routedrop-cancellation-refund-7');
+ assert.deepEqual(first,second);
+ assert.throws(()=>refundOperation({...booking,price_cents:-100}));
+ assert.throws(()=>refundOperation({...booking,payment_intent_id:''}));
 });
