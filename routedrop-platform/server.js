@@ -7,6 +7,7 @@ const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const { Pool } = require('pg');
 const Stripe = require('stripe');
+const { livePaymentsAllowed, checkoutOutcome, refundableAmount, disputeState } = require('./payment-safeguards');
 
 const app = express();
 app.disable('x-powered-by');
@@ -18,7 +19,7 @@ const stripeKey = process.env.STRIPE_SECRET_KEY || '';
 const stripeWebhookSecret = process.env.STRIPE_WEBHOOK_SECRET || '';
 const stripe = stripeKey ? new Stripe(stripeKey) : null;
 const liveKey = /^(sk|rk)_live_/.test(stripeKey);
-const paymentsApproved = !liveKey || process.env.ROUTEDROP_LIVE_APPROVED === 'true';
+const paymentsApproved = livePaymentsAllowed(stripeKey,process.env.ROUTEDROP_LIVE_APPROVED);
 const paymentsReady = !!(stripe && stripeWebhookSecret && paymentsApproved);
 const pool = databaseUrl ? new Pool({ connectionString: databaseUrl, max: 5, idleTimeoutMillis: 30000, connectionTimeoutMillis: 10000, ssl: databaseUrl.includes('localhost') ? false : { rejectUnauthorized: false } }) : null;
 const safe = fn => (req, res, next) => Promise.resolve(fn(req, res)).catch(next);
@@ -119,9 +120,9 @@ app.post('/api/stripe/webhook', express.raw({type:'application/json'}),safe(asyn
   const session=event.data.object;
   const bookingId=Number(session.metadata&&session.metadata.booking_id);
   if (Number.isSafeInteger(bookingId)&&bookingId>0){
-   if ((event.type==='checkout.session.completed' && session.payment_status==='paid') || event.type==='checkout.session.async_payment_succeeded'){
+   if (checkoutOutcome(event.type,session)==='paid'){
     await client.query("UPDATE bookings SET status='paid',payment_intent_id=$3 WHERE id=$1 AND checkout_session_id=$2 AND status='awaiting_payment'",[bookingId,session.id,typeof session.payment_intent==='string'?session.payment_intent:null]);
-   } else if (event.type==='checkout.session.expired'||event.type==='checkout.session.async_payment_failed'){
+   } else if (checkoutOutcome(event.type,session)==='canceled'){
     await client.query("UPDATE bookings SET status='canceled' WHERE id=$1 AND checkout_session_id=$2 AND status='awaiting_payment'",[bookingId,session.id]);
    }
   }
@@ -135,11 +136,11 @@ app.post('/api/stripe/webhook', express.raw({type:'application/json'}),safe(asyn
   if((event.type==='invoice.paid'||event.type==='invoice.payment_failed') && session.customer){
    await client.query('UPDATE businesses SET last_invoice_status=$1 WHERE subscription_customer_id=$2',[event.type==='invoice.paid'?'paid':'payment_failed',session.customer]);
   }
-  if(event.type==='charge.refunded' && session.payment_intent){
-   await client.query('UPDATE bookings SET refund_cents=GREATEST(refund_cents,$1) WHERE payment_intent_id=$2',[session.amount_refunded||0,session.payment_intent]);
+  if(refundableAmount(event.type,session)!==null){
+   await client.query('UPDATE bookings SET refund_cents=GREATEST(refund_cents,$1) WHERE payment_intent_id=$2',[refundableAmount(event.type,session),session.payment_intent]);
   }
-  if(event.type.startsWith('charge.dispute.') && session.payment_intent){
-   await client.query('UPDATE bookings SET dispute_status=$1 WHERE payment_intent_id=$2',[session.status||'under_review',session.payment_intent]);
+  if(disputeState(event.type,session)!==null){
+   await client.query('UPDATE bookings SET dispute_status=$1 WHERE payment_intent_id=$2',[disputeState(event.type,session),session.payment_intent]);
   }
   await client.query('COMMIT');
   res.json({received:true});
