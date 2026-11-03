@@ -265,7 +265,7 @@ app.post('/api/business/cancellation-requests/:id/decision',requireDb,requireUse
    await client.query('COMMIT');return res.json({ok:true,status:'declined'});
   }
   const validPaid=request.booking_status==='paid' && request.refund_cents===0 && !request.dispute_status;
-  if(!validPaid||(!policy.canRequest&&!request.eligible_full_refund)||!request.payment_intent_id){
+  if(!validPaid||!request.payment_intent_id){
    await client.query('ROLLBACK');
    return forbidden(res,'Refund requires manual support review: the original payment or booking is no longer eligible.',409);
   }
@@ -277,10 +277,15 @@ app.post('/api/business/cancellation-requests/:id/decision',requireDb,requireUse
   const operation=refundOperation({...request,id});
   const refund=await stripe.refunds.create(operation.params,operation.options);
   const outcome=refundStatus(refund);
-  await pool.query("UPDATE cancellation_requests SET refund_id=$2,resolution=$3,status=CASE WHEN $3='refunded' THEN 'closed' ELSE 'reviewed' END WHERE id=$1 AND resolution='processing'",[id,refund.id,outcome]);
-  if(outcome==='refunded'){
-   await pool.query("UPDATE bookings SET status='canceled',refund_cents=GREATEST(refund_cents,$2) WHERE id=$1 AND status='paid'",[request.booking_id,request.price_cents]);
-  }
+  const db=await pool.connect();
+  try{
+   await db.query('BEGIN');
+   await db.query("UPDATE cancellation_requests SET refund_id=$2,resolution=$3,status=CASE WHEN $3='refunded' THEN 'closed' ELSE 'reviewed' END WHERE id=$1 AND resolution='processing'",[id,refund.id,outcome]);
+   if(outcome==='refunded'){
+    await db.query("UPDATE bookings SET status='canceled',refund_cents=GREATEST(refund_cents,$2) WHERE id=$1 AND status='paid'",[request.booking_id,request.price_cents]);
+   }
+   await db.query('COMMIT');
+  }catch(err){await db.query('ROLLBACK').catch(()=>{});throw err;}finally{db.release();}
   res.json({ok:true,status:outcome,message:outcome==='refunded'?'Full refund completed.':outcome==='processing'?'Refund initiated and processing.':'Refund requires manual review in Stripe.'});
  }catch(e){
   // A network timeout can mean Stripe received the refund. Do not automatically retry with a new key.
