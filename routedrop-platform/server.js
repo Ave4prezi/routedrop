@@ -7,7 +7,7 @@ const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const { Pool } = require('pg');
 const Stripe = require('stripe');
-const { livePaymentsAllowed, checkoutOutcome, refundableAmount, disputeState } = require('./payment-safeguards');
+const { livePaymentsAllowed, checkoutOutcome, refundableAmount, disputeState, cancellationEligibility, refundStatus } = require('./payment-safeguards');
 
 const app = express();
 app.disable('x-powered-by');
@@ -62,7 +62,14 @@ const ddl = [
  "ALTER TABLE businesses ADD COLUMN IF NOT EXISTS last_invoice_status TEXT",
  "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS refund_cents INTEGER NOT NULL DEFAULT 0",
  "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS dispute_status TEXT",
- "CREATE TABLE IF NOT EXISTS cancellation_requests (id BIGSERIAL PRIMARY KEY, booking_id BIGINT NOT NULL UNIQUE REFERENCES bookings(id), customer_id BIGINT NOT NULL REFERENCES users(id), reason TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','reviewed','closed')), created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
+ "CREATE TABLE IF NOT EXISTS cancellation_requests (id BIGSERIAL PRIMARY KEY, booking_id BIGINT NOT NULL UNIQUE REFERENCES bookings(id), customer_id BIGINT NOT NULL REFERENCES users(id), reason TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','reviewed','closed')), created_at TIMESTAMPTZ NOT NULL DEFAULT now())",
+ "ALTER TABLE cancellation_requests ADD COLUMN IF NOT EXISTS resolution TEXT NOT NULL DEFAULT 'pending' CHECK(resolution IN ('pending','processing','refunded','declined','needs_review'))",
+ "ALTER TABLE cancellation_requests ADD COLUMN IF NOT EXISTS refund_id TEXT",
+ "ALTER TABLE cancellation_requests ADD COLUMN IF NOT EXISTS decided_by BIGINT REFERENCES users(id)",
+ "ALTER TABLE cancellation_requests ADD COLUMN IF NOT EXISTS decided_at TIMESTAMPTZ",
+ "ALTER TABLE cancellation_requests ADD COLUMN IF NOT EXISTS eligible_full_refund BOOLEAN",
+ "ALTER TABLE cancellation_requests ADD COLUMN IF NOT EXISTS refund_amount_cents INTEGER",
+ "ALTER TABLE cancellation_requests ADD COLUMN IF NOT EXISTS processing_started_at TIMESTAMPTZ"
 ];
 async function startDatabase() {
  if (!pool) return;
@@ -208,19 +215,60 @@ app.post('/api/listings',requireDb,requireUser('business'),safe(async(req,res)=>
 }));
 app.get('/api/bookings',requireDb,requireUser(),safe(async(req,res)=>{
  const clause=req.user.role==='customer'?'k.customer_id=$1':'b.owner_id=$1';
- const r=await pool.query("SELECT k.id,k.status,k.price_cents,k.fee_cents,k.refund_cents,k.dispute_status,k.created_at,(SELECT cr.status FROM cancellation_requests cr WHERE cr.booking_id=k.id) AS cancellation_request_status,l.title,l.slot_start,l.neighborhood,b.name AS business_name FROM bookings k JOIN listings l ON l.id=k.listing_id JOIN businesses b ON b.id=l.business_id WHERE "+clause+" ORDER BY k.created_at DESC LIMIT 100",[req.user.id]);
+ const r=await pool.query("SELECT k.id,k.status,k.price_cents,k.fee_cents,k.refund_cents,k.dispute_status,k.created_at,(SELECT cr.resolution FROM cancellation_requests cr WHERE cr.booking_id=k.id) AS cancellation_request_status,l.title,l.slot_start,l.neighborhood,b.name AS business_name FROM bookings k JOIN listings l ON l.id=k.listing_id JOIN businesses b ON b.id=l.business_id WHERE "+clause+" ORDER BY k.created_at DESC LIMIT 100",[req.user.id]);
  res.json({bookings:r.rows});
 }));
 app.post('/api/bookings/:id/request-cancellation',requireDb,requireUser('customer'),safe(async(req,res)=>{
  const id=Number(req.params.id),reason=clean(req.body.reason,500);
  if(!Number.isSafeInteger(id)||id<1||reason.length<10)return forbidden(res,'Enter a cancellation reason of at least 10 characters.');
- const r=await pool.query("INSERT INTO cancellation_requests(booking_id,customer_id,reason) SELECT id,customer_id,$3 FROM bookings WHERE id=$1 AND customer_id=$2 AND status IN ('paid','completed') ON CONFLICT (booking_id) DO NOTHING RETURNING id",[id,req.user.id,reason]);
- if(!r.rowCount)return forbidden(res,'No eligible booking found, or a request already exists.',409);
- res.status(201).json({ok:true,message:'Request recorded for review. A refund has not been issued.'});
+ const q=await pool.query("SELECT k.status,k.refund_cents,k.dispute_status,l.slot_start FROM bookings k JOIN listings l ON l.id=k.listing_id WHERE k.id=$1 AND k.customer_id=$2",[id,req.user.id]);
+ const policy=cancellationEligibility(q.rows[0]);
+ if(!policy.canRequest)return forbidden(res,policy.reason,409);
+ const r=await pool.query("INSERT INTO cancellation_requests(booking_id,customer_id,reason,eligible_full_refund) SELECT k.id,k.customer_id,$3,$4 FROM bookings k JOIN listings l ON l.id=k.listing_id WHERE k.id=$1 AND k.customer_id=$2 AND k.status='paid' AND l.slot_start>now() AND k.refund_cents=0 AND k.dispute_status IS NULL ON CONFLICT (booking_id) DO NOTHING RETURNING id",[id,req.user.id,reason,policy.fullRefund]);
+ if(!r.rowCount)return forbidden(res,'This booking is no longer eligible or a request already exists.',409);
+ res.status(201).json({ok:true,message:policy.fullRefund?'Cancellation requested. Full refund eligible; awaiting business confirmation.':'Cancellation requested inside 24 hours. Refund is subject to business approval.'});
 }));
 app.get('/api/business/cancellation-requests',requireDb,requireUser('business'),safe(async(req,res)=>{
- const r=await pool.query("SELECT cr.id,cr.booking_id,cr.reason,cr.status,cr.created_at,l.title,k.price_cents FROM cancellation_requests cr JOIN bookings k ON k.id=cr.booking_id JOIN listings l ON l.id=k.listing_id JOIN businesses b ON b.id=l.business_id WHERE b.owner_id=$1 ORDER BY cr.created_at DESC LIMIT 100",[req.user.id]);
+ const r=await pool.query("SELECT cr.id,cr.booking_id,cr.reason,cr.resolution AS status,cr.eligible_full_refund,cr.refund_id,cr.refund_amount_cents,cr.created_at,l.title,l.slot_start,k.price_cents,k.status AS booking_status,k.refund_cents FROM cancellation_requests cr JOIN bookings k ON k.id=cr.booking_id JOIN listings l ON l.id=k.listing_id JOIN businesses b ON b.id=l.business_id WHERE b.owner_id=$1 ORDER BY cr.created_at DESC LIMIT 100",[req.user.id]);
  res.json({requests:r.rows});
+}));
+app.post('/api/business/cancellation-requests/:id/decision',requireDb,requireUser('business'),checkoutLimiter,safe(async(req,res)=>{
+ if(!paymentsReady)return forbidden(res,'Payment processing unavailable.',503);
+ const id=Number(req.params.id),decision=req.body.decision;
+ if(!Number.isSafeInteger(id)||id<1||!['approve','decline'].includes(decision))return forbidden(res,'Invalid cancellation request or decision.');
+ // Claim the decision before contacting Stripe. Never hold a transaction open across a Stripe request.
+ const client=await pool.connect();let request;
+ try{
+  await client.query('BEGIN');
+  const r=await client.query("SELECT cr.id,cr.resolution,cr.eligible_full_refund,cr.refund_id,k.id AS booking_id,k.status AS booking_status,k.price_cents,k.refund_cents,k.dispute_status,k.payment_intent_id,l.slot_start FROM cancellation_requests cr JOIN bookings k ON k.id=cr.booking_id JOIN listings l ON l.id=k.listing_id JOIN businesses b ON b.id=l.business_id WHERE cr.id=$1 AND b.owner_id=$2 FOR UPDATE OF cr,k",[id,req.user.id]);
+  request=r.rows[0];
+  if(!request){await client.query('ROLLBACK');return forbidden(res,'Request not found.',404);}
+  if(request.resolution!=='pending'){await client.query('ROLLBACK');return forbidden(res,'Request already handled.',409);}
+  const policy=cancellationEligibility({status:request.booking_status,slot_start:request.slot_start,refund_cents:request.refund_cents,dispute_status:request.dispute_status});
+  if(decision==='decline'){
+   if(request.eligible_full_refund && policy.canRequest){await client.query('ROLLBACK');return forbidden(res,'The 24-hour cancellation policy requires a full refund. Approve this request or contact support.',409);}
+   await client.query("UPDATE cancellation_requests SET resolution='declined',status='closed',decided_by=$2,decided_at=now() WHERE id=$1",[id,req.user.id]);
+   await client.query('COMMIT');return res.json({ok:true,status:'declined'});
+  }
+  if(!policy.canRequest||!request.payment_intent_id){await client.query('ROLLBACK');return forbidden(res,policy.canRequest?'Payment information unavailable. Contact support.':policy.reason,409);}
+  await client.query("UPDATE cancellation_requests SET resolution='processing',status='reviewed',decided_by=$2,decided_at=now(),processing_started_at=now(),refund_amount_cents=$3 WHERE id=$1",[id,req.user.id,request.price_cents]);
+  await client.query('COMMIT');
+ }catch(e){await client.query('ROLLBACK').catch(()=>{});throw e;}finally{client.release();}
+ try{
+  // Destination charges: reverse the transfer to the business and refund the 8% application fee.
+  const refund=await stripe.refunds.create({payment_intent:request.payment_intent_id,amount:request.price_cents,reason:'requested_by_customer',reverse_transfer:true,refund_application_fee:true,metadata:{routedrop_booking_id:String(request.booking_id),routedrop_cancellation_request_id:String(id)}},{idempotencyKey:'routedrop-cancellation-refund-'+id});
+  const outcome=refundStatus(refund);
+  await pool.query("UPDATE cancellation_requests SET refund_id=$2,resolution=$3,status=CASE WHEN $3='refunded' THEN 'closed' ELSE 'reviewed' END WHERE id=$1 AND resolution='processing'",[id,refund.id,outcome]);
+  if(outcome==='refunded'){
+   await pool.query("UPDATE bookings SET status='canceled',refund_cents=GREATEST(refund_cents,$2) WHERE id=$1 AND status='paid'",[request.booking_id,request.price_cents]);
+  }
+  res.json({ok:true,status:outcome,message:outcome==='refunded'?'Full refund completed.':outcome==='processing'?'Refund initiated and processing.':'Refund requires manual review in Stripe.'});
+ }catch(e){
+  // A network timeout can mean Stripe received the refund. Do not automatically retry with a new key.
+  console.error('RouteDrop refund requires reconciliation',id,e.type||'unknown');
+  await pool.query("UPDATE cancellation_requests SET resolution='needs_review' WHERE id=$1 AND resolution='processing'",[id]).catch(()=>{});
+  return forbidden(res,'Refund could not be confirmed. Check Stripe before trying anything else; no second refund will be created automatically.',503);
+ }
 }));
 app.get('/api/my-listings',requireDb,requireUser('business'),safe(async(req,res)=>{
  const r=await pool.query('SELECT l.id,l.title,l.price_cents,l.neighborhood,l.slot_start,l.status FROM listings l JOIN businesses b ON b.id=l.business_id WHERE b.owner_id=$1 ORDER BY l.created_at DESC LIMIT 100',[req.user.id]);
