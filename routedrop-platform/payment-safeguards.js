@@ -31,4 +31,11 @@ function refundStatus(refund){
  if(refund.status==='failed'||refund.status==='canceled')return 'needs_review';
  return 'processing';
 }
-module.exports={livePaymentsAllowed,checkoutOutcome,refundableAmount,disputeState,cancellationEligibility,refundStatus};
+function refundOperation(request){
+ if(!Number.isSafeInteger(Number(request?.id))||Number(request.id)<1||!Number.isSafeInteger(Number(request.booking_id))||Number(request.booking_id)<1||!Number.isSafeInteger(Number(request.price_cents))||Number(request.price_cents)<500||typeof request.payment_intent_id!=='string'||!request.payment_intent_id.startsWith('pi_'))throw Error('Invalid refund request');
+ return {
+  params:{payment_intent:request.payment_intent_id,amount:Number(request.price_cents),reason:'requested_by_customer',reverse_transfer:true,refund_application_fee:true,metadata:{routedrop_booking_id:String(request.booking_id),routedrop_cancellation_request_id:String(request.id)}},
+  options:{idempotencyKey:'routedrop-cancellation-refund-'+request.id}
+ };
+}
+module.exports={livePaymentsAllowed,checkoutOutcome,refundableAmount,disputeState,cancellationEligibility,refundStatus,refundOperation};
