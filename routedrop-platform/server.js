@@ -76,6 +76,7 @@ const ddl = [
  "ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified_at TIMESTAMPTZ",
  "ALTER TABLE users ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT now()",
  "ALTER TABLE businesses ADD COLUMN IF NOT EXISTS subscription_event_created BIGINT NOT NULL DEFAULT 0",
+ "ALTER TABLE businesses ADD COLUMN IF NOT EXISTS last_invoice_event_created BIGINT NOT NULL DEFAULT 0",
  "CREATE TABLE IF NOT EXISTS email_action_tokens (token_hash TEXT PRIMARY KEY, user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE, purpose TEXT NOT NULL CHECK(purpose IN ('verify','reset')), expires_at TIMESTAMPTZ NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now())",
  "CREATE INDEX IF NOT EXISTS email_tokens_user_purpose ON email_action_tokens(user_id,purpose)",
  "CREATE TABLE IF NOT EXISTS notification_outbox (id BIGSERIAL PRIMARY KEY, event_key TEXT UNIQUE NOT NULL, recipient TEXT NOT NULL, subject TEXT NOT NULL, body TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','sending','sent','failed')), attempts INTEGER NOT NULL DEFAULT 0, available_at TIMESTAMPTZ NOT NULL DEFAULT now(), sent_at TIMESTAMPTZ, last_error TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())",
@@ -153,9 +154,11 @@ app.post('/api/stripe/webhook', express.raw({type:'application/json'}),safe(asyn
   }
   const billEvent=invoiceEvent(event.type,session);
   if(billEvent){
-   await client.query("UPDATE businesses SET last_invoice_status=$1 WHERE subscription_customer_id=$2 AND (subscription_id IS NULL OR $3::text IS NULL OR subscription_id=$3)",[billEvent.status,billEvent.customer,billEvent.subscriptionId]);
-   const owner=await client.query("SELECT u.email FROM businesses b JOIN users u ON u.id=b.owner_id WHERE b.subscription_customer_id=$1 AND (b.subscription_id IS NULL OR $2::text IS NULL OR b.subscription_id=$2)",[billEvent.customer,billEvent.subscriptionId]);
-   if(owner.rowCount)await enqueueNotification(client,'invoice-'+event.id,owner.rows[0].email,event.type==='invoice.paid'?'subscription_paid':'subscription_failed',{});
+   const changed=await client.query("UPDATE businesses SET last_invoice_status=$1,last_invoice_event_created=$4 WHERE subscription_customer_id=$2 AND subscription_id=$3 AND last_invoice_event_created<=$4 RETURNING owner_id",[billEvent.status,billEvent.customer,billEvent.subscriptionId,event.created]);
+   if(changed.rowCount){
+    const owner=await client.query('SELECT email FROM users WHERE id=$1',[changed.rows[0].owner_id]);
+    if(owner.rowCount)await enqueueNotification(client,'invoice-'+event.id,owner.rows[0].email,event.type==='invoice.paid'?'subscription_paid':'subscription_failed',{});
+   }
   }
   if(refundableAmount(event.type,session)!==null){
    await client.query('UPDATE bookings SET refund_cents=GREATEST(refund_cents,$1) WHERE payment_intent_id=$2',[refundableAmount(event.type,session),session.payment_intent]);
@@ -436,7 +439,16 @@ app.get('/api/business/subscription',requireDb,requireUser('business'),safe(asyn
  if(!customer)return res.json({status:'none'});
  const subs=await stripe.subscriptions.list({customer,limit:20});
  const sub=selectSubscription(subs.data);
- res.json({...subscriptionView(sub),last_invoice_status:(await pool.query('SELECT last_invoice_status FROM businesses WHERE owner_id=$1',[req.user.id])).rows[0]?.last_invoice_status||null});
+ const stored=(await pool.query('SELECT last_invoice_status FROM businesses WHERE owner_id=$1',[req.user.id])).rows[0]?.last_invoice_status||null;
+ // Stripe's latest invoice is authoritative if webhook delivery is delayed.
+ let invoiceState=stored;
+ if(sub?.latest_invoice){
+  const last=await stripe.invoices.retrieve(typeof sub.latest_invoice==='string'?sub.latest_invoice:sub.latest_invoice.id);
+  if(last.status==='paid')invoiceState='paid';
+  else if(last.status==='open'&&last.attempted&&Number(last.attempt_count)>0)invoiceState='payment_failed';
+  else if(last.status==='void'||last.status==='uncollectible')invoiceState=last.status;
+ }
+ res.json({...subscriptionView(sub),last_invoice_status:invoiceState});
 }));
 app.post('/api/business/subscription/portal',requireDb,requireUser('business'),checkoutLimiter,safe(async(req,res)=>{
  if(!paymentsReady||!baseUrl)return forbidden(res,'Stripe unavailable.',503);
