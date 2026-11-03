@@ -5,7 +5,9 @@
   "description": "RouteDrop customer/business marketplace backend",
   "main": "server.js",
   "scripts": {
-    "start": "node routedrop-platform/server.js"
+    "start": "node routedrop-platform/server.js",
+    "test": "node --test test/*.test.js",
+    "postinstall": "npm test"
   },
   "engines": {
     "node": ">=20"
