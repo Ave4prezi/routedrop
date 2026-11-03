@@ -207,8 +207,19 @@ app.post('/api/listings',requireDb,requireUser('business'),safe(async(req,res)=>
 }));
 app.get('/api/bookings',requireDb,requireUser(),safe(async(req,res)=>{
  const clause=req.user.role==='customer'?'k.customer_id=$1':'b.owner_id=$1';
- const r=await pool.query("SELECT k.id,k.status,k.price_cents,k.fee_cents,k.created_at,l.title,l.slot_start,l.neighborhood,b.name AS business_name FROM bookings k JOIN listings l ON l.id=k.listing_id JOIN businesses b ON b.id=l.business_id WHERE "+clause+" ORDER BY k.created_at DESC LIMIT 100",[req.user.id]);
+ const r=await pool.query("SELECT k.id,k.status,k.price_cents,k.fee_cents,k.refund_cents,k.dispute_status,k.created_at,(SELECT cr.status FROM cancellation_requests cr WHERE cr.booking_id=k.id) AS cancellation_request_status,l.title,l.slot_start,l.neighborhood,b.name AS business_name FROM bookings k JOIN listings l ON l.id=k.listing_id JOIN businesses b ON b.id=l.business_id WHERE "+clause+" ORDER BY k.created_at DESC LIMIT 100",[req.user.id]);
  res.json({bookings:r.rows});
+}));
+app.post('/api/bookings/:id/request-cancellation',requireDb,requireUser('customer'),safe(async(req,res)=>{
+ const id=Number(req.params.id),reason=clean(req.body.reason,500);
+ if(!Number.isSafeInteger(id)||id<1||reason.length<10)return forbidden(res,'Enter a cancellation reason of at least 10 characters.');
+ const r=await pool.query("INSERT INTO cancellation_requests(booking_id,customer_id,reason) SELECT id,customer_id,$3 FROM bookings WHERE id=$1 AND customer_id=$2 AND status IN ('paid','completed') ON CONFLICT (booking_id) DO NOTHING RETURNING id",[id,req.user.id,reason]);
+ if(!r.rowCount)return forbidden(res,'No eligible booking found, or a request already exists.',409);
+ res.status(201).json({ok:true,message:'Request recorded for review. A refund has not been issued.'});
+}));
+app.get('/api/business/cancellation-requests',requireDb,requireUser('business'),safe(async(req,res)=>{
+ const r=await pool.query("SELECT cr.id,cr.booking_id,cr.reason,cr.status,cr.created_at,l.title,k.price_cents FROM cancellation_requests cr JOIN bookings k ON k.id=cr.booking_id JOIN listings l ON l.id=k.listing_id JOIN businesses b ON b.id=l.business_id WHERE b.owner_id=$1 ORDER BY cr.created_at DESC LIMIT 100",[req.user.id]);
+ res.json({requests:r.rows});
 }));
 app.get('/api/my-listings',requireDb,requireUser('business'),safe(async(req,res)=>{
  const r=await pool.query('SELECT l.id,l.title,l.price_cents,l.neighborhood,l.slot_start,l.status FROM listings l JOIN businesses b ON b.id=l.business_id WHERE b.owner_id=$1 ORDER BY l.created_at DESC LIMIT 100',[req.user.id]);
