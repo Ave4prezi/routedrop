@@ -96,7 +96,7 @@ async function sessionUser(req,res,next) {
   req.user=null;
   const token=req.cookies['__Host-rd_session'];
   if (token && ready && /^[a-f0-9]{64}$/.test(token)) {
-   const result=await pool.query("SELECT u.id,u.full_name,u.email,u.role,(u.email_verified_at IS NOT NULL) AS email_verified,(u.created_at < TIMESTAMPTZ '2026-11-03 00:00:00+00') AS existing_beta_account FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=$1 AND s.expires_at>now()",[hash(token)]);
+   const result=await pool.query("SELECT u.id,u.full_name,u.email,u.role,(u.email_verified_at IS NOT NULL) AS email_verified,(u.created_at < TIMESTAMPTZ '2026-11-04 00:00:00+00') AS existing_beta_account FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=$1 AND s.expires_at>now()",[hash(token)]);
    req.user=result.rows[0]||null;
   }
   next();
@@ -307,12 +307,30 @@ app.post('/api/register',requireDb,authLimiter,safe(async(req,res)=>{
 }));
 app.post('/api/login',requireDb,authLimiter,safe(async(req,res)=>{
  const email=clean(req.body.email,254).toLowerCase(),password=String(req.body.password||'');
+ if(!isEmail(email)||password.length>128)return forbidden(res,'Email or password is incorrect.',401);
  const found=await pool.query('SELECT id,password_hash FROM users WHERE email=$1',[email]);
  const hashToCheck=found.rows[0]?.password_hash || '$2a$12$ydzYsIdIjOoOP1fi1gbF7Os10QXaYjK.hOSvG.Civaj6pcCHXy1ti';
  const match=await bcrypt.compare(password,hashToCheck);
  if(!match||!found.rows[0])return forbidden(res,'Email or password is incorrect.',401);
  await createSession(found.rows[0].id,res);
  res.json({ok:true});
+}));
+app.post('/api/auth/change-password',requireDb,requireUser(),authLimiter,safe(async(req,res)=>{
+ const current=String(req.body.currentPassword||''),replacement=String(req.body.newPassword||'');
+ if(!current||replacement.length<12||replacement.length>128||current===replacement)return forbidden(res,'Provide your current password and a different new password of 12–128 characters.');
+ const q=await pool.query('SELECT password_hash FROM users WHERE id=$1',[req.user.id]);
+ if(!q.rowCount||!(await bcrypt.compare(current,q.rows[0].password_hash)))return forbidden(res,'Current password is incorrect.',403);
+ const pw=await bcrypt.hash(replacement,12);
+ const client=await pool.connect();
+ try{
+  await client.query('BEGIN');
+  await client.query('UPDATE users SET password_hash=$1 WHERE id=$2',[pw,req.user.id]);
+  await client.query('DELETE FROM sessions WHERE user_id=$1',[req.user.id]);
+  await client.query('DELETE FROM email_action_tokens WHERE user_id=$1',[req.user.id]);
+  await client.query('COMMIT');
+ }catch(e){await client.query('ROLLBACK').catch(()=>{});throw e;}finally{client.release();}
+ res.clearCookie('__Host-rd_session',{path:'/'});
+ res.json({ok:true,message:'Password updated. Sign in again with your new password.'});
 }));
 app.post('/api/logout',requireDb,requireUser(),safe(async(req,res)=>{
  const token=req.cookies['__Host-rd_session'];
