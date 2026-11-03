@@ -260,11 +260,15 @@ app.post('/api/business/cancellation-requests/:id/decision',requireDb,requireUse
   if(request.resolution!=='pending'){await client.query('ROLLBACK');return forbidden(res,'Request already handled.',409);}
   const policy=cancellationEligibility({status:request.booking_status,slot_start:request.slot_start,refund_cents:request.refund_cents,dispute_status:request.dispute_status});
   if(decision==='decline'){
-   if(request.eligible_full_refund && policy.canRequest){await client.query('ROLLBACK');return forbidden(res,'The 24-hour cancellation policy requires a full refund. Approve this request or contact support.',409);}
+   if(request.eligible_full_refund){await client.query('ROLLBACK');return forbidden(res,'The 24-hour cancellation policy requires a full refund. Approve this request or contact support.',409);}
    await client.query("UPDATE cancellation_requests SET resolution='declined',status='closed',decided_by=$2,decided_at=now() WHERE id=$1",[id,req.user.id]);
    await client.query('COMMIT');return res.json({ok:true,status:'declined'});
   }
-  if(!policy.canRequest||!request.payment_intent_id){await client.query('ROLLBACK');return forbidden(res,policy.canRequest?'Payment information unavailable. Contact support.':policy.reason,409);}
+  const validPaid=request.booking_status==='paid' && request.refund_cents===0 && !request.dispute_status;
+  if(!validPaid||(!policy.canRequest&&!request.eligible_full_refund)||!request.payment_intent_id){
+   await client.query('ROLLBACK');
+   return forbidden(res,'Refund requires manual support review: the original payment or booking is no longer eligible.',409);
+  }
   await client.query("UPDATE cancellation_requests SET resolution='processing',status='reviewed',decided_by=$2,decided_at=now(),processing_started_at=now(),refund_amount_cents=$3 WHERE id=$1",[id,req.user.id,request.price_cents]);
   await client.query('COMMIT');
  }catch(e){await client.query('ROLLBACK').catch(()=>{});throw e;}finally{client.release();}
@@ -406,7 +410,7 @@ app.post('/api/bookings/:id/retry-payment',requireDb,requireUser('customer'),che
 app.post('/api/bookings/:id/complete',requireDb,requireUser('business'),safe(async(req,res)=>{
  const id=Number(req.params.id);
  if(!Number.isSafeInteger(id))return forbidden(res,'Invalid booking');
- const r=await pool.query("UPDATE bookings k SET status='completed' FROM listings l JOIN businesses b ON b.id=l.business_id WHERE k.listing_id=l.id AND b.owner_id=$1 AND k.id=$2 AND k.status='paid' RETURNING k.id",[req.user.id,id]);
+ const r=await pool.query("UPDATE bookings k SET status='completed' FROM listings l JOIN businesses b ON b.id=l.business_id WHERE k.listing_id=l.id AND b.owner_id=$1 AND k.id=$2 AND k.status='paid' AND NOT EXISTS (SELECT 1 FROM cancellation_requests cr WHERE cr.booking_id=k.id AND cr.resolution IN ('pending','processing','needs_review')) RETURNING k.id",[req.user.id,id]);
  if(!r.rowCount)return forbidden(res,'No eligible paid booking found.',409);
  res.json({ok:true});
 }));
