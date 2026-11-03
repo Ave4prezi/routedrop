@@ -7,7 +7,7 @@ const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const { Pool } = require('pg');
 const Stripe = require('stripe');
-const { livePaymentsAllowed, checkoutOutcome, refundableAmount, disputeState, cancellationEligibility, refundStatus } = require('./payment-safeguards');
+const { livePaymentsAllowed, checkoutOutcome, refundableAmount, disputeState, cancellationEligibility, refundStatus, refundOperation } = require('./payment-safeguards');
 
 const app = express();
 app.disable('x-powered-by');
@@ -270,7 +270,8 @@ app.post('/api/business/cancellation-requests/:id/decision',requireDb,requireUse
  }catch(e){await client.query('ROLLBACK').catch(()=>{});throw e;}finally{client.release();}
  try{
   // Destination charges: reverse the transfer to the business and refund the 8% application fee.
-  const refund=await stripe.refunds.create({payment_intent:request.payment_intent_id,amount:request.price_cents,reason:'requested_by_customer',reverse_transfer:true,refund_application_fee:true,metadata:{routedrop_booking_id:String(request.booking_id),routedrop_cancellation_request_id:String(id)}},{idempotencyKey:'routedrop-cancellation-refund-'+id});
+  const operation=refundOperation({...request,id});
+  const refund=await stripe.refunds.create(operation.params,operation.options);
   const outcome=refundStatus(refund);
   await pool.query("UPDATE cancellation_requests SET refund_id=$2,resolution=$3,status=CASE WHEN $3='refunded' THEN 'closed' ELSE 'reviewed' END WHERE id=$1 AND resolution='processing'",[id,refund.id,outcome]);
   if(outcome==='refunded'){
