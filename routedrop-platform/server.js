@@ -145,6 +145,20 @@ app.post('/api/stripe/webhook', express.raw({type:'application/json'}),safe(asyn
   }
   if(refundableAmount(event.type,session)!==null){
    await client.query('UPDATE bookings SET refund_cents=GREATEST(refund_cents,$1) WHERE payment_intent_id=$2',[refundableAmount(event.type,session),session.payment_intent]);
+   const full=await client.query("UPDATE bookings SET status='canceled' WHERE payment_intent_id=$1 AND refund_cents>=price_cents AND status='paid' RETURNING id",[session.payment_intent]);
+   for(const row of full.rows){
+    await client.query("UPDATE cancellation_requests SET resolution='refunded',status='closed' WHERE booking_id=$1 AND resolution IN ('processing','needs_review')",[row.id]);
+   }
+  }
+  if((event.type==='refund.updated'||event.type==='refund.failed') && session.payment_intent){
+   const state=event.type==='refund.failed'?'needs_review':refundStatus(session);
+   if(state==='refunded'){
+    await client.query('UPDATE bookings SET refund_cents=GREATEST(refund_cents,$1) WHERE payment_intent_id=$2',[session.amount||0,session.payment_intent]);
+    await client.query("UPDATE bookings SET status='canceled' WHERE payment_intent_id=$1 AND refund_cents>=price_cents AND status='paid'",[session.payment_intent]);
+   }
+   if(state==='refunded'||state==='needs_review'){
+    await client.query("UPDATE cancellation_requests SET resolution=$2,status=CASE WHEN $2='refunded' THEN 'closed' ELSE status END WHERE refund_id=$1 OR (id::text=$3 AND resolution IN ('processing','needs_review'))",[session.id,state,session.metadata?.routedrop_cancellation_request_id||'']);
+   }
   }
   if(disputeState(event.type,session)!==null){
    await client.query('UPDATE bookings SET dispute_status=$1 WHERE payment_intent_id=$2',[disputeState(event.type,session),session.payment_intent]);
