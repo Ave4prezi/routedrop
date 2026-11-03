@@ -55,7 +55,13 @@ const ddl = [
  "CREATE INDEX IF NOT EXISTS bookings_customer ON bookings(customer_id)",
  "CREATE INDEX IF NOT EXISTS bookings_listing ON bookings(listing_id)",
  "CREATE TABLE IF NOT EXISTS stripe_events (id TEXT PRIMARY KEY, received_at TIMESTAMPTZ NOT NULL DEFAULT now())",
- "ALTER TABLE businesses ADD COLUMN IF NOT EXISTS subscription_customer_id TEXT UNIQUE"
+ "ALTER TABLE businesses ADD COLUMN IF NOT EXISTS subscription_customer_id TEXT UNIQUE",
+ "ALTER TABLE businesses ADD COLUMN IF NOT EXISTS subscription_id TEXT",
+ "ALTER TABLE businesses ADD COLUMN IF NOT EXISTS subscription_status TEXT NOT NULL DEFAULT 'none'",
+ "ALTER TABLE businesses ADD COLUMN IF NOT EXISTS last_invoice_status TEXT",
+ "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS refund_cents INTEGER NOT NULL DEFAULT 0",
+ "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS dispute_status TEXT",
+ "CREATE TABLE IF NOT EXISTS cancellation_requests (id BIGSERIAL PRIMARY KEY, booking_id BIGINT NOT NULL UNIQUE REFERENCES bookings(id), customer_id BIGINT NOT NULL REFERENCES users(id), reason TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','reviewed','closed')), created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
 ];
 async function startDatabase() {
  if (!pool) return;
