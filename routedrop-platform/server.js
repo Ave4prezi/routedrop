@@ -158,7 +158,7 @@ app.post('/api/stripe/webhook', express.raw({type:'application/json'}),safe(asyn
    const full=await client.query("UPDATE bookings SET status='canceled' WHERE payment_intent_id=$1 AND refund_cents>=price_cents AND status='paid' RETURNING id",[session.payment_intent]);
    for(const row of full.rows){
     await client.query("UPDATE cancellation_requests SET resolution='refunded',status='closed' WHERE booking_id=$1 AND resolution IN ('processing','needs_review')",[row.id]);
-    await queueBookingEmail(client,row.id,'refund','refund-'+event.id);
+    await queueBookingEmail(client,row.id,'refund','refunded');
    }
   }
   if((event.type==='refund.updated'||event.type==='refund.failed') && session.payment_intent){
@@ -171,7 +171,7 @@ app.post('/api/stripe/webhook', express.raw({type:'application/json'}),safe(asyn
     await client.query("UPDATE cancellation_requests SET resolution=$2,status=CASE WHEN $2='refunded' THEN 'closed' ELSE status END WHERE refund_id=$1 OR (id::text=$3 AND resolution IN ('processing','needs_review'))",[session.id,state,session.metadata?.routedrop_cancellation_request_id||'']);
     if(state==='refunded'){
      const matches=await client.query("SELECT id FROM bookings WHERE payment_intent_id=$1 AND status='canceled'",[session.payment_intent]);
-     for(const row of matches.rows)await queueBookingEmail(client,row.id,'refund','refund-'+session.id);
+     for(const row of matches.rows)await queueBookingEmail(client,row.id,'refund','refunded');
     }
    }
   }
@@ -324,7 +324,7 @@ app.post('/api/business/cancellation-requests/:id/decision',requireDb,requireUse
    await db.query("UPDATE cancellation_requests SET refund_id=$2,resolution=$3,status=CASE WHEN $3='refunded' THEN 'closed' ELSE 'reviewed' END WHERE id=$1 AND resolution='processing'",[id,refund.id,outcome]);
    if(outcome==='refunded'){
     await db.query("UPDATE bookings SET status='canceled',refund_cents=GREATEST(refund_cents,$2) WHERE id=$1 AND status='paid'",[request.booking_id,request.price_cents]);
-    await queueBookingEmail(db,request.booking_id,'refund','approved-'+id);
+    await queueBookingEmail(db,request.booking_id,'refund','refunded');
    }
    await db.query('COMMIT');
   }catch(err){await db.query('ROLLBACK').catch(()=>{});throw err;}finally{db.release();}
@@ -495,6 +495,7 @@ app.post('/api/auth/request-verification',requireDb,requireUser(),authLimiter,sa
  if(!emailReady)return forbidden(res,'Email sending is not configured yet.',503);
  const q=await pool.query("SELECT email,email_verified_at FROM users WHERE id=$1",[req.user.id]);
  if(q.rows[0]?.email_verified_at)return res.json({ok:true,message:'Your email is already verified.'});
+ if(!q.rowCount)return forbidden(res,'Account not found.',404);
  const sent=await issueEmailAction(req.user.id,q.rows[0].email,'verify');
  if(!sent)return forbidden(res,'Could not send verification email. Try again later.',503);
  res.json({ok:true,message:'Verification link sent. Check your inbox.'});
