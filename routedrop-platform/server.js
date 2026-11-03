@@ -136,6 +136,7 @@ app.post('/api/stripe/webhook', express.raw({type:'application/json'}),safe(asyn
   if (Number.isSafeInteger(bookingId)&&bookingId>0){
    if (checkoutOutcome(event.type,session)==='paid'){
     await client.query("UPDATE bookings SET status='paid',payment_intent_id=$3 WHERE id=$1 AND checkout_session_id=$2 AND status='awaiting_payment'",[bookingId,session.id,typeof session.payment_intent==='string'?session.payment_intent:null]);
+    await queueBookingEmail(client,bookingId,'booking','checkout-'+session.id);
    } else if (checkoutOutcome(event.type,session)==='canceled'){
     await client.query("UPDATE bookings SET status='canceled' WHERE id=$1 AND checkout_session_id=$2 AND status='awaiting_payment'",[bookingId,session.id]);
    }
@@ -149,12 +150,15 @@ app.post('/api/stripe/webhook', express.raw({type:'application/json'}),safe(asyn
   }
   if((event.type==='invoice.paid'||event.type==='invoice.payment_failed') && session.customer){
    await client.query('UPDATE businesses SET last_invoice_status=$1 WHERE subscription_customer_id=$2',[event.type==='invoice.paid'?'paid':'payment_failed',session.customer]);
+   const owner=await client.query("SELECT u.email FROM businesses b JOIN users u ON u.id=b.owner_id WHERE b.subscription_customer_id=$1",[session.customer]);
+   if(owner.rowCount)await enqueueNotification(client,'invoice-'+event.id,owner.rows[0].email,event.type==='invoice.paid'?'subscription_paid':'subscription_failed',{});
   }
   if(refundableAmount(event.type,session)!==null){
    await client.query('UPDATE bookings SET refund_cents=GREATEST(refund_cents,$1) WHERE payment_intent_id=$2',[refundableAmount(event.type,session),session.payment_intent]);
    const full=await client.query("UPDATE bookings SET status='canceled' WHERE payment_intent_id=$1 AND refund_cents>=price_cents AND status='paid' RETURNING id",[session.payment_intent]);
    for(const row of full.rows){
     await client.query("UPDATE cancellation_requests SET resolution='refunded',status='closed' WHERE booking_id=$1 AND resolution IN ('processing','needs_review')",[row.id]);
+    await queueBookingEmail(client,row.id,'refund','refund-'+event.id);
    }
   }
   if((event.type==='refund.updated'||event.type==='refund.failed') && session.payment_intent){
@@ -165,6 +169,10 @@ app.post('/api/stripe/webhook', express.raw({type:'application/json'}),safe(asyn
    }
    if(state==='refunded'||state==='needs_review'){
     await client.query("UPDATE cancellation_requests SET resolution=$2,status=CASE WHEN $2='refunded' THEN 'closed' ELSE status END WHERE refund_id=$1 OR (id::text=$3 AND resolution IN ('processing','needs_review'))",[session.id,state,session.metadata?.routedrop_cancellation_request_id||'']);
+    if(state==='refunded'){
+     const matches=await client.query("SELECT id FROM bookings WHERE payment_intent_id=$1 AND status='canceled'",[session.payment_intent]);
+     for(const row of matches.rows)await queueBookingEmail(client,row.id,'refund','refund-'+session.id);
+    }
    }
   }
   if(disputeState(event.type,session)!==null){
@@ -272,6 +280,7 @@ app.post('/api/bookings/:id/request-cancellation',requireDb,requireUser('custome
  if(!policy.canRequest)return forbidden(res,policy.reason,409);
  const r=await pool.query("INSERT INTO cancellation_requests(booking_id,customer_id,reason,eligible_full_refund) SELECT k.id,k.customer_id,$3,$4 FROM bookings k JOIN listings l ON l.id=k.listing_id WHERE k.id=$1 AND k.customer_id=$2 AND k.status='paid' AND l.slot_start>now() AND k.refund_cents=0 AND k.dispute_status IS NULL ON CONFLICT (booking_id) DO NOTHING RETURNING id",[id,req.user.id,reason,policy.fullRefund]);
  if(!r.rowCount)return forbidden(res,'This booking is no longer eligible or a request already exists.',409);
+ await queueBookingEmail(pool,id,'cancellation','request-'+r.rows[0].id);
  res.status(201).json({ok:true,message:policy.fullRefund?'Cancellation requested. Full refund eligible; awaiting business confirmation.':'Cancellation requested inside 24 hours. Refund is subject to business approval.'});
 }));
 app.get('/api/business/cancellation-requests',requireDb,requireUser('business'),safe(async(req,res)=>{
@@ -315,6 +324,7 @@ app.post('/api/business/cancellation-requests/:id/decision',requireDb,requireUse
    await db.query("UPDATE cancellation_requests SET refund_id=$2,resolution=$3,status=CASE WHEN $3='refunded' THEN 'closed' ELSE 'reviewed' END WHERE id=$1 AND resolution='processing'",[id,refund.id,outcome]);
    if(outcome==='refunded'){
     await db.query("UPDATE bookings SET status='canceled',refund_cents=GREATEST(refund_cents,$2) WHERE id=$1 AND status='paid'",[request.booking_id,request.price_cents]);
+    await queueBookingEmail(db,request.booking_id,'refund','approved-'+id);
    }
    await db.query('COMMIT');
   }catch(err){await db.query('ROLLBACK').catch(()=>{});throw err;}finally{db.release();}
