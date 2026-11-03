@@ -7,6 +7,7 @@ const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const { Pool } = require('pg');
 const Stripe = require('stripe');
+const { normalizeSubscriptionEvent, invoiceEvent, selectSubscription, canStartSubscription, subscriptionView, securityPolicy } = require('./subscription-security');
 const { providerReady, emailLink, isActionToken, notification, deliverEmail } = require('./mail');
 const { livePaymentsAllowed, checkoutOutcome, refundableAmount, disputeState, cancellationEligibility, refundStatus, refundOperation } = require('./payment-safeguards');
 
@@ -73,6 +74,8 @@ const ddl = [
  "ALTER TABLE cancellation_requests ADD COLUMN IF NOT EXISTS refund_amount_cents INTEGER",
  "ALTER TABLE cancellation_requests ADD COLUMN IF NOT EXISTS processing_started_at TIMESTAMPTZ",
  "ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified_at TIMESTAMPTZ",
+ "ALTER TABLE users ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT now()",
+ "ALTER TABLE businesses ADD COLUMN IF NOT EXISTS subscription_event_created BIGINT NOT NULL DEFAULT 0",
  "CREATE TABLE IF NOT EXISTS email_action_tokens (token_hash TEXT PRIMARY KEY, user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE, purpose TEXT NOT NULL CHECK(purpose IN ('verify','reset')), expires_at TIMESTAMPTZ NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now())",
  "CREATE INDEX IF NOT EXISTS email_tokens_user_purpose ON email_action_tokens(user_id,purpose)",
  "CREATE TABLE IF NOT EXISTS notification_outbox (id BIGSERIAL PRIMARY KEY, event_key TEXT UNIQUE NOT NULL, recipient TEXT NOT NULL, subject TEXT NOT NULL, body TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','sending','sent','failed')), attempts INTEGER NOT NULL DEFAULT 0, available_at TIMESTAMPTZ NOT NULL DEFAULT now(), sent_at TIMESTAMPTZ, last_error TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())",
@@ -93,7 +96,7 @@ async function sessionUser(req,res,next) {
   req.user=null;
   const token=req.cookies['__Host-rd_session'];
   if (token && ready && /^[a-f0-9]{64}$/.test(token)) {
-   const result=await pool.query("SELECT u.id,u.full_name,u.email,u.role,(u.email_verified_at IS NOT NULL) AS email_verified FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=$1 AND s.expires_at>now()",[hash(token)]);
+   const result=await pool.query("SELECT u.id,u.full_name,u.email,u.role,(u.email_verified_at IS NOT NULL) AS email_verified,(u.created_at < TIMESTAMPTZ '2026-11-03 00:00:00+00') AS existing_beta_account FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=$1 AND s.expires_at>now()",[hash(token)]);
    req.user=result.rows[0]||null;
   }
   next();
@@ -144,13 +147,14 @@ app.post('/api/stripe/webhook', express.raw({type:'application/json'}),safe(asyn
   if(event.type==='checkout.session.completed' && session.mode==='subscription' && session.customer && session.subscription){
    await client.query("UPDATE businesses SET subscription_id=$1 WHERE subscription_customer_id=$2",[session.subscription,session.customer]);
   }
-  if(event.type.startsWith('customer.subscription.') && session.customer){
-   const status=event.type==='customer.subscription.deleted'?'canceled':session.status;
-   await client.query("UPDATE businesses SET subscription_id=$1,subscription_status=$2 WHERE subscription_customer_id=$3 AND (subscription_id IS NULL OR subscription_id=$1)",[session.id,status,session.customer]);
+  const subEvent=normalizeSubscriptionEvent(event.type,session);
+  if(subEvent){
+   await client.query("UPDATE businesses SET subscription_id=$1,subscription_status=$2,subscription_event_created=$4 WHERE subscription_customer_id=$3 AND (subscription_id IS NULL OR subscription_id=$1) AND subscription_event_created<=$4",[subEvent.id,subEvent.status,subEvent.customer,event.created]);
   }
-  if((event.type==='invoice.paid'||event.type==='invoice.payment_failed') && session.customer){
-   await client.query('UPDATE businesses SET last_invoice_status=$1 WHERE subscription_customer_id=$2',[event.type==='invoice.paid'?'paid':'payment_failed',session.customer]);
-   const owner=await client.query("SELECT u.email FROM businesses b JOIN users u ON u.id=b.owner_id WHERE b.subscription_customer_id=$1",[session.customer]);
+  const billEvent=invoiceEvent(event.type,session);
+  if(billEvent){
+   await client.query("UPDATE businesses SET last_invoice_status=$1 WHERE subscription_customer_id=$2 AND (subscription_id IS NULL OR $3::text IS NULL OR subscription_id=$3)",[billEvent.status,billEvent.customer,billEvent.subscriptionId]);
+   const owner=await client.query("SELECT u.email FROM businesses b JOIN users u ON u.id=b.owner_id WHERE b.subscription_customer_id=$1 AND (b.subscription_id IS NULL OR $2::text IS NULL OR b.subscription_id=$2)",[billEvent.customer,billEvent.subscriptionId]);
    if(owner.rowCount)await enqueueNotification(client,'invoice-'+event.id,owner.rows[0].email,event.type==='invoice.paid'?'subscription_paid':'subscription_failed',{});
   }
   if(refundableAmount(event.type,session)!==null){
@@ -413,8 +417,8 @@ app.get('/api/business/subscription',requireDb,requireUser('business'),safe(asyn
  const customer=r.rows[0]?.subscription_customer_id;
  if(!customer)return res.json({status:'none'});
  const subs=await stripe.subscriptions.list({customer,limit:20});
- const sub=subs.data.find(x=>['active','trialing','past_due','unpaid','incomplete'].includes(x.status))||subs.data[0];
- res.json({status:sub?.status||'none',cancel_at_period_end:!!sub?.cancel_at_period_end,last_invoice_status:(await pool.query('SELECT last_invoice_status FROM businesses WHERE owner_id=$1',[req.user.id])).rows[0]?.last_invoice_status||null});
+ const sub=selectSubscription(subs.data);
+ res.json({...subscriptionView(sub),last_invoice_status:(await pool.query('SELECT last_invoice_status FROM businesses WHERE owner_id=$1',[req.user.id])).rows[0]?.last_invoice_status||null});
 }));
 app.post('/api/business/subscription/portal',requireDb,requireUser('business'),checkoutLimiter,safe(async(req,res)=>{
  if(!paymentsReady||!baseUrl)return forbidden(res,'Stripe unavailable.',503);
@@ -434,7 +438,7 @@ app.post('/api/business/subscribe',requireDb,requireUser('business'),checkoutLim
   customer=(await pool.query('SELECT subscription_customer_id FROM businesses WHERE id=$1',[b.id])).rows[0].subscription_customer_id;
  }
  const subs=await stripe.subscriptions.list({customer,limit:20});
- if(subs.data.some(x=>['active','trialing','past_due','unpaid','incomplete'].includes(x.status)))return forbidden(res,'Subscription already exists.',409);
+ if(!canStartSubscription(subs.data))return forbidden(res,'A membership already exists. Manage it from billing instead.',409);
  const session=await stripe.checkout.sessions.create({mode:'subscription',customer,
   line_items:[{price_data:{currency:'usd',unit_amount:7900,recurring:{interval:'month'},product_data:{name:'RouteDrop Business Membership'}},quantity:1}],
   success_url:baseUrl+'/?subscription=return',cancel_url:baseUrl+'/?subscription=cancel'});
