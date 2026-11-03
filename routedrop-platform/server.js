@@ -125,6 +125,22 @@ app.post('/api/stripe/webhook', express.raw({type:'application/json'}),safe(asyn
     await client.query("UPDATE bookings SET status='canceled' WHERE id=$1 AND checkout_session_id=$2 AND status='awaiting_payment'",[bookingId,session.id]);
    }
   }
+  if(event.type==='checkout.session.completed' && session.mode==='subscription' && session.customer && session.subscription){
+   await client.query("UPDATE businesses SET subscription_id=$1,subscription_status='incomplete' WHERE subscription_customer_id=$2",[session.subscription,session.customer]);
+  }
+  if(event.type.startsWith('customer.subscription.') && session.customer){
+   const status=event.type==='customer.subscription.deleted'?'canceled':session.status;
+   await client.query("UPDATE businesses SET subscription_id=$1,subscription_status=$2 WHERE subscription_customer_id=$3 AND (subscription_id IS NULL OR subscription_id=$1)",[session.id,status,session.customer]);
+  }
+  if((event.type==='invoice.paid'||event.type==='invoice.payment_failed') && session.customer){
+   await client.query('UPDATE businesses SET last_invoice_status=$1 WHERE subscription_customer_id=$2',[event.type==='invoice.paid'?'paid':'payment_failed',session.customer]);
+  }
+  if(event.type==='charge.refunded' && session.payment_intent){
+   await client.query('UPDATE bookings SET refund_cents=GREATEST(refund_cents,$1) WHERE payment_intent_id=$2',[session.amount_refunded||0,session.payment_intent]);
+  }
+  if(event.type.startsWith('charge.dispute.') && session.payment_intent){
+   await client.query('UPDATE bookings SET dispute_status=$1 WHERE payment_intent_id=$2',[session.status||'under_review',session.payment_intent]);
+  }
   await client.query('COMMIT');
   res.json({received:true});
  }catch(err){await client.query('ROLLBACK');throw err;}finally{client.release();}
