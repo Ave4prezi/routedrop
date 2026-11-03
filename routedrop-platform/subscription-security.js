@@ -9,9 +9,16 @@ function normalizeSubscriptionEvent(type,obj){
  if(!KNOWN.has(status))return null;
  return {id:obj.id,customer:obj.customer,status,cancelAtPeriodEnd:!!obj.cancel_at_period_end,currentPeriodEnd:Number.isSafeInteger(obj.current_period_end)?obj.current_period_end:null};
 }
+function invoiceSubscriptionId(obj){
+ const raw=obj?.parent?.subscription_details?.subscription ?? obj?.subscription;
+ return typeof raw==='string'&&raw.startsWith('sub_')?raw:null;
+}
 function invoiceEvent(type,obj){
  if(!['invoice.paid','invoice.payment_failed'].includes(type)||!obj||typeof obj.customer!=='string'||!obj.customer.startsWith('cus_'))return null;
- return {customer:obj.customer,status:type==='invoice.paid'?'paid':'payment_failed',subscriptionId:typeof obj.subscription==='string'?obj.subscription:null};
+ const subscriptionId=invoiceSubscriptionId(obj);
+ // Never apply unrelated invoices to a RouteDrop Business Membership.
+ if(!subscriptionId)return null;
+ return {customer:obj.customer,status:type==='invoice.paid'?'paid':'payment_failed',subscriptionId};
 }
 function selectSubscription(subscriptions){
  const list=Array.isArray(subscriptions)?subscriptions:[];
@@ -28,4 +35,4 @@ function securityPolicy({emailReady,emailVerified,existingAccount}){
  // Never lock out preexisting beta testers while no verified email sender is configured.
  return !emailReady||!!emailVerified||!!existingAccount;
 }
-module.exports={normalizeSubscriptionEvent,invoiceEvent,selectSubscription,canStartSubscription,subscriptionView,securityPolicy};
+module.exports={normalizeSubscriptionEvent,invoiceSubscriptionId,invoiceEvent,selectSubscription,canStartSubscription,subscriptionView,securityPolicy};
