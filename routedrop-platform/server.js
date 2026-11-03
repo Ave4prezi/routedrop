@@ -126,7 +126,7 @@ app.post('/api/stripe/webhook', express.raw({type:'application/json'}),safe(asyn
    }
   }
   if(event.type==='checkout.session.completed' && session.mode==='subscription' && session.customer && session.subscription){
-   await client.query("UPDATE businesses SET subscription_id=$1,subscription_status='incomplete' WHERE subscription_customer_id=$2",[session.subscription,session.customer]);
+   await client.query("UPDATE businesses SET subscription_id=$1 WHERE subscription_customer_id=$2",[session.subscription,session.customer]);
   }
   if(event.type.startsWith('customer.subscription.') && session.customer){
    const status=event.type==='customer.subscription.deleted'?'canceled':session.status;
@@ -232,7 +232,7 @@ app.get('/api/business/subscription',requireDb,requireUser('business'),safe(asyn
  if(!customer)return res.json({status:'none'});
  const subs=await stripe.subscriptions.list({customer,limit:20});
  const sub=subs.data.find(x=>['active','trialing','past_due','unpaid','incomplete'].includes(x.status))||subs.data[0];
- res.json({status:sub?.status||'none',cancel_at_period_end:!!sub?.cancel_at_period_end});
+ res.json({status:sub?.status||'none',cancel_at_period_end:!!sub?.cancel_at_period_end,last_invoice_status:(await pool.query('SELECT last_invoice_status FROM businesses WHERE owner_id=$1',[req.user.id])).rows[0]?.last_invoice_status||null});
 }));
 app.post('/api/business/subscription/portal',requireDb,requireUser('business'),checkoutLimiter,safe(async(req,res)=>{
  if(!paymentsReady||!baseUrl)return forbidden(res,'Stripe unavailable.',503);
