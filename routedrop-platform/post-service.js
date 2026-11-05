@@ -222,6 +222,50 @@ function install(app, {pool,stripe,baseUrl,enabled,requireDb,requireUser,safe,li
   await queueDeferredEmail(pool,Number(req.params.id),'disputed');
   res.json({ok:true,status:'disputed',message:'No payment was initiated. Support review is required.'});
  }));
+ app.post('/api/deferred-bookings/:id/recover',...customer,safe(async(req,res)=>{
+  const id=Number(req.params.id);
+  if(!validId(id) || !stripe || !baseUrl)return forbidden(res,'Payment recovery is unavailable.',503);
+  // Do not offer recovery for ambiguous or unlinked charges. Support must reconcile those.
+  const found=await pool.query("SELECT d.*,b.stripe_account_id AS current_provider_account FROM deferred_bookings d JOIN listings l ON l.id=d.listing_id JOIN businesses b ON b.id=l.business_id WHERE d.id=$1 AND d.customer_id=$2",[id,req.user.id]);
+  const booking=found.rows[0];
+  if(!booking || !booking.payment_intent_id || booking.status!=='payment_failed')return forbidden(res,'This booking requires manual payment review.',409);
+  if(booking.provider_stripe_account_id!==booking.current_provider_account)return forbidden(res,'Provider payout account changed; contact support.',409);
+  let original;
+  try {
+   original=await stripe.paymentIntents.retrieve(booking.payment_intent_id);
+   if(!recoveryEligible(booking,original))return forbidden(res,'The payment result is not safe to retry. Contact support.',409);
+   if(original.status!=='canceled') {
+    original=await stripe.paymentIntents.cancel(original.id,{}, {idempotencyKey:'routedrop-deferred-cancel-before-recovery-'+id});
+    if(original.status!=='canceled')return forbidden(res,'The previous payment could not be canceled. Contact support.',409);
+   }
+  }catch(err){
+   return forbidden(res,'Unable to verify the previous payment. Do not retry automatically; contact support.',503);
+  }
+  const claim=await pool.query("UPDATE deferred_bookings SET status='recovery_pending',recovery_requested_at=now() WHERE id=$1 AND customer_id=$2 AND status='payment_failed' AND payment_intent_id=$3 AND recovery_checkout_session_id IS NULL AND dispute_reason IS NULL AND refunded_cents=0 RETURNING id",[id,req.user.id,original.id]);
+  if(!claim.rowCount)return forbidden(res,'Payment recovery already started or the booking changed.',409);
+  try {
+   const account=await stripe.accounts.retrieve(booking.provider_stripe_account_id);
+   if(!account.charges_enabled || !account.payouts_enabled)throw Error('Provider account unavailable');
+   const session=await stripe.checkout.sessions.create({
+    mode:'payment',payment_method_types:['card'],customer:booking.stripe_customer_id,
+    client_reference_id:String(id),
+    line_items:[{price_data:{currency:'usd',unit_amount:booking.price_cents,product_data:{name:'RouteDrop service payment · Booking '+id}},quantity:1}],
+    payment_intent_data:{application_fee_amount:booking.fee_cents,transfer_data:{destination:booking.provider_stripe_account_id},metadata:{routedrop_deferred_recovery_booking_id:String(id)}},
+    metadata:{deferred_recovery_booking_id:String(id)},
+    success_url:baseUrl+'/?recovery=return',cancel_url:baseUrl+'/?recovery=cancel',
+    expires_at:Math.floor(Date.now()/1000)+30*60
+   },{idempotencyKey:'routedrop-deferred-recovery-checkout-v1-'+id});
+   const updated=await pool.query("UPDATE deferred_bookings SET recovery_checkout_session_id=$2 WHERE id=$1 AND status='recovery_pending' AND recovery_checkout_session_id IS NULL RETURNING id",[id,session.id]);
+   if(!updated.rowCount){
+    await stripe.checkout.sessions.expire(session.id).catch(()=>{});
+    throw Error('Recovery status changed');
+   }
+   return res.json({url:session.url,message:'Secure recovery checkout. No second off-session charge will be attempted.'});
+  }catch(err){
+   await pool.query("UPDATE deferred_bookings SET status='needs_review' WHERE id=$1 AND status='recovery_pending' AND recovery_checkout_session_id IS NULL",[id]).catch(()=>{});
+   return forbidden(res,'Secure checkout could not be confirmed. Contact support before trying again.',503);
+  }
+ }));
  app.post('/api/deferred-bookings/:id/confirm',...customer,safe(async(req,res)=>{
   // Customer explicitly confirms completed work before we attempt the saved-card charge.
   if(req.body.confirmCompletion!==true)return forbidden(res,'Confirm completion and payment of the displayed amount.',400);
