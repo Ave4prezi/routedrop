@@ -17,7 +17,7 @@ const app = express();
 app.disable('x-powered-by');
 app.set('trust proxy', 1);
 const port = Number(process.env.PORT || 10000);
-const baseUrl = (process.env.PUBLIC_URL || '').replace(/\/+$/, '');
+const baseUrl = (process.env.PUBLIC_URL || (process.env.ROUTEDROP_STAGING_LOCK==='true' && process.env.RENDER_EXTERNAL_HOSTNAME ? 'https://'+process.env.RENDER_EXTERNAL_HOSTNAME : '')).replace(/\/+$/, '');
 const databaseUrl = process.env.DATABASE_URL || '';
 const stripeKey = process.env.STRIPE_SECRET_KEY || '';
 const stripeWebhookSecret = process.env.STRIPE_WEBHOOK_SECRET || '';
