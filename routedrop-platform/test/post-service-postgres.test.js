@@ -34,6 +34,15 @@ test('disposable PostgreSQL migration, slot uniqueness, and legacy-data isolatio
   assert.equal(old.rows[0].total,1);
   const current=await client.query("SELECT COUNT(*)::int AS count FROM deferred_bookings WHERE status='awaiting_card'");
   assert.equal(current.rows[0].count,1);
+  // Full-refund request belongs to one paid deferred booking only.
+  await client.query("UPDATE deferred_bookings SET status='paid',payment_intent_id='pi_test_second' WHERE id=$1",[second.rows[0].id]);
+  const refund=await client.query("INSERT INTO deferred_refund_requests(booking_id,customer_id,reason) VALUES($1,2,'Service was incomplete and we requested review') RETURNING id",[second.rows[0].id]);
+  assert.equal(refund.rowCount,1);
+  await client.query('SAVEPOINT refund_duplicate');
+  await assert.rejects(()=>client.query("INSERT INTO deferred_refund_requests(booking_id,customer_id,reason) VALUES($1,2,'Repeated refund request')",[second.rows[0].id]),e=>e.code==='23505');
+  await client.query('ROLLBACK TO SAVEPOINT refund_duplicate');
+  const refunds=await client.query("SELECT COUNT(*)::int AS total FROM deferred_refund_requests WHERE booking_id=$1",[second.rows[0].id]);
+  assert.equal(refunds.rows[0].total,1);
  }finally{
   await client.query('ROLLBACK').catch(()=>{});
   client.release();
