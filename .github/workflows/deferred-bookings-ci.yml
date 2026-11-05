@@ -4,9 +4,11 @@ on:
   push:
     branches:
       - feature/book-free-pay-after-service
+      - feature/two-way-marketplace
   pull_request:
     branches:
       - routedrop-platform-beta
+      - feature/book-free-pay-after-service
 
 permissions:
   contents: read
@@ -43,6 +45,7 @@ jobs:
           node --check server.js
           node --check post-service.js
           node --check staging-access.js
+          node --check job-requests.js
           node --check public/app.js
       - name: All Node.js and disposable PostgreSQL tests
         env:
