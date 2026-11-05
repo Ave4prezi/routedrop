@@ -162,13 +162,23 @@ async function act(e){
   }
   if(action==='complete' && !confirm('Mark this service complete and request customer approval? No charge is made yet.'))return;
   if(action==='cancel' && !confirm('Cancel this booking without a charge?'))return;
-  if(action==='dispute'){
-   const reason=prompt('Describe the problem with the completed service (at least 10 characters).');
+  if(action==='dispute' || action==='request-refund'){
+   const reason=prompt(action==='request-refund'?'Explain why you request a refund (at least 10 characters):':'Describe the problem with the completed service (at least 10 characters).');
    if(reason===null)return;
    body={reason};
   }
   el.disabled=true;
   try{const result=await api('/api/deferred-bookings/'+id+'/'+action,{method:'POST',body:JSON.stringify(body)});if(action==='recover' && result.url){location.assign(result.url);return;}message(result.message||'Booking updated.');await refresh();}
+  catch(err){message(err.message,true);}finally{el.disabled=false;}
+  return;
+ }
+ if(el.dataset.deferredRefundId && el.dataset.deferredRefundDecision){
+  const id=Number(el.dataset.deferredRefundId),decision=el.dataset.deferredRefundDecision;
+  const refund=state.refunds.find(r=>Number(r.id)===id);
+  if(!refund || refund.status!=='pending')return message('Refresh refund requests.',true);
+  if(!confirm(decision==='approve'?'Approve a full Stripe refund of '+money(refund.price_cents)+'? This also reverses the provider transfer and RouteDrop 8% application fee.':'Decline this refund request?'))return;
+  el.disabled=true;
+  try{const r=await api('/api/deferred-refunds/'+id+'/decision',{method:'POST',body:JSON.stringify({decision})});message(r.message||('Refund request '+r.status+'.'));await refresh();}
   catch(err){message(err.message,true);}finally{el.disabled=false;}
   return;
  }
