@@ -1,7 +1,8 @@
 # RouteDrop pay-after-service staging ONLY.
 # This file is inert until its Blueprint plan is approved in Render.
 # It does not adopt, modify, or reference any production Render resources.
-# Staging starts fail-closed until test Stripe credentials and the private
+# External database: new dedicated Neon Free project, never production/EmpowerBands.
+# Staging starts fail-closed until the Neon URL, test Stripe credentials, and
 # staging password are set securely in the Render Dashboard.
 services:
   - type: web
@@ -23,10 +24,10 @@ services:
         value: "true"
       - key: ROUTEDROP_LIVE_APPROVED
         value: "false"
+      # A new dedicated Neon Free PostgreSQL project supplies this connection string.
+      # Enter its secret in Render only after creating the Neon project; never commit it.
       - key: DATABASE_URL
-        fromDatabase:
-          name: routedrop-payafter-staging-db-av
-          property: connectionString
+        sync: false
       - key: ROUTEDROP_STAGING_PASSWORD
         sync: false
       - key: STRIPE_SECRET_KEY
@@ -34,9 +35,3 @@ services:
       - key: STRIPE_WEBHOOK_SECRET
         sync: false
 
-databases:
-  - name: routedrop-payafter-staging-db-av
-    plan: free
-    region: virginia
-    postgresMajorVersion: "16"
-    ipAllowList: []
