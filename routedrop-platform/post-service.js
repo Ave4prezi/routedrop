@@ -194,13 +194,13 @@ function install(app, {pool,stripe,baseUrl,enabled,requireDb,requireUser,safe,li
  app.post('/api/deferred-bookings/:id/accept',...business,safe(async(req,res)=>{
   const q=await pool.query("UPDATE deferred_bookings d SET status='accepted',accepted_at=now() FROM listings l JOIN businesses b ON l.business_id=b.id WHERE d.listing_id=l.id AND b.owner_id=$1 AND d.id=$2 AND d.status='requested' AND l.slot_start>now() RETURNING d.id",[req.user.id,Number(req.params.id)]);
   if(!q.rowCount)return forbidden(res,'Booking cannot be accepted.',409);
-  await queueDeferredEmail(pool,Number(req.params.id),'accepted');
+  await queueDeferredEmail(pool,Number(req.params.id),'accepted').catch(err=>console.error('Deferred booking notification unavailable',err.message));
   res.json({ok:true,status:'accepted'});
  }));
  app.post('/api/deferred-bookings/:id/decline',...business,safe(async(req,res)=>{
   const q=await pool.query("UPDATE deferred_bookings d SET status='canceled' FROM listings l JOIN businesses b ON l.business_id=b.id WHERE d.listing_id=l.id AND b.owner_id=$1 AND d.id=$2 AND d.status='requested' RETURNING d.id",[req.user.id,Number(req.params.id)]);
   if(!q.rowCount)return forbidden(res,'Booking cannot be declined.',409);
-  await queueDeferredEmail(pool,Number(req.params.id),'declined');
+  await queueDeferredEmail(pool,Number(req.params.id),'declined').catch(err=>console.error('Deferred booking notification unavailable',err.message));
   res.json({ok:true,status:'canceled'});
  }));
  app.post('/api/deferred-bookings/:id/cancel',...customer,safe(async(req,res)=>{
@@ -211,7 +211,7 @@ function install(app, {pool,stripe,baseUrl,enabled,requireDb,requireUser,safe,li
  app.post('/api/deferred-bookings/:id/complete',...business,safe(async(req,res)=>{
   const q=await pool.query("UPDATE deferred_bookings d SET status='work_completed',completed_at=now() FROM listings l JOIN businesses b ON l.business_id=b.id WHERE d.listing_id=l.id AND b.owner_id=$1 AND d.id=$2 AND d.status='accepted' AND l.slot_start<=now() RETURNING d.id",[req.user.id,Number(req.params.id)]);
   if(!q.rowCount)return forbidden(res,'Accepted booking must reach its scheduled start before completion.',409);
-  await queueDeferredEmail(pool,Number(req.params.id),'completed');
+  await queueDeferredEmail(pool,Number(req.params.id),'completed').catch(err=>console.error('Deferred booking notification unavailable',err.message));
   res.json({ok:true,status:'work_completed',message:'Customer must confirm completion before any charge.'});
  }));
  app.post('/api/deferred-bookings/:id/dispute',...customer,safe(async(req,res)=>{
@@ -219,7 +219,7 @@ function install(app, {pool,stripe,baseUrl,enabled,requireDb,requireUser,safe,li
   if(reason.length<10)return forbidden(res,'Please describe the issue in at least 10 characters.',400);
   const q=await pool.query("UPDATE deferred_bookings SET status='disputed',dispute_reason=$3 WHERE id=$1 AND customer_id=$2 AND status='work_completed' RETURNING id",[Number(req.params.id),req.user.id,reason]);
   if(!q.rowCount)return forbidden(res,'This booking cannot be disputed from its current status.',409);
-  await queueDeferredEmail(pool,Number(req.params.id),'disputed');
+  await queueDeferredEmail(pool,Number(req.params.id),'disputed').catch(err=>console.error('Deferred booking notification unavailable',err.message));
   res.json({ok:true,status:'disputed',message:'No payment was initiated. Support review is required.'});
  }));
  app.post('/api/deferred-bookings/:id/recover',...customer,safe(async(req,res)=>{
