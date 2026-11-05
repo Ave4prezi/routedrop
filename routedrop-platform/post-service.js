@@ -41,6 +41,9 @@ const sql = [
  "CREATE UNIQUE INDEX IF NOT EXISTS unique_deferred_stripe_customer ON users(deferred_stripe_customer_id) WHERE deferred_stripe_customer_id IS NOT NULL",
  "CREATE TABLE IF NOT EXISTS deferred_bookings (id BIGSERIAL PRIMARY KEY, listing_id BIGINT NOT NULL REFERENCES listings(id), customer_id BIGINT NOT NULL REFERENCES users(id), stripe_customer_id TEXT NOT NULL, setup_session_id TEXT UNIQUE, setup_intent_id TEXT UNIQUE, payment_method_id TEXT, payment_intent_id TEXT UNIQUE, status TEXT NOT NULL DEFAULT 'awaiting_card' CHECK (status IN ('awaiting_card','requested','accepted','work_completed','payment_processing','paid','payment_failed','needs_review','disputed','canceled')), price_cents INTEGER NOT NULL CHECK (price_cents BETWEEN 500 AND 500000), fee_cents INTEGER NOT NULL CHECK (fee_cents>=0), consent_terms TEXT NOT NULL, consent_at TIMESTAMPTZ NOT NULL DEFAULT now(), hold_expires_at TIMESTAMPTZ NOT NULL, accepted_at TIMESTAMPTZ, completed_at TIMESTAMPTZ, confirmed_at TIMESTAMPTZ, paid_at TIMESTAMPTZ, dispute_reason TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())",
  "CREATE UNIQUE INDEX IF NOT EXISTS one_active_deferred_booking_per_slot ON deferred_bookings(listing_id) WHERE status IN ('awaiting_card','requested','accepted','work_completed','payment_processing','payment_failed','needs_review','disputed','paid')",
+ "ALTER TABLE deferred_bookings ADD COLUMN IF NOT EXISTS refunded_cents INTEGER NOT NULL DEFAULT 0",
+ "ALTER TABLE deferred_bookings ADD COLUMN IF NOT EXISTS stripe_dispute_status TEXT",
+ "ALTER TABLE deferred_bookings ADD COLUMN IF NOT EXISTS stripe_dispute_id TEXT",
  "CREATE INDEX IF NOT EXISTS deferred_bookings_customer ON deferred_bookings(customer_id)",
  "CREATE INDEX IF NOT EXISTS deferred_bookings_listing ON deferred_bookings(listing_id)"
 ];
@@ -68,16 +71,21 @@ async function handleStripeEvent(event, client, stripe) {
   const id=Number(obj.metadata.routedrop_deferred_booking_id);
   const query=await client.query("SELECT d.*,b.stripe_account_id FROM deferred_bookings d JOIN listings l ON l.id=d.listing_id JOIN businesses b ON b.id=l.business_id WHERE d.id=$1 FOR UPDATE OF d",[id]);
   const booking=query.rows[0];
-  if (!booking || booking.status!=='payment_processing' || (booking.payment_intent_id && booking.payment_intent_id!==obj.id)) return;
+  if (!booking || !['payment_processing','needs_review','payment_failed'].includes(booking.status) || (booking.payment_intent_id && booking.payment_intent_id!==obj.id)) return;
   if (event.type==='payment_intent.succeeded') {
    if (!verifiedCharge(obj,booking)) throw Error('Unexpected deferred payment properties');
-   await client.query("UPDATE deferred_bookings SET status='paid',payment_intent_id=$2,paid_at=now() WHERE id=$1 AND status='payment_processing'",[id,obj.id]);
+   await client.query("UPDATE deferred_bookings SET status='paid',payment_intent_id=$2,paid_at=now() WHERE id=$1 AND status IN ('payment_processing','needs_review','payment_failed')",[id,obj.id]);
   } else if (obj.customer===booking.stripe_customer_id && Number(obj.amount)===Number(booking.price_cents)) {
-   await client.query("UPDATE deferred_bookings SET status='payment_failed',payment_intent_id=$2 WHERE id=$1 AND status='payment_processing'",[id,obj.id]);
+   await client.query("UPDATE deferred_bookings SET status='payment_failed',payment_intent_id=$2 WHERE id=$1 AND status IN ('payment_processing','needs_review','payment_failed')",[id,obj.id]);
   }
  }
- if (event.type.startsWith('charge.dispute.') && validId(obj.metadata?.routedrop_deferred_booking_id)) {
-  // Stripe dispute metadata is not guaranteed; charge disputes require manual support reconciliation.
+ if (event.type.startsWith('charge.dispute.') && typeof obj.payment_intent==='string') {
+  // Stripe Charge disputes usually do NOT carry the PaymentIntent's metadata.
+  await client.query("UPDATE deferred_bookings SET status='disputed',stripe_dispute_status=$2,stripe_dispute_id=$3 WHERE payment_intent_id=$1 AND status IN ('paid','disputed','needs_review')",[obj.payment_intent,obj.status||'under_review',obj.id||null]);
+ }
+ if (event.type==='charge.refunded' && typeof obj.payment_intent==='string' && Number.isSafeInteger(obj.amount_refunded) && obj.amount_refunded>0) {
+  // Record refunds; support must reconcile transfer reversal and the 8% application fee.
+  await client.query("UPDATE deferred_bookings SET refunded_cents=GREATEST(refunded_cents,$2),status='needs_review' WHERE payment_intent_id=$1 AND status IN ('paid','needs_review')",[obj.payment_intent,obj.amount_refunded]);
  }
 }
 function install(app, {pool,stripe,baseUrl,enabled,requireDb,requireUser,safe,limiter,forbidden}) {
@@ -177,8 +185,8 @@ function install(app, {pool,stripe,baseUrl,enabled,requireDb,requireUser,safe,li
   }catch(err){await client.query('ROLLBACK').catch(()=>{});return forbidden(res,'Booking cannot be charged at this time. Contact support if you already confirmed.',409);}finally{client.release();}
   try {
    const pi=await stripe.paymentIntents.create(charge.params,charge.options);
-   await pool.query("UPDATE deferred_bookings SET payment_intent_id=$2 WHERE id=$1 AND status='payment_processing' AND (payment_intent_id IS NULL OR payment_intent_id=$2)",[id,pi.id]);
-   return res.json({ok:true,status:pi.status==='succeeded'?'payment_processing':'needs_review',message:'Payment submitted. Final status will be confirmed by Stripe.'});
+   await pool.query("UPDATE deferred_bookings SET payment_intent_id=$2,status=CASE WHEN $3 IN ('succeeded','processing') THEN 'payment_processing' ELSE 'needs_review' END WHERE id=$1 AND status='payment_processing' AND (payment_intent_id IS NULL OR payment_intent_id=$2)",[id,pi.id,pi.status]);
+   return res.json({ok:true,status:['succeeded','processing'].includes(pi.status)?'payment_processing':'needs_review',message:['succeeded','processing'].includes(pi.status)?'Payment submitted. Final status will be confirmed by Stripe.':'Card may require authentication or support review. No automatic retry will occur.'});
   }catch(err){
    // Network errors are ambiguous. Never automatically retry or take another payment.
    // Card authentication failures require a customer recovery flow and support reconciliation.
