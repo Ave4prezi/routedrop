@@ -59,11 +59,12 @@ function deferredMarkup(bookings,role){
   if(role==='customer'){
    if(['requested','accepted'].includes(b.status))controls='<button class="btn secondary" data-deferred-action="cancel" data-deferred-id="'+b.id+'">Cancel booking</button>';
    if(b.status==='work_completed')controls='<button class="btn" data-deferred-action="confirm" data-deferred-id="'+b.id+'">Confirm completed job &amp; pay '+money(b.price_cents)+'</button><button class="btn secondary" data-deferred-action="dispute" data-deferred-id="'+b.id+'">Report a problem</button>';
+   if(['payment_failed','recovery_pending'].includes(b.status))controls='<button class="btn" data-deferred-action="recover" data-deferred-id="'+b.id+'">'+(b.status==='recovery_pending'?'Continue secure payment':'Finish payment securely')+'</button>';
   }else{
    if(b.status==='requested')controls='<button class="btn" data-deferred-action="accept" data-deferred-id="'+b.id+'">Accept</button><button class="btn secondary" data-deferred-action="decline" data-deferred-id="'+b.id+'">Decline</button>';
    if(b.status==='accepted')controls='<button class="btn" data-deferred-action="complete" data-deferred-id="'+b.id+'">Mark service completed</button>';
   }
-  const help=['payment_failed','needs_review','disputed'].includes(b.status)?'<p class="muted">Support review required; no automatic card retry.</p>':'';
+  const help=b.status==='payment_failed'?'<p class="muted">The original charge failed. Secure Stripe Checkout is available after the failed payment is verified and canceled.</p>':(['needs_review','disputed'].includes(b.status)?'<p class="muted">Support review required; no automatic card retry.</p>':'');
   return '<div class="record"><div><strong>'+esc(b.title)+'</strong><p>'+esc(b.business_name)+' · '+when(b.slot_start)+'</p><p class="muted">Quoted service price '+money(b.price_cents)+' · '+esc(b.status.replace(/_/g,' '))+'</p>'+help+'</div><div class="buttonrow">'+controls+'</div></div>';
  }).join('')+'</div>';
 }
@@ -159,7 +160,7 @@ async function act(e){
    body={reason};
   }
   el.disabled=true;
-  try{const result=await api('/api/deferred-bookings/'+id+'/'+action,{method:'POST',body:JSON.stringify(body)});message(result.message||'Booking updated.');await refresh();}
+  try{const result=await api('/api/deferred-bookings/'+id+'/'+action,{method:'POST',body:JSON.stringify(body)});if(action==='recover' && result.url){location.assign(result.url);return;}message(result.message||'Booking updated.');await refresh();}
   catch(err){message(err.message,true);}finally{el.disabled=false;}
   return;
  }
@@ -205,6 +206,7 @@ async function init(){
   if(!state.config.database)message('Private beta: an isolated database must be connected before registration and bookings can work.');
   else if(!state.config.payments)message('Accounts and listings enabled. Stripe payments and payouts are not yet configured.');
   if(new URLSearchParams(location.search).has('card'))message('Returned from secure card setup. Your free booking appears after Stripe confirms the saved card.');
+  if(new URLSearchParams(location.search).has('recovery'))message('Returned from secure payment recovery. Your booking status updates only after Stripe confirms payment.');
   if(new URLSearchParams(location.search).has('subscription'))message('Returned from subscription billing. Open Business Studio to check your subscription status.');
   if(new URLSearchParams(location.search).has('payment'))message('Returned from checkout. Payment status is confirmed only through the Stripe webhook; check My bookings.');
   if(new URLSearchParams(location.search).has('stripe'))message('Returned from Stripe onboarding. Payout readiness is checked when a checkout begins.');
