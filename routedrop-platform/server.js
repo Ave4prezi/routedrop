@@ -11,6 +11,7 @@ const { normalizeSubscriptionEvent, invoiceEvent, selectSubscription, canStartSu
 const { providerReady, emailLink, isActionToken, notification, deliverEmail } = require('./mail');
 const { livePaymentsAllowed, checkoutOutcome, refundableAmount, disputeState, cancellationEligibility, refundStatus, refundOperation } = require('./payment-safeguards');
 const postService = require('./post-service');
+const jobRequests = require('./job-requests');
 const {createStagingGate} = require('./staging-access');
 
 const app = express();
@@ -28,6 +29,8 @@ const emailReady = providerReady(process.env);
 const paymentsReady = !!(stripe && stripeWebhookSecret && paymentsApproved);
 // Explicitly test-only while the redesigned booking policy is under review.
 const deferredEnabled = process.env.ROUTEDROP_DEFERRED_BETA_ENABLED === 'true' && /^sk_test_/.test(stripeKey) && paymentsReady;
+// Isolated Phase 2 job marketplace remains off unless explicitly enabled on private staging.
+const jobsBetaEnabled = process.env.ROUTEDROP_JOBS_BETA_ENABLED === 'true' && process.env.ROUTEDROP_STAGING_LOCK === 'true';
 const pool = databaseUrl ? new Pool({ connectionString: databaseUrl, max: 5, idleTimeoutMillis: 30000, connectionTimeoutMillis: 10000, ssl: databaseUrl.includes('localhost') ? false : { rejectUnauthorized: false } }) : null;
 const safe = fn => (req, res, next) => Promise.resolve(fn(req, res)).catch(next);
 const hash = value => crypto.createHash('sha256').update(value).digest('hex');
@@ -88,6 +91,7 @@ const ddl = [
  "CREATE INDEX IF NOT EXISTS notification_outbox_due ON notification_outbox(status,available_at)"
 ]; 
 if (deferredEnabled) ddl.push(...postService.sql);
+if (jobsBetaEnabled) ddl.push(...jobRequests.sql);
 async function startDatabase() {
  if (!pool) return;
  try {
@@ -203,7 +207,7 @@ app.get('/api/config',(req,res)=>{
  if(!req.cookies.routedrop_csrf || !/^[a-f0-9]{64}$/.test(req.cookies.routedrop_csrf)){
   res.cookie('routedrop_csrf',random(),{secure:process.env.NODE_ENV==='production',httpOnly:false,sameSite:'lax',path:'/',maxAge:7*24*60*60*1000});
  }
- res.json({database:ready,payments:paymentsReady,status:ready?'beta':'setup_required',email_enabled:emailReady,payments_mode:liveKey?(paymentsApproved?'live':'live_locked'):'test',deferred_booking:deferredEnabled,public_url:baseUrl});
+ res.json({database:ready,payments:paymentsReady,status:ready?'beta':'setup_required',email_enabled:emailReady,payments_mode:liveKey?(paymentsApproved?'live':'live_locked'):'test',deferred_booking:deferredEnabled,job_requests:jobsBetaEnabled,public_url:baseUrl});
 });
 async function issueEmailAction(userId,email,purpose) {
  if(!emailReady||!baseUrl)return false;
@@ -586,6 +590,7 @@ app.post('/api/bookings/:id/complete',requireDb,requireUser('business'),safe(asy
  res.json({ok:true});
 }));
 postService.install(app,{pool,stripe,baseUrl,enabled:deferredEnabled,requireDb,requireUser,safe,limiter:checkoutLimiter,forbidden,queueDeferredEmail});
+jobRequests.install(app,{pool,enabled:jobsBetaEnabled,requireDb,requireUser,safe,limiter:checkoutLimiter,forbidden});
 app.use(express.static('routedrop-platform/public',{fallthrough:false,maxAge:'15m'}));
 app.use((err,req,res,next)=>{console.error('RouteDrop request error',err.message);res.status(500).json({error:'Unexpected server error.'});});
 app.listen(port,'0.0.0.0',()=>console.log('RouteDrop beta listening on '+port));
