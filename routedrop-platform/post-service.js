@@ -2,7 +2,7 @@
 
 // Isolated RouteDrop beta: zero-upfront booking + customer-authorized post-service charge.
 // This module is inert unless the caller explicitly enables it with a Stripe TEST key.
-const ACTIVE = ['awaiting_card','requested','accepted','work_completed','payment_processing','payment_failed','recovery_pending','needs_review','disputed','paid'];
+const ACTIVE = ['awaiting_card','requested','accepted','work_completed','payment_processing','payment_failed','recovery_pending','needs_review','disputed','paid','refunded'];
 const FEE_RATE = 0.08;
 const paymentFee = cents => Math.round(cents*FEE_RATE);
 const legitimateAmount = cents => Number.isSafeInteger(cents) && cents >= 500 && cents <= 500000;
@@ -61,8 +61,8 @@ function verifiedCharge(pi, booking) {
 const sql = [
  "ALTER TABLE users ADD COLUMN IF NOT EXISTS deferred_stripe_customer_id TEXT",
  "CREATE UNIQUE INDEX IF NOT EXISTS unique_deferred_stripe_customer ON users(deferred_stripe_customer_id) WHERE deferred_stripe_customer_id IS NOT NULL",
- "CREATE TABLE IF NOT EXISTS deferred_bookings (id BIGSERIAL PRIMARY KEY, listing_id BIGINT NOT NULL REFERENCES listings(id), customer_id BIGINT NOT NULL REFERENCES users(id), stripe_customer_id TEXT NOT NULL, setup_session_id TEXT UNIQUE, setup_intent_id TEXT UNIQUE, payment_method_id TEXT, payment_intent_id TEXT UNIQUE, status TEXT NOT NULL DEFAULT 'awaiting_card' CHECK (status IN ('awaiting_card','requested','accepted','work_completed','payment_processing','paid','payment_failed','recovery_pending','needs_review','disputed','canceled')), price_cents INTEGER NOT NULL CHECK (price_cents BETWEEN 500 AND 500000), fee_cents INTEGER NOT NULL CHECK (fee_cents>=0), consent_terms TEXT NOT NULL, consent_at TIMESTAMPTZ NOT NULL DEFAULT now(), hold_expires_at TIMESTAMPTZ NOT NULL, accepted_at TIMESTAMPTZ, completed_at TIMESTAMPTZ, confirmed_at TIMESTAMPTZ, paid_at TIMESTAMPTZ, dispute_reason TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())",
- "CREATE UNIQUE INDEX IF NOT EXISTS one_active_deferred_booking_per_slot ON deferred_bookings(listing_id) WHERE status IN ('awaiting_card','requested','accepted','work_completed','payment_processing','payment_failed','recovery_pending','needs_review','disputed','paid')",
+ "CREATE TABLE IF NOT EXISTS deferred_bookings (id BIGSERIAL PRIMARY KEY, listing_id BIGINT NOT NULL REFERENCES listings(id), customer_id BIGINT NOT NULL REFERENCES users(id), stripe_customer_id TEXT NOT NULL, setup_session_id TEXT UNIQUE, setup_intent_id TEXT UNIQUE, payment_method_id TEXT, payment_intent_id TEXT UNIQUE, status TEXT NOT NULL DEFAULT 'awaiting_card' CHECK (status IN ('awaiting_card','requested','accepted','work_completed','payment_processing','paid','payment_failed','recovery_pending','needs_review','disputed','refunded','canceled')), price_cents INTEGER NOT NULL CHECK (price_cents BETWEEN 500 AND 500000), fee_cents INTEGER NOT NULL CHECK (fee_cents>=0), consent_terms TEXT NOT NULL, consent_at TIMESTAMPTZ NOT NULL DEFAULT now(), hold_expires_at TIMESTAMPTZ NOT NULL, accepted_at TIMESTAMPTZ, completed_at TIMESTAMPTZ, confirmed_at TIMESTAMPTZ, paid_at TIMESTAMPTZ, dispute_reason TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())",
+ "CREATE UNIQUE INDEX IF NOT EXISTS one_active_deferred_booking_per_slot ON deferred_bookings(listing_id) WHERE status IN ('awaiting_card','requested','accepted','work_completed','payment_processing','payment_failed','recovery_pending','needs_review','disputed','paid','refunded')",
  "ALTER TABLE deferred_bookings ADD COLUMN IF NOT EXISTS provider_stripe_account_id TEXT",
  "ALTER TABLE deferred_bookings ADD COLUMN IF NOT EXISTS refunded_cents INTEGER NOT NULL DEFAULT 0",
  "ALTER TABLE deferred_bookings ADD COLUMN IF NOT EXISTS stripe_dispute_status TEXT",
@@ -72,7 +72,9 @@ const sql = [
  "ALTER TABLE deferred_bookings ADD COLUMN IF NOT EXISTS initial_payment_intent_id TEXT",
  "ALTER TABLE deferred_bookings ADD COLUMN IF NOT EXISTS recovery_requested_at TIMESTAMPTZ",
  "CREATE INDEX IF NOT EXISTS deferred_bookings_customer ON deferred_bookings(customer_id)",
- "CREATE INDEX IF NOT EXISTS deferred_bookings_listing ON deferred_bookings(listing_id)"
+ "CREATE INDEX IF NOT EXISTS deferred_bookings_listing ON deferred_bookings(listing_id)",
+ "CREATE TABLE IF NOT EXISTS deferred_refund_requests (id BIGSERIAL PRIMARY KEY, booking_id BIGINT NOT NULL UNIQUE REFERENCES deferred_bookings(id), customer_id BIGINT NOT NULL REFERENCES users(id), reason TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','processing','refunded','declined','needs_review')), refund_id TEXT UNIQUE, requested_at TIMESTAMPTZ NOT NULL DEFAULT now(), decided_by BIGINT REFERENCES users(id), decided_at TIMESTAMPTZ)",
+ "CREATE INDEX IF NOT EXISTS deferred_refund_requests_customer ON deferred_refund_requests(customer_id)"
 ];
 async function handleStripeEvent(event, client, stripe, queueDeferredEmail=async()=>{}) {
  const obj=event.data.object;
