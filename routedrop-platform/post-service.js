@@ -286,11 +286,17 @@ function install(app, {pool,stripe,baseUrl,enabled,requireDb,requireUser,safe,li
    if(!refund || !refund.id || !['succeeded','pending','requires_action'].includes(refund.status))
     throw Error('Unexpected Stripe refund status');
    if(refund.status==='succeeded'){
-    const changed=await pool.query("UPDATE deferred_refund_requests SET status='refunded',refund_id=$2 WHERE id=$1 AND status='processing' RETURNING booking_id",[id,refund.id]);
-    if(changed.rowCount){
-     await pool.query("UPDATE deferred_bookings SET status='refunded',refunded_cents=price_cents WHERE id=$1 AND status IN ('paid','needs_review')",[row.booking_id]);
-     await queueDeferredEmail(pool,row.booking_id,'refund').catch(err=>console.error('Deferred booking notification unavailable',err.message));
-    }
+    // DB settlement + receipt are atomic: no "refunded" record without the booking update.
+    const settled=await pool.connect();
+    try{
+     await settled.query('BEGIN');
+     const changed=await settled.query("UPDATE deferred_refund_requests SET status='refunded',refund_id=$2 WHERE id=$1 AND status='processing' RETURNING booking_id",[id,refund.id]);
+     if(changed.rowCount){
+      await settled.query("UPDATE deferred_bookings SET status='refunded',refunded_cents=price_cents WHERE id=$1 AND status IN ('paid','needs_review')",[row.booking_id]);
+      await queueDeferredEmail(settled,row.booking_id,'refund');
+     }
+     await settled.query('COMMIT');
+    }catch(e){await settled.query('ROLLBACK').catch(()=>{});throw e;}finally{settled.release();}
    }else{
     await pool.query("UPDATE deferred_refund_requests SET refund_id=$2 WHERE id=$1 AND status='processing'",[id,refund.id]);
    }
