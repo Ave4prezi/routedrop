@@ -130,6 +130,22 @@ async function handleStripeEvent(event, client, stripe, queueDeferredEmail=async
    await queueDeferredEmail(client,id,'failed');
   }
  }
+ if ((event.type==='refund.updated'||event.type==='refund.failed') &&
+     validId(obj.metadata?.routedrop_deferred_refund_id) && typeof obj.payment_intent==='string' && typeof obj.id==='string') {
+  const id=Number(obj.metadata.routedrop_deferred_refund_id);
+  const row=await client.query("SELECT r.id,r.status,r.refund_id,r.booking_id,d.price_cents,d.payment_intent_id FROM deferred_refund_requests r JOIN deferred_bookings d ON d.id=r.booking_id WHERE r.id=$1 FOR UPDATE OF r,d",[id]);
+  const data=row.rows[0];
+  if(data && ['processing','needs_review'].includes(data.status) && (!data.refund_id||data.refund_id===obj.id) &&
+      data.payment_intent_id===obj.payment_intent && Number(data.price_cents)===Number(obj.amount)) {
+   if(event.type==='refund.updated' && obj.status==='succeeded') {
+    await client.query("UPDATE deferred_refund_requests SET status='refunded',refund_id=$2 WHERE id=$1 AND status IN ('processing','needs_review')",[id,obj.id]);
+    await client.query("UPDATE deferred_bookings SET status='refunded',refunded_cents=price_cents WHERE id=$1 AND status IN ('paid','needs_review')",[data.booking_id]);
+    await queueDeferredEmail(client,data.booking_id,'refund');
+   } else if(event.type==='refund.failed' || ['failed','canceled'].includes(obj.status)) {
+    await client.query("UPDATE deferred_refund_requests SET status='needs_review',refund_id=$2 WHERE id=$1 AND status IN ('processing','needs_review')",[id,obj.id]);
+   }
+  }
+ }
  if (event.type.startsWith('charge.dispute.') && typeof obj.payment_intent==='string') {
   // Stripe Charge disputes usually do NOT carry the PaymentIntent's metadata.
   const changed=await client.query("UPDATE deferred_bookings SET status='disputed',stripe_dispute_status=$2,stripe_dispute_id=$3 WHERE payment_intent_id=$1 AND status IN ('paid','disputed','needs_review') RETURNING id",[obj.payment_intent,obj.status||'under_review',obj.id||null]);
