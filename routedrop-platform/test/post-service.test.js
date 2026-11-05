@@ -101,3 +101,18 @@ test('existing paid booking schema is untouched by isolated migration',()=>{
  assert.match(all,/one_active_deferred_booking_per_slot/);
  assert.equal(ACTIVE.includes('paid'),true);
 });
+
+test('Stripe dispute and refund events are recorded against stored payment-intent IDs',async()=>{
+ const writes=[];
+ const client={query:async(sql,params)=>{writes.push({sql,params});return {rowCount:1};}};
+ await handleStripeEvent({type:'charge.dispute.created',data:{object:{id:'dp_1',payment_intent:'pi_abc',status:'needs_response'}}},client,{});
+ assert.equal(writes.length,1);
+ assert.match(writes[0].sql,/status='disputed'/);
+ assert.deepEqual(writes[0].params,['pi_abc','needs_response','dp_1']);
+ await handleStripeEvent({type:'charge.refunded',data:{object:{payment_intent:'pi_abc',amount_refunded:2000}}},client,{});
+ assert.equal(writes.length,2);
+ assert.match(writes[1].sql,/GREATEST\(refunded_cents/);
+ assert.deepEqual(writes[1].params,['pi_abc',2000]);
+ await handleStripeEvent({type:'charge.refunded',data:{object:{payment_intent:'pi_abc',amount_refunded:-1}}},client,{});
+ assert.equal(writes.length,2);
+});
