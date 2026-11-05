@@ -44,6 +44,8 @@ function install(app,{pool,enabled,requireDb,requireUser,safe,limiter,forbidden}
   const conn=await pool.connect();
   try{
    await conn.query('BEGIN');
+   // Serialize this customer's posts so concurrent requests cannot bypass the open-job cap.
+   await conn.query('SELECT id FROM users WHERE id=$1 FOR UPDATE',[req.user.id]);
    const q=await conn.query("SELECT COUNT(*)::integer AS count FROM customer_job_requests WHERE customer_id=$1 AND status='open'",[req.user.id]);
    if(q.rows[0].count>=10){await conn.query('ROLLBACK');return forbidden(res,'Close an existing job before posting another. Maximum 10 open jobs.',429);}
    const created=await conn.query("INSERT INTO customer_job_requests(customer_id,title,category,neighborhood,description,budget_cents,desired_start) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING id,status",[req.user.id,v.title,v.category,v.neighborhood,v.description,v.budget,v.desired]);
@@ -66,7 +68,13 @@ function install(app,{pool,enabled,requireDb,requireUser,safe,limiter,forbidden}
   const requestId=id(req.params.requestId);if(!requestId)return forbidden(res,'Invalid job request.',400);
   const parsed=validateQuote(req.body);if(parsed.error)return forbidden(res,parsed.error,400);
   const v=parsed.value;
-  const q=await pool.query("INSERT INTO customer_job_quotes(request_id,business_id,price_cents,note) SELECT j.id,b.id,$3,$4 FROM customer_job_requests j CROSS JOIN businesses b WHERE j.id=$1 AND j.status='open' AND b.owner_id=$2 AND NOT EXISTS(SELECT 1 FROM customer_job_quotes old WHERE old.request_id=j.id AND old.business_id=b.id) RETURNING id",[requestId,req.user.id,v.price,v.note]);
+  let q;
+  try{
+   q=await pool.query("INSERT INTO customer_job_quotes(request_id,business_id,price_cents,note) SELECT j.id,b.id,$3,$4 FROM customer_job_requests j CROSS JOIN businesses b WHERE j.id=$1 AND j.status='open' AND b.owner_id=$2 AND NOT EXISTS(SELECT 1 FROM customer_job_quotes old WHERE old.request_id=j.id AND old.business_id=b.id) RETURNING id",[requestId,req.user.id,v.price,v.note]);
+  }catch(err){
+   if(err.code==='23505')return forbidden(res,'Your business already submitted a quote for this job.',409);
+   throw err;
+  }
   if(!q.rowCount)return forbidden(res,'This job is closed, unavailable, or your business has already quoted.',409);
   res.status(201).json({quote:{id:q.rows[0].id}});
  }));
