@@ -15,7 +15,7 @@ function payable(booking) {
 function chargeParameters(booking, accountId) {
  if (!payable(booking) || typeof booking.stripe_customer_id !== 'string' || !booking.stripe_customer_id.startsWith('cus_') ||
      typeof booking.payment_method_id !== 'string' || !booking.payment_method_id.startsWith('pm_') ||
-     typeof accountId !== 'string' || !accountId.startsWith('acct_') || !validId(booking.id)) throw Error('Booking is not chargeable');
+     typeof accountId !== 'string' || !accountId.startsWith('acct_') || (booking.provider_stripe_account_id && booking.provider_stripe_account_id!==accountId) || !validId(booking.id)) throw Error('Booking is not chargeable');
  return {
   params: { amount:Number(booking.price_cents), currency:'usd',
    customer:booking.stripe_customer_id, payment_method:booking.payment_method_id,
@@ -32,7 +32,7 @@ function verifiedCharge(pi, booking) {
    pi.customer === booking.stripe_customer_id &&
    pi.payment_method === booking.payment_method_id &&
    Number(pi.application_fee_amount) === Number(booking.fee_cents) &&
-   pi.transfer_data?.destination === booking.stripe_account_id &&
+   pi.transfer_data?.destination === (booking.provider_stripe_account_id || booking.stripe_account_id) &&
    String(pi.metadata?.routedrop_deferred_booking_id) === String(booking.id) &&
    typeof pi.id === 'string' && pi.id.startsWith('pi_');
 }
@@ -41,13 +41,14 @@ const sql = [
  "CREATE UNIQUE INDEX IF NOT EXISTS unique_deferred_stripe_customer ON users(deferred_stripe_customer_id) WHERE deferred_stripe_customer_id IS NOT NULL",
  "CREATE TABLE IF NOT EXISTS deferred_bookings (id BIGSERIAL PRIMARY KEY, listing_id BIGINT NOT NULL REFERENCES listings(id), customer_id BIGINT NOT NULL REFERENCES users(id), stripe_customer_id TEXT NOT NULL, setup_session_id TEXT UNIQUE, setup_intent_id TEXT UNIQUE, payment_method_id TEXT, payment_intent_id TEXT UNIQUE, status TEXT NOT NULL DEFAULT 'awaiting_card' CHECK (status IN ('awaiting_card','requested','accepted','work_completed','payment_processing','paid','payment_failed','needs_review','disputed','canceled')), price_cents INTEGER NOT NULL CHECK (price_cents BETWEEN 500 AND 500000), fee_cents INTEGER NOT NULL CHECK (fee_cents>=0), consent_terms TEXT NOT NULL, consent_at TIMESTAMPTZ NOT NULL DEFAULT now(), hold_expires_at TIMESTAMPTZ NOT NULL, accepted_at TIMESTAMPTZ, completed_at TIMESTAMPTZ, confirmed_at TIMESTAMPTZ, paid_at TIMESTAMPTZ, dispute_reason TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())",
  "CREATE UNIQUE INDEX IF NOT EXISTS one_active_deferred_booking_per_slot ON deferred_bookings(listing_id) WHERE status IN ('awaiting_card','requested','accepted','work_completed','payment_processing','payment_failed','needs_review','disputed','paid')",
+ "ALTER TABLE deferred_bookings ADD COLUMN IF NOT EXISTS provider_stripe_account_id TEXT",
  "ALTER TABLE deferred_bookings ADD COLUMN IF NOT EXISTS refunded_cents INTEGER NOT NULL DEFAULT 0",
  "ALTER TABLE deferred_bookings ADD COLUMN IF NOT EXISTS stripe_dispute_status TEXT",
  "ALTER TABLE deferred_bookings ADD COLUMN IF NOT EXISTS stripe_dispute_id TEXT",
  "CREATE INDEX IF NOT EXISTS deferred_bookings_customer ON deferred_bookings(customer_id)",
  "CREATE INDEX IF NOT EXISTS deferred_bookings_listing ON deferred_bookings(listing_id)"
 ];
-async function handleStripeEvent(event, client, stripe) {
+async function handleStripeEvent(event, client, stripe, queueDeferredEmail=async()=>{}) {
  const obj=event.data.object;
  if ((event.type==='checkout.session.completed' || event.type==='checkout.session.expired') &&
      obj.mode==='setup' && validId(obj.metadata?.deferred_booking_id)) {
@@ -64,6 +65,7 @@ async function handleStripeEvent(event, client, stripe) {
    "UPDATE deferred_bookings SET status='requested',setup_intent_id=$3,payment_method_id=$4 WHERE id=$1 AND setup_session_id=$2 AND status='awaiting_card' AND hold_expires_at>now() AND stripe_customer_id=$5 RETURNING id",
    [id,obj.id,intent.id,intent.payment_method,intent.customer]);
   if (updated.rowCount===0) return; // duplicate or expired; never revive canceled reservations
+  await queueDeferredEmail(client,id,'requested');
   return;
  }
  if ((event.type==='payment_intent.succeeded' || event.type==='payment_intent.payment_failed') &&
@@ -75,20 +77,24 @@ async function handleStripeEvent(event, client, stripe) {
   if (event.type==='payment_intent.succeeded') {
    if (!verifiedCharge(obj,booking)) throw Error('Unexpected deferred payment properties');
    await client.query("UPDATE deferred_bookings SET status='paid',payment_intent_id=$2,paid_at=now() WHERE id=$1 AND status IN ('payment_processing','needs_review','payment_failed')",[id,obj.id]);
+   await queueDeferredEmail(client,id,'paid');
   } else if (obj.customer===booking.stripe_customer_id && Number(obj.amount)===Number(booking.price_cents)) {
    await client.query("UPDATE deferred_bookings SET status='payment_failed',payment_intent_id=$2 WHERE id=$1 AND status IN ('payment_processing','needs_review','payment_failed')",[id,obj.id]);
+   await queueDeferredEmail(client,id,'failed');
   }
  }
  if (event.type.startsWith('charge.dispute.') && typeof obj.payment_intent==='string') {
   // Stripe Charge disputes usually do NOT carry the PaymentIntent's metadata.
-  await client.query("UPDATE deferred_bookings SET status='disputed',stripe_dispute_status=$2,stripe_dispute_id=$3 WHERE payment_intent_id=$1 AND status IN ('paid','disputed','needs_review')",[obj.payment_intent,obj.status||'under_review',obj.id||null]);
+  const changed=await client.query("UPDATE deferred_bookings SET status='disputed',stripe_dispute_status=$2,stripe_dispute_id=$3 WHERE payment_intent_id=$1 AND status IN ('paid','disputed','needs_review') RETURNING id",[obj.payment_intent,obj.status||'under_review',obj.id||null]);
+  for(const row of changed.rows||[])await queueDeferredEmail(client,row.id,'payment_dispute');
  }
  if (event.type==='charge.refunded' && typeof obj.payment_intent==='string' && Number.isSafeInteger(obj.amount_refunded) && obj.amount_refunded>0) {
   // Record refunds; support must reconcile transfer reversal and the 8% application fee.
-  await client.query("UPDATE deferred_bookings SET refunded_cents=GREATEST(refunded_cents,$2),status='needs_review' WHERE payment_intent_id=$1 AND status IN ('paid','needs_review')",[obj.payment_intent,obj.amount_refunded]);
+  const changed=await client.query("UPDATE deferred_bookings SET refunded_cents=GREATEST(refunded_cents,$2),status='needs_review' WHERE payment_intent_id=$1 AND status IN ('paid','needs_review') RETURNING id",[obj.payment_intent,obj.amount_refunded]);
+  for(const row of changed.rows||[])await queueDeferredEmail(client,row.id,'refund');
  }
 }
-function install(app, {pool,stripe,baseUrl,enabled,requireDb,requireUser,safe,limiter,forbidden}) {
+function install(app, {pool,stripe,baseUrl,enabled,requireDb,requireUser,safe,limiter,forbidden,queueDeferredEmail=async()=>{}}) {
  const guard=(req,res,next)=>enabled ? next() : forbidden(res,'Deferred booking is disabled in this beta.',503);
  const customer=[guard,requireDb,requireUser('customer'),limiter];
  const business=[guard,requireDb,requireUser('business'),limiter];
