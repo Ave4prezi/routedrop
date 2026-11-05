@@ -140,7 +140,7 @@ app.post('/api/stripe/webhook', express.raw({type:'application/json'}),safe(asyn
   const logged=await client.query('INSERT INTO stripe_events(id) VALUES($1) ON CONFLICT DO NOTHING RETURNING id',[event.id]);
   if (!logged.rowCount){await client.query('COMMIT');return res.json({received:true});}
   const session=event.data.object;
-  if (deferredEnabled) await postService.handleStripeEvent(event,client,stripe);
+  if (deferredEnabled) await postService.handleStripeEvent(event,client,stripe,queueDeferredEmail);
   const bookingId=Number(session.metadata&&session.metadata.booking_id);
   if (Number.isSafeInteger(bookingId)&&bookingId>0){
    if (checkoutOutcome(event.type,session)==='paid'){
@@ -223,6 +223,19 @@ async function enqueueNotification(db,eventKey,to,kind,details) {
  const msg=notification(kind,details);
  if(!msg)return;
  await db.query("INSERT INTO notification_outbox(event_key,recipient,subject,body) VALUES ($1,$2,$3,$4) ON CONFLICT(event_key) DO NOTHING",[eventKey,to,msg.subject,msg.body]);
+}
+async function queueDeferredEmail(db,bookingId,kind) {
+ if (!emailReady) return;
+ const query = await db.query(
+  "SELECT d.id,d.price_cents,l.title,l.slot_start,cu.email AS customer_email,cu.full_name AS customer_name,bu.email AS business_email FROM deferred_bookings d JOIN listings l ON l.id=d.listing_id JOIN businesses b ON b.id=l.business_id JOIN users cu ON cu.id=d.customer_id JOIN users bu ON bu.id=b.owner_id WHERE d.id=$1",
+  [bookingId]);
+ if(!query.rowCount)return;
+ const b=query.rows[0],details={title:b.title,date:new Date(b.slot_start).toLocaleString('en-US',{timeZone:'America/Chicago',dateStyle:'medium',timeStyle:'short'})+' CT',amount:'USD '+(Number(b.price_cents)/100).toFixed(2),name:b.customer_name};
+ const recipients={requested:['customer','business'],accepted:['customer'],declined:['customer'],completed:['customer'],disputed:['business'],paid:['customer','business'],failed:['customer','business'],refund:['customer'],payment_dispute:['customer']};
+ for(const side of recipients[kind]||[]){
+  const category='deferred_'+(kind==='payment_dispute'?'dispute':kind)+'_'+side;
+  if (notification(category,details))await enqueueNotification(db,'deferred-'+bookingId+'-'+category,b[side+'_email'],category,details);
+ }
 }
 async function queueBookingEmail(db,bookingId,kind,keyPrefix) {
  const q=await db.query("SELECT k.id,k.price_cents,l.title,l.slot_start,cu.email AS customer_email,cu.full_name AS customer_name,bu.email AS business_email FROM bookings k JOIN listings l ON l.id=k.listing_id JOIN businesses b ON b.id=l.business_id JOIN users cu ON cu.id=k.customer_id JOIN users bu ON bu.id=b.owner_id WHERE k.id=$1",[bookingId]);
@@ -570,7 +583,7 @@ app.post('/api/bookings/:id/complete',requireDb,requireUser('business'),safe(asy
  if(!r.rowCount)return forbidden(res,'No eligible paid booking found.',409);
  res.json({ok:true});
 }));
-postService.install(app,{pool,stripe,baseUrl,enabled:deferredEnabled,requireDb,requireUser,safe,limiter:checkoutLimiter,forbidden});
+postService.install(app,{pool,stripe,baseUrl,enabled:deferredEnabled,requireDb,requireUser,safe,limiter:checkoutLimiter,forbidden,queueDeferredEmail});
 app.use(express.static('routedrop-platform/public',{fallthrough:false,maxAge:'15m'}));
 app.use((err,req,res,next)=>{console.error('RouteDrop request error',err.message);res.status(500).json({error:'Unexpected server error.'});});
 app.listen(port,'0.0.0.0',()=>console.log('RouteDrop beta listening on '+port));
