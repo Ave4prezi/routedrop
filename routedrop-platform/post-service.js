@@ -240,6 +240,67 @@ function install(app, {pool,stripe,baseUrl,enabled,requireDb,requireUser,safe,li
   await queueDeferredEmail(pool,Number(req.params.id),'disputed').catch(err=>console.error('Deferred booking notification unavailable',err.message));
   res.json({ok:true,status:'disputed',message:'No payment was initiated. Support review is required.'});
  }));
+ app.get('/api/deferred-refunds',...read,safe(async(req,res)=>{
+  const condition=req.user.role==='customer'?'r.customer_id=$1':'b.owner_id=$1';
+  const q=await pool.query("SELECT r.id,r.booking_id,r.status,r.reason,r.requested_at,d.price_cents,l.title,l.slot_start FROM deferred_refund_requests r JOIN deferred_bookings d ON d.id=r.booking_id JOIN listings l ON l.id=d.listing_id JOIN businesses b ON b.id=l.business_id WHERE "+condition+" ORDER BY r.requested_at DESC LIMIT 100",[req.user.id]);
+  res.json({requests:q.rows});
+ }));
+ app.post('/api/deferred-bookings/:id/request-refund',...customer,safe(async(req,res)=>{
+  const id=Number(req.params.id),reason=typeof req.body?.reason==='string'?req.body.reason.trim().slice(0,500):'';
+  if(!validId(id)||reason.length<10)return forbidden(res,'Explain the refund request in at least 10 characters.',400);
+  const q=await pool.query("INSERT INTO deferred_refund_requests(booking_id,customer_id,reason) SELECT d.id,d.customer_id,$3 FROM deferred_bookings d WHERE d.id=$1 AND d.customer_id=$2 AND d.status='paid' AND d.refunded_cents=0 AND d.stripe_dispute_status IS NULL AND NOT EXISTS (SELECT 1 FROM deferred_refund_requests r WHERE r.booking_id=d.id) ON CONFLICT(booking_id) DO NOTHING RETURNING id",[id,req.user.id,reason]);
+  if(!q.rowCount)return forbidden(res,'Only one refund request can be submitted for a paid booking. Contact support for an existing request.',409);
+  await queueDeferredEmail(pool,id,'refund_requested').catch(err=>console.error('Deferred booking notification unavailable',err.message));
+  res.status(201).json({ok:true,status:'pending',message:'Refund review requested. No refund issued yet.'});
+ }));
+ app.post('/api/deferred-refunds/:id/decision',...business,safe(async(req,res)=>{
+  const id=Number(req.params.id),decision=req.body?.decision;
+  if(!validId(id)||!['approve','decline'].includes(decision))return forbidden(res,'Invalid refund request or decision.',400);
+  const client=await pool.connect();let row;
+  try {
+   await client.query('BEGIN');
+   const q=await client.query(
+    "SELECT r.*,d.price_cents,d.payment_intent_id,d.status AS booking_status,d.refunded_cents,d.stripe_dispute_status FROM deferred_refund_requests r JOIN deferred_bookings d ON d.id=r.booking_id JOIN listings l ON l.id=d.listing_id JOIN businesses b ON b.id=l.business_id WHERE r.id=$1 AND b.owner_id=$2 FOR UPDATE OF r,d",
+    [id,req.user.id]);
+   row=q.rows[0];
+   if(!row || row.status!=='pending'){await client.query('ROLLBACK');return forbidden(res,'Refund request already reviewed or inaccessible.',409);}
+   if(decision==='decline'){
+    await client.query("UPDATE deferred_refund_requests SET status='declined',decided_by=$2,decided_at=now() WHERE id=$1 AND status='pending'",[id,req.user.id]);
+    await queueDeferredEmail(client,row.booking_id,'refund_declined');
+    await client.query('COMMIT');
+    return res.json({ok:true,status:'declined',message:'Refund request declined.'});
+   }
+   if(row.booking_status!=='paid' || row.refunded_cents!==0 || row.stripe_dispute_status || !row.payment_intent_id){
+    await client.query('ROLLBACK');
+    return forbidden(res,'Refund is not eligible for automatic processing. Contact support.',409);
+   }
+   await client.query("UPDATE deferred_refund_requests SET status='processing',decided_by=$2,decided_at=now() WHERE id=$1 AND status='pending'",[id,req.user.id]);
+   await client.query('COMMIT');
+  }catch(err){await client.query('ROLLBACK').catch(()=>{});throw err;}finally{client.release();}
+  try{
+   const refund=await stripe.refunds.create({
+    payment_intent:row.payment_intent_id,amount:row.price_cents,
+    reverse_transfer:true,refund_application_fee:true,reason:'requested_by_customer',
+    metadata:{routedrop_deferred_booking_id:String(row.booking_id),routedrop_deferred_refund_id:String(id)}
+   },{idempotencyKey:'routedrop-deferred-full-refund-v1-'+id});
+   if(!refund || !refund.id || !['succeeded','pending','requires_action'].includes(refund.status))
+    throw Error('Unexpected Stripe refund status');
+   if(refund.status==='succeeded'){
+    const changed=await pool.query("UPDATE deferred_refund_requests SET status='refunded',refund_id=$2 WHERE id=$1 AND status='processing' RETURNING booking_id",[id,refund.id]);
+    if(changed.rowCount){
+     await pool.query("UPDATE deferred_bookings SET status='refunded',refunded_cents=price_cents WHERE id=$1 AND status IN ('paid','needs_review')",[row.booking_id]);
+     await queueDeferredEmail(pool,row.booking_id,'refund').catch(err=>console.error('Deferred booking notification unavailable',err.message));
+    }
+   }else{
+    await pool.query("UPDATE deferred_refund_requests SET refund_id=$2 WHERE id=$1 AND status='processing'",[id,refund.id]);
+   }
+   return res.json({ok:true,status:refund.status==='succeeded'?'refunded':'processing',message:refund.status==='succeeded'?'Full refund confirmed by Stripe.':'Refund submitted; awaiting final Stripe confirmation.'});
+  }catch(err){
+   // A timeout could mean Stripe accepted the refund. Never initiate another API refund automatically.
+   await pool.query("UPDATE deferred_refund_requests SET status='needs_review' WHERE id=$1 AND status='processing'",[id]).catch(()=>{});
+   return forbidden(res,'Refund result requires manual Stripe reconciliation. Do not submit another refund.',503);
+  }
+ }));
  app.post('/api/deferred-bookings/:id/recover',...customer,safe(async(req,res)=>{
   const id=Number(req.params.id);
   if(!validId(id) || !stripe || !baseUrl)return forbidden(res,'Payment recovery is unavailable.',503);
