@@ -25,6 +25,17 @@ function chargeParameters(booking, accountId) {
   options: { idempotencyKey:'routedrop-deferred-charge-v1-'+booking.id }
  };
 }
+function recoveryEligible(booking,pi) {
+ return booking && booking.status==='payment_failed' && !!booking.payment_intent_id &&
+  !booking.recovery_checkout_session_id && !booking.dispute_reason && Number(booking.refunded_cents||0)===0 &&
+  pi && pi.id===booking.payment_intent_id &&
+  ['requires_action','requires_payment_method','requires_confirmation','canceled'].includes(pi.status) &&
+  pi.customer===booking.stripe_customer_id &&
+  pi.currency==='usd' && Number(pi.amount)===Number(booking.price_cents) &&
+  Number(pi.application_fee_amount)===Number(booking.fee_cents) &&
+  pi.transfer_data?.destination===booking.provider_stripe_account_id &&
+  String(pi.metadata?.routedrop_deferred_booking_id)===String(booking.id);
+}
 function verifiedRecoveryCharge(pi,booking) {
  return pi && pi.status==='succeeded' && pi.currency==='usd' &&
   Number(pi.amount)===Number(booking.price_cents) &&
@@ -87,7 +98,7 @@ async function handleStripeEvent(event, client, stripe, queueDeferredEmail=async
      obj.mode==='payment' && validId(obj.metadata?.deferred_recovery_booking_id)) {
   const id=Number(obj.metadata.deferred_recovery_booking_id);
   if(event.type==='checkout.session.expired') {
-   const canceled=await client.query("UPDATE deferred_bookings SET status='payment_failed' WHERE id=$1 AND status='recovery_pending' AND recovery_checkout_session_id=$2 RETURNING id",[id,obj.id]);
+   const canceled=await client.query("UPDATE deferred_bookings SET status='needs_review' WHERE id=$1 AND status='recovery_pending' AND recovery_checkout_session_id=$2 RETURNING id",[id,obj.id]);
    if(canceled.rowCount)await queueDeferredEmail(client,id,'failed');
    return;
   }
@@ -243,4 +254,4 @@ function install(app, {pool,stripe,baseUrl,enabled,requireDb,requireUser,safe,li
   }
  }));
 }
-module.exports={sql,ACTIVE,paymentFee,legitimateAmount,payable,chargeParameters,verifiedCharge,verifiedRecoveryCharge,handleStripeEvent,install};
+module.exports={sql,ACTIVE,paymentFee,legitimateAmount,payable,chargeParameters,recoveryEligible,verifiedCharge,verifiedRecoveryCharge,handleStripeEvent,install};
