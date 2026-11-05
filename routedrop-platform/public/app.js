@@ -1,7 +1,7 @@
 'use strict';
 (function(){
 const $=id=>document.getElementById(id);
-const state={config:null,me:null,listings:[],bookings:[],deferred:[],refunds:[],mine:[],tab:'explore'};
+const state={config:null,me:null,listings:[],bookings:[],deferred:[],refunds:[],mine:[],jobs:[],openJobs:[],tab:'explore'};
 const esc=v=>String(v===null||v===undefined?'':v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const money=cents=>new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(Number(cents||0)/100);
 const when=iso=>new Intl.DateTimeFormat('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}).format(new Date(iso));
@@ -40,7 +40,7 @@ async function refresh(){
    const r=await api('/api/listings');state.listings=r.listings;renderOffers();
   }else if(state.tab==='bookings'){
    if(!state.me.user){$('my-bookings').innerHTML='<div class="empty">Please log in to see your bookings.</div>';return;}
-   const r=await api('/api/bookings');state.bookings=r.bookings;state.deferred=state.config.deferred_booking?(await api('/api/deferred-bookings')).bookings:[];state.refunds=state.config.deferred_booking?(await api('/api/deferred-refunds')).requests:[];renderBookings();
+   const r=await api('/api/bookings');state.bookings=r.bookings;state.deferred=state.config.deferred_booking?(await api('/api/deferred-bookings')).bookings:[];state.refunds=state.config.deferred_booking?(await api('/api/deferred-refunds')).requests:[];state.jobs=state.config.job_requests&&state.me.user.role==='customer'?(await api('/api/job-requests/mine')).requests:[];renderBookings();
   }else if(state.tab==='business') await studio();
  }catch(e){message(e.message,true);}
 }
@@ -82,7 +82,34 @@ function renderBookings(){
  $('my-bookings').innerHTML=list.length?list.map(b=>
   '<div class="panel"><div class="row"><div><h3>'+esc(b.title)+'</h3><div class="muted">'+esc(b.business_name)+' · '+when(b.slot_start)+'</div></div><span class="pill">'+esc(b.status.replace('_',' '))+'</span></div><div class="record"><span>Service price</span><strong>'+money(b.price_cents)+'</strong></div>'+(b.refund_cents?'<p class="muted">Refunded: '+money(b.refund_cents)+'</p>':'')+(b.dispute_status?'<p class="muted">Payment dispute: '+esc(b.dispute_status)+'</p>':'')+(b.cancellation_request_status?'<p class="muted">Cancellation request: '+esc(b.cancellation_request_status)+'</p>':'')+(state.me.user.role==='customer'&&['paid','completed'].includes(b.status)&&!b.cancellation_request_status?'<button class="btn secondary" data-cancel-request="'+b.id+'">Request cancellation / refund review</button>':'')+(state.me.user.role==='customer'&&b.status==='awaiting_payment'?'<button class="btn" data-retry="'+b.id+'">Retry payment</button>':'')+(state.me.user.role==='business'&&b.status==='paid'&&!['pending','processing','needs_review'].includes(b.cancellation_request_status)?'<button class="btn" data-complete="'+b.id+'">Mark job complete</button>':'')+'</div>').join(''):'<div class="empty"><h3>No bookings yet</h3><p>Bookings will appear here after a customer books a service.</p></div>';
  if(state.config.deferred_booking)$('my-bookings').innerHTML+=deferredMarkup(state.deferred,'customer')+deferredRefundMarkup(state.refunds,'customer');
+ if(state.config.job_requests && state.me.user.role==='customer')$('my-bookings').innerHTML+=jobRequestMarkup(state.jobs);
 }
+
+function jobRequestMarkup(jobs){
+ if(!jobs.length)return '<div class="panel"><h3>Your posted jobs</h3><p class="muted">You have not posted a job request yet.</p><button type="button" class="btn" data-action="post-job">Post a Job</button></div>';
+ return '<div class="panel"><h3>Your posted jobs</h3><p class="muted">Businesses can send private quotes. Choosing a quote and saving a card will become available after Phase 2 payment integration is tested; posting a job does not create a booking or charge.</p>'+
+ jobs.map(j=>'<div class="job-board-item"><div class="row"><div><h3>'+esc(j.title)+'</h3><p class="muted">'+esc(j.category)+' · '+esc(j.neighborhood)+' · '+esc(j.status)+(j.budget_cents?' · Budget '+money(j.budget_cents):'')+'</p></div>'+(j.status==='open'?'<button class="btn secondary" data-close-job-id="'+j.id+'">Close request</button>':'')+'</div><p class="job-description">'+esc(j.description)+'</p><div class="job-quotes"><strong>Private quotes ('+(Array.isArray(j.quotes)?j.quotes.length:0)+')</strong>'+
+ (Array.isArray(j.quotes)&&j.quotes.length?j.quotes.map(q=>'<div class="job-quote"><strong>'+esc(q.business_name)+' · '+money(q.price_cents)+'</strong><p class="muted">'+esc(q.business_city)+'</p><p class="job-description">'+esc(q.note)+'</p></div>').join(''):'<p class="muted">No quotes received yet.</p>')+'</div></div>').join('')+'</div>';
+}
+function openJobsMarkup(jobs){
+ return '<div class="panel"><h3>Customer job requests</h3><p class="muted">View requests and send one private quote per job. Quotes are proposals only; scheduling and card payment are not yet enabled for this job-request path. Do not exchange contact information in quote notes.</p>'+
+ (jobs.length?jobs.map(j=>'<div class="job-board-item"><div class="row"><div><h3>'+esc(j.title)+'</h3><p class="muted">'+esc(j.category)+' · '+esc(j.neighborhood)+(j.budget_cents?' · Customer budget '+money(j.budget_cents):'')+(j.desired_start?' · Preferred '+when(j.desired_start):'')+'</p></div></div><p class="job-description">'+esc(j.description)+'</p><div class="buttonrow">'+(j.my_quote_id?'<span class="pill">Quote sent · '+money(j.my_quote_cents)+'</span>':'<button type="button" class="btn" data-quote-request-id="'+j.id+'">Send private quote</button>')+'</div></div>').join(''):'<p class="muted">No customer jobs are open right now.</p>')+'</div>';
+}
+function showJobRequest(){
+ if(!state.config?.job_requests){
+  overlay('<h2 id="modal-title">Post a Job</h2><p>Customer job requests are coming in RouteDrop Phase 2. The existing Find a Service booking flow is available now. We are keeping the new request and quoting flow off until its own security and payment tests are complete.</p><button type="button" class="btn" data-action="find-service">Find a Service</button>');
+  return;
+ }
+ if(!state.me?.user){showRegistration();message('Create a free customer account to post a job.');return;}
+ if(state.me.user.role!=='customer'){overlay('<h2 id="modal-title">Customer job requests</h2><p>A customer account is needed to post a job. As a business, open Business Studio to find and quote customer requests.</p>');return;}
+ overlay('<h2 id="modal-title">Post a Job</h2><p>Describe what you need. Your neighborhood, job description and budget are visible to signed-in businesses. Do not include your street address, email or phone number. Posting is free and does not save a card.</p><form id="job-request-form"><label>Job title</label><input name="title" minlength="8" maxlength="120" placeholder="Need backyard cleaned up" required><label>Service category</label><select name="category"><option>Washing</option><option>Lawn care</option><option>Car detailing</option><option>Cleaning</option><option>Other</option></select><label>Neighborhood or area (no street address)</label><input name="neighborhood" minlength="2" maxlength="100" placeholder="Southeast Decatur" required><label>What needs to be done?</label><textarea name="description" minlength="20" maxlength="2000" required placeholder="Describe the scope, approximate size, and conditions without posting contact details."></textarea><label>Budget in USD (optional)</label><input type="number" name="budget" min="5" max="5000" step="0.01" placeholder="100.00"><label>Preferred date and time (optional)</label><input type="datetime-local" name="desiredStart"><p class="legal">Posting a job is only a request for quotes. It does not confirm a booking, require a card, or authorize a payment.</p><p id="form-error" class="error"></p><button type="submit" class="btn">Publish job request</button></form>');
+}
+function showQuoteForm(requestId){
+ const j=state.openJobs.find(x=>Number(x.id)===Number(requestId));
+ if(!j)return message('Refresh the open job board and try again.',true);
+ overlay('<h2 id="modal-title">Quote '+esc(j.title)+'</h2><p>Send a private estimate to the customer. The quote is not an accepted booking and does not charge anyone.</p><form id="job-quote-form"><input type="hidden" name="requestId" value="'+j.id+'"><label>Your quote in USD</label><input type="number" name="price" required min="5" max="5000" step="0.01"><label>Scope and terms of your quote</label><textarea name="note" minlength="10" maxlength="800" required placeholder="Describe the work covered by your price, exclusions, and any scheduling assumptions. No phone or email."></textarea><p id="form-error" class="error"></p><button type="submit" class="btn">Send private quote</button></form>');
+}
+
 async function studio(){
  const u=state.me?.user;
  if(!u){$('studio-body').innerHTML='<div class="empty"><h3>Business account required</h3><p>Create a business account to list open route slots.</p><button class="btn" data-action="register">Register a business</button></div>';return;}
@@ -102,6 +129,7 @@ async function studio(){
  '<div class="panel"><h3>My route openings</h3>'+(state.mine.length?state.mine.map(x=>'<div class="record"><div><strong>'+esc(x.title)+'</strong><p>'+esc(x.neighborhood)+' · '+when(x.slot_start)+'</p></div><strong>'+money(x.price_cents)+'</strong></div>').join(''):'<p class="muted">No openings published yet.</p>')+'</div>'+
  '<div class="panel"><h3>Recent bookings</h3>'+(state.bookings.length?state.bookings.map(x=>'<div class="record"><div><strong>'+esc(x.title)+'</strong><p>'+when(x.slot_start)+' · '+esc(x.status)+'</p></div>'+(x.status==='paid'&&!['pending','processing','needs_review'].includes(x.cancellation_request_status)?'<button class="btn" data-complete="'+x.id+'">Complete</button>':'<strong>'+money(x.price_cents)+'</strong>')+'</div>').join(''):'<p class="muted">No bookings recorded.</p>')+'</div>';
  if(state.config.deferred_booking)$('studio-body').innerHTML+=deferredMarkup(state.deferred,'business')+deferredRefundMarkup(state.refunds,'business');
+ if(state.config.job_requests){state.openJobs=(await api('/api/job-requests/open')).requests;$('studio-body').innerHTML+=openJobsMarkup(state.openJobs);}
 }
 function showRegistration(){
  overlay('<h2 id="modal-title">Create your account</h2><p>Join RouteDrop as a customer or service professional.</p><form id="register-form"><label>Account type</label><select name="role" id="register-role"><option value="customer">Customer</option><option value="business">Business owner</option></select><label>Your full name</label><input name="name" minlength="2" maxlength="90" required autocomplete="name"><label>Email address</label><input name="email" type="email" maxlength="254" required autocomplete="email"><label>Password (12+ characters)</label><input name="password" type="password" minlength="12" maxlength="128" required autocomplete="new-password"><div id="business-fields" class="hidden"><label>Business name</label><input name="businessName" maxlength="120"><label>City</label><input name="city" maxlength="100" value="Decatur, AL"><label>Service category</label><select name="category"><option>Washing</option><option>Lawn care</option><option>Car detailing</option><option>Cleaning</option><option>Other</option></select></div><p class="legal">Use a unique password. Verification will be required for payments when email delivery is enabled.</p><p id="form-error" class="error"></p><button type="submit" class="btn">Register</button></form>');
@@ -132,6 +160,10 @@ async function act(e){
  if(action==='register'){showRegistration();return;}
  if(action==='login'){showLogin();return;}
  if(action==='create-listing'){showListing();return;}
+ if(action==='post-job'){showJobRequest();return;}
+ if(action==='find-service'){dismiss();switchTab('explore');$('available-openings').scrollIntoView({behavior:'smooth',block:'start'});return;}
+ if(el.dataset.quoteRequestId){showQuoteForm(Number(el.dataset.quoteRequestId));return;}
+ if(el.dataset.closeJobId){if(!confirm('Close this job request? Businesses will no longer be able to quote it.'))return;try{await api('/api/job-requests/'+Number(el.dataset.closeJobId)+'/close',{method:'POST'});message('Job request closed.');await refresh();}catch(err){message(err.message,true);}return;}
  if(action==='change-password'){showChangePassword();return;}
  if(action==='forgot-password'){showForgotPassword();return;}
  if(action==='verify-email'){try{const r=await api('/api/auth/request-verification',{method:'POST'});message(r.message);}catch(e){message(e.message,true);}return;}
@@ -188,7 +220,7 @@ async function act(e){
  if(el.dataset.complete){try{await api('/api/bookings/'+Number(el.dataset.complete)+'/complete',{method:'POST'});message('Job marked completed.');refresh();}catch(err){message(err.message,true);}return;}
 }
 async function submit(e){
- if(!['register-form','login-form','listing-form','forgot-form','reset-form','change-password-form'].includes(e.target.id))return;
+ if(!['register-form','login-form','listing-form','job-request-form','job-quote-form','forgot-form','reset-form','change-password-form'].includes(e.target.id))return;
  e.preventDefault();
  const form=e.target,d=Object.fromEntries(new FormData(form).entries());
  const err=$('form-error');err.textContent='';
@@ -204,6 +236,23 @@ async function submit(e){
    if(!Number.isSafeInteger(amount)||!Number.isFinite(date.getTime()))throw Error('Invalid price or date.');
    await api('/api/listings',{method:'POST',body:JSON.stringify({title:d.title,category:d.category,neighborhood:d.neighborhood,priceCents:amount,slotStart:date.toISOString(),durationMinutes:Number(d.durationMinutes)})});
    message('Opening published.');}
+  if(form.id==='job-request-form'){
+   const amount=d.budget?Math.round(Number(d.budget)*100):null;
+   const date=d.desiredStart?new Date(d.desiredStart):null;
+   if(d.budget&&!Number.isSafeInteger(amount))throw Error('Invalid budget.');
+   if(date&&!Number.isFinite(date.getTime()))throw Error('Invalid preferred date.');
+   await api('/api/job-requests',{method:'POST',body:JSON.stringify({title:d.title,category:d.category,neighborhood:d.neighborhood,description:d.description,budgetCents:amount,desiredStart:date?date.toISOString():null})});
+   message('Job request posted. Businesses can now send you private quotes. No booking or charge has been made.');
+   state.tab='bookings';
+   document.querySelectorAll('.page').forEach(el=>el.classList.toggle('hidden',el.id!==state.tab));
+   document.querySelectorAll('[data-tab]').forEach(el=>el.classList.toggle('active',el.dataset.tab===state.tab));
+  }
+  if(form.id==='job-quote-form'){
+   const amount=Math.round(Number(d.price)*100);
+   if(!Number.isSafeInteger(amount))throw Error('Invalid quote amount.');
+   await api('/api/job-requests/'+Number(d.requestId)+'/quotes',{method:'POST',body:JSON.stringify({priceCents:amount,note:d.note})});
+   message('Private quote submitted. This does not authorize a booking or a charge.');
+  }
   dismiss();refresh();
  }catch(ex){err.textContent=ex.message;}finally{submit.disabled=false;}
 }
