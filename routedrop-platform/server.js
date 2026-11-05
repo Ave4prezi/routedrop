@@ -231,7 +231,7 @@ async function queueDeferredEmail(db,bookingId,kind) {
   [bookingId]);
  if(!query.rowCount)return;
  const b=query.rows[0],details={title:b.title,date:new Date(b.slot_start).toLocaleString('en-US',{timeZone:'America/Chicago',dateStyle:'medium',timeStyle:'short'})+' CT',amount:'USD '+(Number(b.price_cents)/100).toFixed(2),name:b.customer_name};
- const recipients={requested:['customer','business'],accepted:['customer'],declined:['customer'],completed:['customer'],disputed:['business'],paid:['customer','business'],failed:['customer','business'],refund:['customer'],payment_dispute:['customer']};
+ const recipients={requested:['customer','business'],accepted:['customer'],declined:['customer'],completed:['customer'],disputed:['business'],paid:['customer','business'],failed:['customer','business'],refund:['customer','business'],refund_requested:['business'],refund_declined:['customer'],payment_dispute:['customer']};
  for(const side of recipients[kind]||[]){
   const category='deferred_'+(kind==='payment_dispute'?'dispute':kind)+'_'+side;
   if (notification(category,details))await enqueueNotification(db,'deferred-'+bookingId+'-'+category,b[side+'_email'],category,details);
