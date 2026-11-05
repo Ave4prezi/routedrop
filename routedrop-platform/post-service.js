@@ -126,7 +126,7 @@ function install(app, {pool,stripe,baseUrl,enabled,requireDb,requireUser,safe,li
    const existing=(await client.query("SELECT 1 FROM bookings WHERE listing_id=$1 AND status IN ('awaiting_payment','paid','completed')",[listingId])).rowCount;
    if(existing){await client.query('ROLLBACK');return forbidden(res,'This service slot is already booked.',409);}
    if(!offer.stripe_account_id){await client.query('ROLLBACK');return forbidden(res,'Provider has not connected payouts.',409);}
-   booking=(await client.query("INSERT INTO deferred_bookings(listing_id,customer_id,stripe_customer_id,price_cents,fee_cents,consent_terms,hold_expires_at) VALUES($1,$2,$3,$4,$5,'deferred-v1',now()+interval '45 minutes') RETURNING id",[listingId,req.user.id,stripeCustomer,offer.price_cents,paymentFee(offer.price_cents)])).rows[0];
+   booking=(await client.query("INSERT INTO deferred_bookings(listing_id,customer_id,stripe_customer_id,provider_stripe_account_id,price_cents,fee_cents,consent_terms,hold_expires_at) VALUES($1,$2,$3,$4,$5,$6,'deferred-v1',now()+interval '45 minutes') RETURNING id",[listingId,req.user.id,stripeCustomer,offer.stripe_account_id,offer.price_cents,paymentFee(offer.price_cents)])).rows[0];
    await client.query('COMMIT');
   }catch(err){await client.query('ROLLBACK').catch(()=>{});if(err.code==='23505')return forbidden(res,'This service slot is already booked.',409);throw err;}finally{client.release();}
   try {
@@ -149,11 +149,13 @@ function install(app, {pool,stripe,baseUrl,enabled,requireDb,requireUser,safe,li
  app.post('/api/deferred-bookings/:id/accept',...business,safe(async(req,res)=>{
   const q=await pool.query("UPDATE deferred_bookings d SET status='accepted',accepted_at=now() FROM listings l JOIN businesses b ON l.business_id=b.id WHERE d.listing_id=l.id AND b.owner_id=$1 AND d.id=$2 AND d.status='requested' AND l.slot_start>now() RETURNING d.id",[req.user.id,Number(req.params.id)]);
   if(!q.rowCount)return forbidden(res,'Booking cannot be accepted.',409);
+  await queueDeferredEmail(pool,Number(req.params.id),'accepted');
   res.json({ok:true,status:'accepted'});
  }));
  app.post('/api/deferred-bookings/:id/decline',...business,safe(async(req,res)=>{
   const q=await pool.query("UPDATE deferred_bookings d SET status='canceled' FROM listings l JOIN businesses b ON l.business_id=b.id WHERE d.listing_id=l.id AND b.owner_id=$1 AND d.id=$2 AND d.status='requested' RETURNING d.id",[req.user.id,Number(req.params.id)]);
   if(!q.rowCount)return forbidden(res,'Booking cannot be declined.',409);
+  await queueDeferredEmail(pool,Number(req.params.id),'declined');
   res.json({ok:true,status:'canceled'});
  }));
  app.post('/api/deferred-bookings/:id/cancel',...customer,safe(async(req,res)=>{
@@ -164,6 +166,7 @@ function install(app, {pool,stripe,baseUrl,enabled,requireDb,requireUser,safe,li
  app.post('/api/deferred-bookings/:id/complete',...business,safe(async(req,res)=>{
   const q=await pool.query("UPDATE deferred_bookings d SET status='work_completed',completed_at=now() FROM listings l JOIN businesses b ON l.business_id=b.id WHERE d.listing_id=l.id AND b.owner_id=$1 AND d.id=$2 AND d.status='accepted' AND l.slot_start<=now() RETURNING d.id",[req.user.id,Number(req.params.id)]);
   if(!q.rowCount)return forbidden(res,'Accepted booking must reach its scheduled start before completion.',409);
+  await queueDeferredEmail(pool,Number(req.params.id),'completed');
   res.json({ok:true,status:'work_completed',message:'Customer must confirm completion before any charge.'});
  }));
  app.post('/api/deferred-bookings/:id/dispute',...customer,safe(async(req,res)=>{
@@ -171,6 +174,7 @@ function install(app, {pool,stripe,baseUrl,enabled,requireDb,requireUser,safe,li
   if(reason.length<10)return forbidden(res,'Please describe the issue in at least 10 characters.',400);
   const q=await pool.query("UPDATE deferred_bookings SET status='disputed',dispute_reason=$3 WHERE id=$1 AND customer_id=$2 AND status='work_completed' RETURNING id",[Number(req.params.id),req.user.id,reason]);
   if(!q.rowCount)return forbidden(res,'This booking cannot be disputed from its current status.',409);
+  await queueDeferredEmail(pool,Number(req.params.id),'disputed');
   res.json({ok:true,status:'disputed',message:'No payment was initiated. Support review is required.'});
  }));
  app.post('/api/deferred-bookings/:id/confirm',...customer,safe(async(req,res)=>{
@@ -181,8 +185,9 @@ function install(app, {pool,stripe,baseUrl,enabled,requireDb,requireUser,safe,li
   const client=await pool.connect();
   try {
    await client.query('BEGIN');
-   const q=await client.query("SELECT d.*,b.stripe_account_id FROM deferred_bookings d JOIN listings l ON l.id=d.listing_id JOIN businesses b ON b.id=l.business_id WHERE d.id=$1 AND d.customer_id=$2 FOR UPDATE OF d",[id,req.user.id]);
-   booking=q.rows[0];accountId=booking?.stripe_account_id;
+   const q=await client.query("SELECT d.*,b.stripe_account_id AS current_provider_account FROM deferred_bookings d JOIN listings l ON l.id=d.listing_id JOIN businesses b ON b.id=l.business_id WHERE d.id=$1 AND d.customer_id=$2 FOR UPDATE OF d",[id,req.user.id]);
+   booking=q.rows[0];accountId=booking?.provider_stripe_account_id;
+   if(accountId !== booking?.current_provider_account)throw Error('Provider payout account changed; support review required');
    charge=chargeParameters(booking,accountId);
    const account=await stripe.accounts.retrieve(accountId);
    if(!account.charges_enabled||!account.payouts_enabled){await client.query('ROLLBACK');return forbidden(res,'Provider payouts are temporarily unavailable.',503);}
