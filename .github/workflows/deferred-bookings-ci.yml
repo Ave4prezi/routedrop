@@ -42,6 +42,7 @@ jobs:
         run: |
           node --check server.js
           node --check post-service.js
+          node --check staging-access.js
           node --check public/app.js
       - name: All Node.js and disposable PostgreSQL tests
         env:
