@@ -228,6 +228,15 @@ function install(app, {pool,stripe,baseUrl,enabled,requireDb,requireUser,safe,li
   // Do not offer recovery for ambiguous or unlinked charges. Support must reconcile those.
   const found=await pool.query("SELECT d.*,b.stripe_account_id AS current_provider_account FROM deferred_bookings d JOIN listings l ON l.id=d.listing_id JOIN businesses b ON b.id=l.business_id WHERE d.id=$1 AND d.customer_id=$2",[id,req.user.id]);
   const booking=found.rows[0];
+  if(booking?.status==='recovery_pending' && booking.recovery_checkout_session_id){
+   try {
+    const existing=await stripe.checkout.sessions.retrieve(booking.recovery_checkout_session_id);
+    if(existing.status==='open' && existing.mode==='payment' && existing.customer===booking.stripe_customer_id &&
+      String(existing.metadata?.deferred_recovery_booking_id)===String(id) && typeof existing.url==='string')
+     return res.json({url:existing.url,message:'Continue the existing secure payment checkout.'});
+   }catch(err){}
+   return forbidden(res,'Recovery checkout is unavailable. Contact support to reconcile payment.',409);
+  }
   if(!booking || !booking.payment_intent_id || booking.status!=='payment_failed')return forbidden(res,'This booking requires manual payment review.',409);
   if(booking.provider_stripe_account_id!==booking.current_provider_account)return forbidden(res,'Provider payout account changed; contact support.',409);
   let original;
