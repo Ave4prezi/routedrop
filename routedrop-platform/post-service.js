@@ -83,6 +83,25 @@ async function handleStripeEvent(event, client, stripe, queueDeferredEmail=async
   await queueDeferredEmail(client,id,'requested');
   return;
  }
+ if ((event.type==='checkout.session.completed' || event.type==='checkout.session.expired' || event.type==='checkout.session.async_payment_succeeded') &&
+     obj.mode==='payment' && validId(obj.metadata?.deferred_recovery_booking_id)) {
+  const id=Number(obj.metadata.deferred_recovery_booking_id);
+  if(event.type==='checkout.session.expired') {
+   const canceled=await client.query("UPDATE deferred_bookings SET status='payment_failed' WHERE id=$1 AND status='recovery_pending' AND recovery_checkout_session_id=$2 RETURNING id",[id,obj.id]);
+   if(canceled.rowCount)await queueDeferredEmail(client,id,'failed');
+   return;
+  }
+  if (obj.payment_status!=='paid' || typeof obj.payment_intent!=='string') return;
+  const row=await client.query("SELECT * FROM deferred_bookings WHERE id=$1 FOR UPDATE",[id]);
+  const booking=row.rows[0];
+  if (!booking || booking.status!=='recovery_pending' || booking.recovery_checkout_session_id!==obj.id ||
+      booking.stripe_customer_id!==obj.customer || obj.currency!=='usd' || Number(obj.amount_total)!==Number(booking.price_cents) ) return;
+  const pi=await stripe.paymentIntents.retrieve(obj.payment_intent);
+  if(!verifiedRecoveryCharge(pi,booking))throw Error('Stripe recovery payment did not match the agreed amount and destination');
+  await client.query("UPDATE deferred_bookings SET status='paid',initial_payment_intent_id=payment_intent_id,payment_intent_id=$2,recovery_intent_id=$2,paid_at=now() WHERE id=$1 AND status='recovery_pending' AND recovery_checkout_session_id=$3",[id,pi.id,obj.id]);
+  await queueDeferredEmail(client,id,'paid');
+  return;
+ }
  if ((event.type==='payment_intent.succeeded' || event.type==='payment_intent.payment_failed') &&
      validId(obj.metadata?.routedrop_deferred_booking_id) && typeof obj.id==='string') {
   const id=Number(obj.metadata.routedrop_deferred_booking_id);
