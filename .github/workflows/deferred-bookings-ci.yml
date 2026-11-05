@@ -1,0 +1,34 @@
+name: RouteDrop deferred booking checks
+
+on:
+  push:
+    branches:
+      - feature/book-free-pay-after-service
+  pull_request:
+    branches:
+      - routedrop-platform-beta
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: routedrop-platform
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install dependencies without deployment hooks
+        run: npm install --ignore-scripts --no-audit --no-fund
+      - name: Syntax checks
+        run: |
+          node --check server.js
+          node --check post-service.js
+          node --check public/app.js
+      - name: All Node.js regression tests
+        run: npm test
