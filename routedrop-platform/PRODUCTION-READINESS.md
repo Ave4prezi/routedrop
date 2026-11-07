@@ -6,12 +6,12 @@
 
 | Responsibility | Proposed responsibility | Assigned individual | Backup | Accepted/on-call coverage |
 |---|---|---|---|---|
-| Incident commander | RouteDrop service owner: coordinate incidents, customer communications and go/no-go | **Unassigned** | **Unassigned** | **Not confirmed** |
+| Incident commander | Interim RouteDrop operator: coordinate incidents, customer communications and go/no-go | **Interim primary: RouteDrop operator (identity withheld from public repository)** | **Unassigned** | **Primary accepted; coverage hours not confirmed** |
 | Technical responder | Investigate Render, Neon, webhook delivery, deployments and app errors | **Unassigned** | **Unassigned** | **Not confirmed** |
 | Payments responder | Reconcile Stripe Connect payments, transfers, refunds and disputes | **Unassigned** | **Unassigned** | **Not confirmed** |
 | Security and privacy | Triage account compromise or data exposures, preserve evidence and coordinate legal review | **Unassigned** | **Unassigned** | **Not confirmed** |
 
-No individual is appointed merely because of their current business or repository role. Confirm each individual's permission, contact method, working hours and backup before filling this table. The incident response targets in `PAYMENT-INCIDENT-RUNBOOK.md` do not promise 24/7 coverage.
+The interim primary has volunteered for the incident commander role; their personal identity and contact information are intentionally kept outside the public repository. No other individual is appointed merely because of their current business or repository role. Confirm each individual's permission, contact method, working hours and backup before filling this table. The incident response targets in `PAYMENT-INCIDENT-RUNBOOK.md` do not promise 24/7 coverage.
 
 ## Security review — repository evidence
 
@@ -38,7 +38,7 @@ No individual is appointed merely because of their current business or repositor
 
 ## Release sign-off
 
-**Service owner:** pending
+**Service owner / interim incident commander:** RouteDrop operator (accepted; personal identity not published)
 
 **Technical/security reviewer:** pending
 
