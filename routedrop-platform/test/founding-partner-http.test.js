@@ -32,7 +32,7 @@ test('fictional partner: consent, signup, service listing, encrypted evidence, i
  const net=require('node:net');
  const scanner=net.createServer({allowHalfOpen:true},socket=>{
   socket.on('data',()=>{});
-  socket.on('end',()=>{socket.end('stream: OK\\0'.replace('\\\\0','\\0'));});
+  socket.on('end',()=>{socket.end(Buffer.concat([Buffer.from('stream: OK'),Buffer.from([0])]));});
  });
  await new Promise(resolve=>scanner.listen(0,'127.0.0.1',resolve));
  try{
