@@ -161,7 +161,7 @@ async function handleStripeEvent(event, client, stripe, queueDeferredEmail=async
   for(const row of changed.rows||[])await queueDeferredEmail(client,row.id,'refund');
  }
 }
-function install(app, {pool,stripe,baseUrl,enabled,requireDb,requireUser,safe,limiter,forbidden,queueDeferredEmail=async()=>{}}) {
+function install(app, {pool,stripe,baseUrl,enabled,verificationEnabled=false,verifyListing=async()=>true,requireDb,requireUser,safe,limiter,forbidden,queueDeferredEmail=async()=>{}}) {
  const guard=(req,res,next)=>enabled ? next() : forbidden(res,'Deferred booking is disabled in this beta.',503);
  const customer=[guard,requireDb,requireUser('customer'),limiter];
  const business=[guard,requireDb,requireUser('business'),limiter];
@@ -177,6 +177,7 @@ function install(app, {pool,stripe,baseUrl,enabled,requireDb,requireUser,safe,li
   if (req.body.consent!==true || req.body.termsVersion!=='deferred-v1') return forbidden(res,'Agree to save a card for the quoted post-service payment before booking.',400);
   const listingId=Number(req.body.listingId);
   if(!validId(listingId)) return forbidden(res,'Invalid listing.',400);
+  if(verificationEnabled && !(await verifyListing(pool,listingId)))return forbidden(res,'Provider verification is pending for this service.',409);
   // Separate Stripe Customer; idempotency prevents duplicate customers if the request is retried.
   let stripeCustomer=(await pool.query('SELECT deferred_stripe_customer_id FROM users WHERE id=$1',[req.user.id])).rows[0]?.deferred_stripe_customer_id;
   if(!stripeCustomer){
@@ -190,6 +191,7 @@ function install(app, {pool,stripe,baseUrl,enabled,requireDb,requireUser,safe,li
    await client.query("UPDATE deferred_bookings SET status='canceled' WHERE status='awaiting_card' AND hold_expires_at<now()");
    offer=(await client.query("SELECT l.id,l.price_cents,l.slot_start,l.title,b.stripe_account_id FROM listings l JOIN businesses b ON b.id=l.business_id WHERE l.id=$1 AND l.status='active' AND l.slot_start>now() FOR UPDATE OF l",[listingId])).rows[0];
    if(!offer || !legitimateAmount(offer.price_cents)){await client.query('ROLLBACK');return forbidden(res,'Service is no longer available.',409);}
+   if(verificationEnabled && !(await verifyListing(client,listingId))){await client.query('ROLLBACK');return forbidden(res,'Provider verification is pending for this service.',409);}
    const existing=(await client.query("SELECT 1 FROM bookings WHERE listing_id=$1 AND status IN ('awaiting_payment','paid','completed')",[listingId])).rowCount;
    if(existing){await client.query('ROLLBACK');return forbidden(res,'This service slot is already booked.',409);}
    if(!offer.stripe_account_id){await client.query('ROLLBACK');return forbidden(res,'Provider has not connected payouts.',409);}
