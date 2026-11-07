@@ -33,8 +33,17 @@ function switchTab(tab){
 async function refresh(){
  if(!state.config)return;
  if(!state.config.database){
-  $('offers').innerHTML=noSetup();$('offer-count').textContent='0 live listings';
-  $('my-bookings').innerHTML=noSetup();$('studio-body').innerHTML=noSetup();nav();return;
+  if(state.config.private_preview){
+   const sample='<div class="panel"><h3>Fictional founding-business preview</h3><p class="muted">This is a non-persistent demonstration. No real accounts, documents, customers or Stripe payments are connected.</p><div class="buttonrow"><button class="btn" data-action="demo-onboarding">Explore 5 onboarding steps</button></div></div>';
+   $('offers').innerHTML=sample;
+   $('offer-count').textContent='Fictional demo only';
+   $('my-bookings').innerHTML='<div class="panel"><h3>Customer booking protection</h3><p class="muted">Bookings remain blocked until the provider is approved and live payments are separately enabled. This preview cannot accept bookings.</p></div>';
+   $('studio-body').innerHTML=sample;
+  }else{
+   $('offers').innerHTML=noSetup();$('offer-count').textContent='0 live listings';
+   $('my-bookings').innerHTML=noSetup();$('studio-body').innerHTML=noSetup();
+  }
+  nav();return;
  }
  try{
   const who=await api('/api/me');state.me=who;nav();
@@ -188,6 +197,15 @@ async function act(e){
  const action=el.dataset.action;
  if(action==='register'){showRegistration();return;}
  if(action==='register-business'){showRegistration();const selector=$('register-role');selector.value='business';selector.dispatchEvent(new Event('change',{bubbles:true}));return;}
+ if(action==='demo-onboarding'){
+  overlay('<h2 id="modal-title">RouteDrop founding partner preview</h2><p class="muted">Fictional example only. Interactive registration opens when the isolated preview database is connected.</p>'+
+   '<div class="record"><strong>1. Register a business</strong><p>Invented: Pine Ridge Cleaning · Decatur, AL · Cleaning</p></div>'+
+   '<div class="record"><strong>2. Submit required evidence</strong><p>Fictional identity, business details and liability-insurance sample files</p></div>'+
+   '<div class="record"><strong>3. Independent document review</strong><p>Reviewer inspects fictional files, records a decision and expiration date</p></div>'+
+   '<div class="record"><strong>4. Publish a service opening</strong><p>Example: Kitchen cleaning · $75 · future service slot</p></div>'+
+   '<div class="record"><strong>5. Activate after launch review</strong><p>8% fee on successful real payments once separately approved. No live payments here.</p></div>');
+  return;
+ }
  if(action==='login'){showLogin();return;}
  if(action==='create-listing'){showListing();return;}
  if(action==='support-reviews'){try{await showSupportReviews();}catch(err){message(err.message,true);}return;}
@@ -290,6 +308,7 @@ async function submit(e){
  if(!['register-form','login-form','listing-form','forgot-form','reset-form','change-password-form','credential-upload-form'].includes(e.target.id))return;
  e.preventDefault();
  const form=e.target,d=Object.fromEntries(new FormData(form).entries());
+ if(state.config?.private_preview&&!state.config?.database){const err=$('form-error');if(err)err.textContent='This preview is read-only until its isolated database is connected. Use the onboarding walkthrough for now.';return;}
  const err=$('form-error');err.textContent='';
  const submit=form.querySelector('button[type=submit]');submit.disabled=true;
  try{
