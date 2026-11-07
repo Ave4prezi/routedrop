@@ -5,10 +5,15 @@
 const net=require('node:net');
 const EICAR='X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*';
 function syntheticOnly(env=process.env){
- return env.ROUTEDROP_PRIVATE_PREVIEW_ONLY==='true' &&
+ // Synthetic fixture uploads only, never production evidence intake.
+ const privatePreview=env.ROUTEDROP_PRIVATE_PREVIEW_ONLY==='true' && !env.STRIPE_SECRET_KEY;
+ const paymentSandbox=env.ROUTEDROP_PAYMENT_SANDBOX_ONLY==='true' &&
+  env.ROUTEDROP_PRIVATE_PREVIEW_ONLY!=='true' &&
+  (!env.STRIPE_SECRET_KEY || /^sk_test_/.test(env.STRIPE_SECRET_KEY));
+ return (privatePreview || paymentSandbox) &&
         env.ROUTEDROP_STAGING_LOCK==='true' &&
         env.ROUTEDROP_PROVIDER_DOCS_MODE==='synthetic' &&
-        !env.STRIPE_SECRET_KEY;
+        env.ROUTEDROP_LIVE_APPROVED!=='true';
 }
 function inspect(bytes){
  if(!Buffer.isBuffer(bytes)||bytes.length<24||bytes.length>2*1024*1024)
