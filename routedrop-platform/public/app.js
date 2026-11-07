@@ -104,6 +104,13 @@ async function studio(){
  '<div class="panel"><h3>Recent bookings</h3>'+(state.bookings.length?state.bookings.map(x=>'<div class="record"><div><strong>'+esc(x.title)+'</strong><p>'+when(x.slot_start)+' · '+esc(x.status)+'</p></div>'+(x.status==='paid'&&!['pending','processing','needs_review'].includes(x.cancellation_request_status)?'<button class="btn" data-complete="'+x.id+'">Complete</button>':'<strong>'+money(x.price_cents)+'</strong>')+'</div>').join(''):'<p class="muted">No bookings recorded.</p>')+'</div>';
  if(state.config.deferred_booking)$('studio-body').innerHTML+=deferredMarkup(state.deferred,'business')+deferredRefundMarkup(state.refunds,'business');
 }
+async function showSupportReviews(){
+ const r=await api('/api/support/deferred-disputes');
+ overlay('<h2 id="modal-title">Support dispute reviews</h2><p>Independent support-only decisions. No payment is made here. A customer must accept a proposed resolution and separately approve payment.</p>'+
+  (r.disputes.length?r.disputes.map(d=>'<div class="record"><div><strong>Booking #'+esc(d.id)+' · '+esc(d.title)+'</strong><p>'+esc(d.business_name)+' · '+money(d.price_cents)+'</p><p class="muted">Customer report: '+esc(d.dispute_reason)+'</p><p class="muted">Review: '+esc(d.review_state)+(d.resolution_note?' · '+esc(d.resolution_note):'')+'</p></div><div class="buttonrow">'+
+  (['open','customer_declined'].includes(d.review_state)?'<button class="btn secondary" data-support-decision="close_no_charge" data-support-booking="'+esc(d.id)+'">Close without charge</button><button class="btn" data-support-decision="request_customer_approval" data-support-booking="'+esc(d.id)+'">Request customer approval</button>':'<span class="muted">Awaiting customer response</span>')+
+  '</div></div>').join(''):'<p class="muted">No pending unpaid disputes.</p>'));
+}
 function showRegistration(){
  overlay('<h2 id="modal-title">Create your account</h2><p>Join RouteDrop as a customer or service professional.</p><form id="register-form"><label>Account type</label><select name="role" id="register-role"><option value="customer">Customer</option><option value="business">Business owner</option></select><label>Your full name</label><input name="name" minlength="2" maxlength="90" required autocomplete="name"><label>Email address</label><input name="email" type="email" maxlength="254" required autocomplete="email"><label>Password (12+ characters)</label><input name="password" type="password" minlength="12" maxlength="128" required autocomplete="new-password"><div id="business-fields" class="hidden"><label>Business name</label><input name="businessName" maxlength="120"><label>City</label><input name="city" maxlength="100" value="Decatur, AL"><label>Service category</label><select name="category"><option>Washing</option><option>Lawn care</option><option>Car detailing</option><option>Cleaning</option><option>Other</option></select></div><p class="legal">Use a unique password. Verification will be required for payments when email delivery is enabled.</p><p id="form-error" class="error"></p><button type="submit" class="btn">Register</button></form>');
 }
@@ -133,6 +140,7 @@ async function act(e){
  if(action==='register'){showRegistration();return;}
  if(action==='login'){showLogin();return;}
  if(action==='create-listing'){showListing();return;}
+ if(action==='support-reviews'){try{await showSupportReviews();}catch(err){message(err.message,true);}return;}
  if(action==='change-password'){showChangePassword();return;}
  if(action==='forgot-password'){showForgotPassword();return;}
  if(action==='verify-email'){try{const r=await api('/api/auth/request-verification',{method:'POST'});message(r.message);}catch(e){message(e.message,true);}return;}
