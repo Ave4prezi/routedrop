@@ -2,16 +2,18 @@
 
 **Status: NOT APPROVED for production.** This checklist must be signed off before authorizing live keys, production deployment, or customer payments. The deferred-booking feature is currently test-key-only by design; a separate, reviewed go-live implementation will be needed.
 
-## Incident response ownership — assignments pending
+## Incident response ownership — solo interim operator
 
-| Responsibility | Proposed responsibility | Assigned individual | Backup | Accepted/on-call coverage |
-|---|---|---|---|---|
-| Incident commander | Interim RouteDrop operator: coordinate incidents, customer communications and go/no-go | **Interim primary: RouteDrop operator (identity withheld from public repository)** | **Unassigned** | **Primary accepted; coverage hours not confirmed** |
-| Technical responder | Investigate Render, Neon, webhook delivery, deployments and app errors | **Unassigned** | **Unassigned** | **Not confirmed** |
-| Payments responder | Reconcile Stripe Connect payments, transfers, refunds and disputes | **Unassigned** | **Unassigned** | **Not confirmed** |
-| Security and privacy | Triage account compromise or data exposures, preserve evidence and coordinate legal review | **Unassigned** | **Unassigned** | **Not confirmed** |
+**Public-facing alias: Jordan Vale.** This is an operating pseudonym, not a separate employee, outside reviewer, or independent backup. **The same single individual runs all RouteDrop operations for now.** Do not infer 24/7 response coverage or independent security/payment review from the role labels.
 
-The interim primary has volunteered for the incident commander role; their personal identity and contact information are intentionally kept outside the public repository. No other individual is appointed merely because of their current business or repository role. Confirm each individual's permission, contact method, working hours and backup before filling this table. The incident response targets in `PAYMENT-INCIDENT-RUNBOOK.md` do not promise 24/7 coverage.
+| Responsibility | Operator name / alias | Actual coverage | Independent backup |
+|---|---|---|---|
+| Incident commander and customer communications | **Jordan Vale** (alias) | Solo operator; hours unspecified | **None** |
+| Technical operations (Render, Neon, webhooks, deployment) | **Jordan Vale** (alias) | Same solo operator | **None** |
+| Payments and refunds (Stripe Connect reconciliation) | **Jordan Vale** (alias) | Same solo operator | **None** |
+| Security and privacy incident coordination | **Jordan Vale** (alias) | Same solo operator; independent external review not completed | **None** |
+
+This alias is intended for privacy in internal/public repository documentation. Operational counterparties, Stripe, banks, regulators, and customers requiring legal identity must receive truthful authorized business/individual details as applicable. No fake personnel identities may be used to simulate staffing, review independence, or legally required disclosures. Until backup staffing and actual coverage are established, the runbook's response targets are goals, not guaranteed response times.
 
 ## Security review — repository evidence
 
@@ -38,11 +40,11 @@ The interim primary has volunteered for the incident commander role; their perso
 
 ## Release sign-off
 
-**Service owner / interim incident commander:** RouteDrop operator (accepted; personal identity not published)
+**Service owner / interim incident commander:** Jordan Vale (public-facing alias for the sole operator; accepted)
 
-**Technical/security reviewer:** pending
+**Technical/security operations:** Jordan Vale (same sole operator); independent reviewer pending
 
-**Payments reviewer:** pending
+**Payments operations:** Jordan Vale (same sole operator); independent reviewer pending
 
 **Date and evidence links:** pending
 
