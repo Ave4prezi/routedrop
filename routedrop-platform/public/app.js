@@ -22,7 +22,7 @@ function overlay(content){$('modal-body').innerHTML=content;$('modal').classList
 function dismiss(){$('modal').classList.add('hidden');$('modal-body').innerHTML='';}
 function nav(){
  const u=state.me?.user;
- $('nav-account').innerHTML=u?'<span class="muted">'+esc(u.full_name)+'</span>'+(state.config?.email_enabled&&!u.email_verified?'<button data-action="verify-email">Verify email</button>':'')+(state.me?.support_agent?'<button data-action="support-reviews">Support reviews</button>':'')+'<button data-action="change-password">Change password</button><button data-action="logout">Log out</button>':'<button data-action="login">Log in</button><button data-action="register">Sign up</button>';
+ $('nav-account').innerHTML=u?'<span class="muted">'+esc(u.full_name)+'</span>'+(state.config?.email_enabled&&!u.email_verified?'<button data-action="verify-email">Verify email</button>':'')+(state.me?.support_agent?'<button data-action="support-reviews">Support reviews</button>':'')+(state.config?.provider_verification&&state.me?.support_agent?'<button data-action="verification-reviews">Provider reviews</button>':'')+'<button data-action="change-password">Change password</button><button data-action="logout">Log out</button>':'<button data-action="login">Log in</button><button data-action="register">Sign up</button>';
 }
 function switchTab(tab){
  state.tab=tab;
@@ -92,6 +92,7 @@ async function studio(){
  if(u.role!=='business'){$('studio-body').innerHTML='<div class="empty">You are signed in as a customer. Use a separate business account to publish routes.</div>';return;}
  const b=state.me.business,r=await Promise.all([api('/api/my-listings'),api('/api/bookings')]);
  state.mine=r[0].listings;state.bookings=r[1].bookings;state.deferred=state.config.deferred_booking?(await api('/api/deferred-bookings')).bookings:[];state.refunds=state.config.deferred_booking?(await api('/api/deferred-refunds')).requests:[];
+ const verificationData=state.config.provider_verification?(await api('/api/provider-verification/me')).verification:null;
  const subscription=await api('/api/business/subscription');
  const cancellations=await api('/api/business/cancellation-requests');
  const completed=state.bookings.filter(x=>x.status==='completed').concat(state.deferred.filter(x=>x.status==='paid'));
@@ -105,7 +106,38 @@ async function studio(){
  '<div class="panel"><h3>My route openings</h3>'+(state.mine.length?state.mine.map(x=>'<div class="record"><div><strong>'+esc(x.title)+'</strong><p>'+esc(x.neighborhood)+' · '+when(x.slot_start)+'</p></div><strong>'+money(x.price_cents)+'</strong></div>').join(''):'<p class="muted">No openings published yet.</p>')+'</div>'+
  '<div class="panel"><h3>Recent bookings</h3>'+(state.bookings.length?state.bookings.map(x=>'<div class="record"><div><strong>'+esc(x.title)+'</strong><p>'+when(x.slot_start)+' · '+esc(x.status)+'</p></div>'+(x.status==='paid'&&!['pending','processing','needs_review'].includes(x.cancellation_request_status)?'<button class="btn" data-complete="'+x.id+'">Complete</button>':'<strong>'+money(x.price_cents)+'</strong>')+'</div>').join(''):'<p class="muted">No bookings recorded.</p>')+'</div>';
  if(state.config.deferred_booking)$('studio-body').innerHTML+=deferredMarkup(state.deferred,'business')+deferredRefundMarkup(state.refunds,'business');
+ if(verificationData)$('studio-body').innerHTML+=verificationPanel(verificationData);
 }
+
+function verificationPanel(v){
+ const existing=Object.fromEntries((v.documents||[]).map(x=>[x.kind,x]));
+ return '<div class="panel"><h3>Provider compliance · '+(v.eligible?'Reviewed requirements complete':'Review needed')+'</h3>'+
+ '<p class="muted">Required for your primary category: '+esc(v.requirements.join(', '))+'. Other listing categories may have additional requirements. Do not upload ID numbers in text fields.</p>'+
+ v.requirements.map(kind=>{
+  const d=existing[kind],status=d?.status||'missing',expiry=d?.expires_at?' · expires '+new Date(d.expires_at).toLocaleDateString():'';
+  return '<div class="record"><div><strong>'+esc(kind.replaceAll('_',' '))+'</strong><p class="muted">'+esc(status)+esc(expiry)+(d?.has_document?' · encrypted document on file':'')+'</p></div>'+
+   (d?.has_document?'<button class="btn secondary" data-delete-evidence="'+esc(kind)+'">Remove</button>':'')+'</div>';
+ }).join('')+
+ (v.manualReview?'<p class="muted">This service category also requires a separate policy review.</p>':'')+
+ '<div class="buttonrow"><button class="btn" data-action="upload-credential">Submit document for review</button></div>'+
+ '<p class="muted">Document upload does not mean approval. RouteDrop reviews submitted evidence before bookings are enabled.</p></div>';
+}
+async function showVerificationUpload(){
+ const r=await api('/api/provider-verification/me');
+ overlay('<h2 id="modal-title">Secure provider document submission</h2><p class="muted">Submit a PDF, PNG, or JPEG up to 2 MB. The document is encrypted and available only to authorized reviewers. Avoid uploading unrelated personal information.</p>'+
+ '<form id="credential-upload-form"><label>Document type</label><select name="kind">'+r.verification.requirements.map(x=>'<option value="'+esc(x)+'">'+esc(x.replaceAll('_',' '))+'</option>').join('')+'</select>'+
+ '<label>Document file</label><input type="file" name="document" accept=".pdf,.png,.jpg,.jpeg,application/pdf,image/png,image/jpeg" required>'+
+ '<p id="form-error" class="bad"></p><button type="submit" class="btn">Submit securely for review</button></form>');
+}
+async function showVerificationQueue(){
+ const r=await api('/api/provider-verification/review-queue');
+ overlay('<h2 id="modal-title">Provider document review queue</h2><p class="muted">Restricted operator access. Inspect evidence before approving. Do not accept documents that are expired, mismatched or unverifiable.</p>'+
+ (r.queue.length?r.queue.map(d=>'<div class="record"><div><strong>'+esc(d.name)+'</strong><p class="muted">Business #'+esc(d.business_id)+' · '+esc(d.kind.replaceAll('_',' '))+'</p>'+
+ (d.has_document?'<a href="/api/provider-verification/review-document/'+encodeURIComponent(d.business_id)+'/'+encodeURIComponent(d.kind)+'">Download encrypted evidence (private)</a>':'<p class="muted">No document uploaded'+(d.evidence_reference?' · business info reference: '+esc(d.evidence_reference):'')+'</p>')+'</div>'+
+ '<div class="buttonrow"><button class="btn" data-verification-review="approved" data-review-kind="'+esc(d.kind)+'" data-review-business="'+esc(d.business_id)+'">Approve</button>'+
+ '<button class="btn secondary" data-verification-review="rejected" data-review-kind="'+esc(d.kind)+'" data-review-business="'+esc(d.business_id)+'">Reject</button></div></div>').join(''):'<p class="muted">No pending document reviews.</p>'));
+}
+
 async function showSupportReviews(){
  const r=await api('/api/support/deferred-disputes');
  overlay('<h2 id="modal-title">Support dispute reviews</h2><p>Independent support-only decisions. No payment is made here. A customer must accept a proposed resolution and separately approve payment.</p>'+
@@ -143,12 +175,37 @@ async function act(e){
  if(action==='login'){showLogin();return;}
  if(action==='create-listing'){showListing();return;}
  if(action==='support-reviews'){try{await showSupportReviews();}catch(err){message(err.message,true);}return;}
+ if(action==='verification-reviews'){try{await showVerificationQueue();}catch(err){message(err.message,true);}return;}
+ if(action==='upload-credential'){try{await showVerificationUpload();}catch(err){message(err.message,true);}return;}
  if(action==='change-password'){showChangePassword();return;}
  if(action==='forgot-password'){showForgotPassword();return;}
  if(action==='verify-email'){try{const r=await api('/api/auth/request-verification',{method:'POST'});message(r.message);}catch(e){message(e.message,true);}return;}
  if(action==='logout'){try{await api('/api/logout',{method:'POST'});state.me=null;message('Signed out.');refresh();}catch(err){message(err.message,true);}return;}
  if(action==='subscribe'||action==='manage-subscription'){try{const url=action==='subscribe'?'/api/business/subscribe':'/api/business/subscription/portal';const r=await api(url,{method:'POST'});location.assign(r.url);}catch(err){message(err.message,true);}return;}
  if(action==='connect-stripe'){try{const r=await api('/api/stripe/connect',{method:'POST'});location.assign(r.url);}catch(err){message(err.message,true);}return;}
+ if(el.dataset.deleteEvidence){
+  const kind=el.dataset.deleteEvidence;
+  if(!confirm('Remove your encrypted '+kind.replaceAll('_',' ')+' document? Any existing approval for it will be revoked.'))return;
+  el.disabled=true;
+  try{await api('/api/provider-verification/document/'+encodeURIComponent(kind),{method:'DELETE'});message('Credential removed; review is now pending.');await studio();}
+  catch(err){message(err.message,true);el.disabled=false;}return;
+ }
+ if(el.dataset.verificationReview&&el.dataset.reviewBusiness&&el.dataset.reviewKind){
+  const decision=el.dataset.verificationReview,kind=el.dataset.reviewKind,businessId=Number(el.dataset.reviewBusiness);
+  const note=prompt('Review decision note (at least 12 characters; no private document details):');if(note===null)return;
+  if(note.trim().length<12)return message('A review note of 12 or more characters is required.',true);
+  let expiresAt=null;
+  if(decision==='approved'&&!['identity','business_info'].includes(kind)){
+   expiresAt=prompt('Credential expiration date (YYYY-MM-DD; must be within one year):');
+   if(expiresAt===null)return;
+   if(!/^\d{4}-\d{2}-\d{2}$/.test(expiresAt))return message('Enter a valid YYYY-MM-DD date.',true);
+   expiresAt+='T23:59:59.000Z';
+  }
+  if(!confirm('Record the '+decision+' decision for '+kind.replaceAll('_',' ')+'?'))return;
+  el.disabled=true;
+  try{await api('/api/provider-verification/review',{method:'POST',body:JSON.stringify({businessId,kind,decision,note,expiresAt})});message('Review decision recorded.');await showVerificationQueue();}
+  catch(err){message(err.message,true);}finally{el.disabled=false;}return;
+ }
  if(el.dataset.book){
   if(!state.me?.user){showLogin();message('Please log in to book a service.');return;}
   if(state.me.user.role!=='customer'){message('Only customer accounts can book services.',true);return;}
@@ -214,12 +271,18 @@ async function act(e){
  if(el.dataset.complete){try{await api('/api/bookings/'+Number(el.dataset.complete)+'/complete',{method:'POST'});message('Job marked completed.');refresh();}catch(err){message(err.message,true);}return;}
 }
 async function submit(e){
- if(!['register-form','login-form','listing-form','forgot-form','reset-form','change-password-form'].includes(e.target.id))return;
+ if(!['register-form','login-form','listing-form','forgot-form','reset-form','change-password-form','credential-upload-form'].includes(e.target.id))return;
  e.preventDefault();
  const form=e.target,d=Object.fromEntries(new FormData(form).entries());
  const err=$('form-error');err.textContent='';
  const submit=form.querySelector('button[type=submit]');submit.disabled=true;
  try{
+  if(form.id==='credential-upload-form'){
+   const file=form.querySelector('[name=document]').files[0];
+   if(!file||file.size>2*1024*1024||file.size<24)throw Error('Choose a PDF, PNG, or JPEG between 24 bytes and 2 MB.');
+   const response=await api('/api/provider-verification/document',{method:'POST',headers:{'Content-Type':'application/octet-stream','x-evidence-kind':String(d.kind)},body:await file.arrayBuffer()});
+   message('Document received, encrypted, and awaiting manual review.');
+  }
   if(form.id==='register-form'){const r=await api('/api/register',{method:'POST',body:JSON.stringify(d)});message(r.email_verification_required?'Account created. Check your email for a verification link.':'Account created. Email verification will be available when delivery is configured.');}
   if(form.id==='login-form'){await api('/api/login',{method:'POST',body:JSON.stringify(d)});message('Signed in successfully.');}
   if(form.id==='change-password-form'){const r=await api('/api/auth/change-password',{method:'POST',body:JSON.stringify({currentPassword:d.currentPassword,newPassword:d.newPassword})});state.me=null;message(r.message);}
