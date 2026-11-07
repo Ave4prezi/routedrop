@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - feature/book-free-pay-after-service
+      - feature/staging-support-dispute-resolution
   pull_request:
     branches:
       - routedrop-platform-beta
