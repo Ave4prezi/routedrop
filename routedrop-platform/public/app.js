@@ -151,7 +151,7 @@ function showRegistration(){
   ?'<h2 id="modal-title">Become a founding RouteDrop partner</h2><p>List your services, reach local customers, and pay an 8% platform fee only when a service payment succeeds. No required monthly membership fee during this early-access pilot.</p><p class="muted">Registration does not activate bookings or payouts. Verification and platform launch approval are required first. Do not submit genuine identity documents during the testing-only phase.</p>'
   :'<h2 id="modal-title">Create your account</h2><p>Join RouteDrop as a customer or service professional.</p>';
  const acknowledgement=partnerMode
-  ?'<div id="partner-consent" class="hidden"><label><input type="checkbox" name="pilotConsent" value="true" required> I understand this is early access, RouteDrop has not activated live payments, and additional verification may be required before bookings.</label></div>'
+  ?'<div id="partner-consent" class="hidden"><label><input type="checkbox" name="pilotConsent" value="true"> I understand this is early access, RouteDrop has not activated live payments, and additional verification may be required before bookings.</label></div>'
   :'';
  overlay(intro+'<form id="register-form"><label>Account type</label><select name="role" id="register-role"><option value="customer">Customer</option><option value="business">Business owner</option></select><label>Your full name</label><input name="name" minlength="2" maxlength="90" required autocomplete="name"><label>Email address</label><input name="email" type="email" maxlength="254" required><label>Password (12+ characters)</label><input name="password" type="password" minlength="12" maxlength="128" required autocomplete="new-password"><div id="business-fields" class="hidden"><label>Business name</label><input name="businessName" maxlength="120"><label>City</label><input name="city" maxlength="100" value="Decatur, AL"><label>Primary service category</label><select name="category">'+categoryOptions()+'</select></div>'+acknowledgement+'<p class="legal">Use a unique password. Email verification and payment setup may be required before bookings.</p><p id="form-error" class="error"></p><button type="submit" class="btn">'+(partnerMode?'Join early access':'Register')+'</button></form>');
 }
@@ -311,6 +311,7 @@ async function init(){
  $('close-modal').addEventListener('click',dismiss);
  $('modal').addEventListener('click',e=>{if(e.target.id==='modal')dismiss();});
  $('search').addEventListener('input',renderOffers);
+ $('category').innerHTML='<option value="">All services</option>'+categoryOptions();
  $('category').addEventListener('change',renderOffers);
  try {
   state.config=await api('/api/config');
