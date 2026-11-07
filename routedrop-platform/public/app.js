@@ -154,8 +154,9 @@ async function showSupportReviews(){
 }
 function showRegistration(){
  const partnerMode=state.config?.provider_verification===true;
+ const previewOnly=state.config?.private_preview===true;
  const intro=partnerMode
-  ?'<h2 id="modal-title">Become a founding RouteDrop partner</h2><p>List your services, reach local customers, and pay an 8% platform fee only when a service payment succeeds. No required monthly membership fee during this early-access pilot.</p><p class="muted">Registration does not activate bookings or payouts. Verification and platform launch approval are required first. Do not submit genuine identity documents during the testing-only phase.</p>'
+  ?'<h2 id="modal-title">'+(previewOnly?'Private preview: fictional business':'Become a founding RouteDrop partner')+'</h2><p>Explore the founding partner setup with an 8% platform fee concept; no required monthly membership during early access.</p><p class="muted">'+(previewOnly?'Use only invented names, company details and example.test or example.invalid email addresses. Never upload real identity, license or insurance documents. No real bookings or payments are available.':'Registration does not activate bookings or payouts. Verification and platform launch approval are required first.')+'</p>'
   :'<h2 id="modal-title">Create your account</h2><p>Join RouteDrop as a customer or service professional.</p>';
  const acknowledgement=partnerMode
   ?'<div id="partner-consent" class="hidden"><label><input type="checkbox" name="pilotConsent" value="true"> I understand this is early access, RouteDrop has not activated live payments, and additional verification may be required before bookings.</label></div>'
@@ -326,7 +327,8 @@ async function init(){
   const actionParams=new URLSearchParams(location.search);
   if(actionParams.has('reset')){const token=actionParams.get('reset');history.replaceState(null,'',location.pathname);showResetPassword(token);}
   else if(actionParams.has('verify')){const token=actionParams.get('verify');history.replaceState(null,'',location.pathname);await verifyEmailToken(token);}
-  if(!state.config.database)message('Private beta: an isolated database must be connected before registration and bookings can work.');
+  if(state.config.private_preview)message('Password-protected fictional preview. No real names, emails, documents, bookings, or payments.');
+ else if(!state.config.database)message('Private beta: an isolated database must be connected before registration and bookings can work.');
   else if(!state.config.payments)message('Accounts and listings enabled. Stripe payments and payouts are not yet configured.');
   if(new URLSearchParams(location.search).has('card'))message('Returned from secure card setup. Your free booking appears after Stripe confirms the saved card.');
   if(new URLSearchParams(location.search).has('recovery'))message('Returned from secure payment recovery. Your booking status updates only after Stripe confirms payment.');
