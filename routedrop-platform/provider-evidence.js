@@ -2,6 +2,7 @@
 // Staging-only encrypted evidence store. Never persist plaintext ID or policy documents.
 const crypto=require('node:crypto');
 const express=require('express');
+const rateLimit=require('express-rate-limit');
 const security=require('./document-security');
 const MAX_BYTES=2*1024*1024;
 const MIN_BYTES=24;
@@ -10,7 +11,8 @@ const schema=[
  "CREATE TABLE IF NOT EXISTS provider_verification_documents (business_id BIGINT NOT NULL, kind TEXT NOT NULL, mime TEXT NOT NULL CHECK(mime IN ('application/pdf','image/jpeg','image/png')), nonce BYTEA NOT NULL CHECK(octet_length(nonce)=12), tag BYTEA NOT NULL CHECK(octet_length(tag)=16), ciphertext BYTEA NOT NULL, size_bytes INTEGER NOT NULL CHECK(size_bytes BETWEEN 24 AND 2097152), uploaded_at TIMESTAMPTZ NOT NULL DEFAULT now(), PRIMARY KEY(business_id,kind), FOREIGN KEY(business_id,kind) REFERENCES provider_verifications(business_id,kind) ON DELETE CASCADE)",
  "CREATE TABLE IF NOT EXISTS provider_verification_audit (id BIGSERIAL PRIMARY KEY, business_id BIGINT NOT NULL REFERENCES businesses(id) ON DELETE CASCADE, kind TEXT NOT NULL, actor_user_id BIGINT NOT NULL REFERENCES users(id), action TEXT NOT NULL CHECK(action IN ('upload','review_approved','review_rejected','download','removed','category_approved','revoked')), created_at TIMESTAMPTZ NOT NULL DEFAULT now())",
  "CREATE INDEX IF NOT EXISTS provider_verification_audit_recent ON provider_verification_audit(business_id,created_at DESC)",
- "ALTER TABLE provider_verification_documents ADD COLUMN IF NOT EXISTS key_id TEXT NOT NULL DEFAULT 'legacy'"
+ "ALTER TABLE provider_verification_documents ADD COLUMN IF NOT EXISTS key_id TEXT NOT NULL DEFAULT 'legacy'",
+ "CREATE TABLE IF NOT EXISTS provider_document_maintenance_log (id BIGSERIAL PRIMARY KEY, operation TEXT NOT NULL CHECK(operation IN ('key_rotation','retention_cleanup')), items_affected INTEGER NOT NULL CHECK(items_affected>0), occurred_at TIMESTAMPTZ NOT NULL DEFAULT now())"
 ];
 function getKey(value=process.env.ROUTEDROP_PROVIDER_DOC_KEY_B64){
  if(typeof value!=='string'||!/^[A-Za-z0-9+/]{43}=$/.test(value))
@@ -80,7 +82,8 @@ async function upload(pool,{ownerId,kind,bytes,key,keyId='legacy'}){
  }catch(e){await client.query('ROLLBACK').catch(()=>{});throw e;}finally{client.release();}
 }
 function install(app,{pool,business,reviewer,safe,forbidden}){
- app.post('/api/provider-verification/document',...business,express.raw({type:'application/octet-stream',limit:'2mb'}),safe(async(req,res)=>{
+ const uploadLimiter=rateLimit({windowMs:60*60*1000,limit:10,standardHeaders:'draft-7',legacyHeaders:false});
+ app.post('/api/provider-verification/document',...business,uploadLimiter,express.raw({type:'application/octet-stream',limit:'2mb'}),safe(async(req,res)=>{
   let keyring;
   try{keyring=loadKeyring();}catch(e){return forbidden(res,'Secure document storage is not configured.',503);}
   const kind=String(req.get('x-evidence-kind')||'');
