@@ -381,7 +381,8 @@ app.get('/api/me',requireDb,safe(async(req,res)=>{
   business=r.rows[0]||null;
  }
  const support_agent=(deferredEnabled||previewOnly) && (await pool.query('SELECT 1 FROM deferred_support_agents WHERE user_id=$1',[req.user.id])).rowCount>0;
- res.json({user:req.user,business,support_agent});
+ const document_reviewer=verificationEnabled && (await pool.query('SELECT 1 FROM provider_document_reviewers WHERE user_id=$1',[req.user.id])).rowCount>0;
+ res.json({user:req.user,business,support_agent,document_reviewer});
 }));
 app.get('/api/listings',requireDb,safe(async(req,res)=>{
  const oldFilter="SELECT l.id,l.title,l.category,l.neighborhood,l.price_cents,l.slot_start,l.duration_minutes,b.name AS business_name,b.city FROM listings l JOIN businesses b ON b.id=l.business_id WHERE l.status='active' AND l.slot_start>now() AND NOT EXISTS(SELECT 1 FROM bookings k WHERE k.listing_id=l.id AND k.status IN ('awaiting_payment','paid','completed'))";

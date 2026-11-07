@@ -22,7 +22,7 @@ function overlay(content){$('modal-body').innerHTML=content;$('modal').classList
 function dismiss(){$('modal').classList.add('hidden');$('modal-body').innerHTML='';}
 function nav(){
  const u=state.me?.user;
- $('nav-account').innerHTML=u?'<span class="muted">'+esc(u.full_name)+'</span>'+(state.config?.email_enabled&&!u.email_verified?'<button data-action="verify-email">Verify email</button>':'')+(state.me?.support_agent?'<button data-action="support-reviews">Support reviews</button>':'')+(state.config?.provider_verification&&state.me?.support_agent?'<button data-action="verification-reviews">Provider reviews</button>':'')+'<button data-action="change-password">Change password</button><button data-action="logout">Log out</button>':'<button data-action="login">Log in</button><button data-action="register">Sign up</button>';
+ $('nav-account').innerHTML=u?'<span class="muted">'+esc(u.full_name)+'</span>'+(state.config?.email_enabled&&!u.email_verified?'<button data-action="verify-email">Verify email</button>':'')+(state.me?.support_agent?'<button data-action="support-reviews">Support reviews</button>':'')+(state.config?.provider_verification&&state.me?.document_reviewer?'<button data-action="verification-reviews">Provider reviews</button>':'')+'<button data-action="change-password">Change password</button><button data-action="logout">Log out</button>':'<button data-action="login">Log in</button><button data-action="register">Sign up</button>';
 }
 function switchTab(tab){
  state.tab=tab;
@@ -131,7 +131,7 @@ function verificationPanel(v){
  '<p class="muted">Required for your primary category: '+esc(v.requirements.join(', '))+'. Other listing categories may have additional requirements. Do not upload ID numbers in text fields.</p>'+
  v.requirements.map(kind=>{
   const d=existing[kind],status=d?.status||'missing',expiry=d?.expires_at?' · expires '+new Date(d.expires_at).toLocaleDateString():'';
-  return '<div class="record"><div><strong>'+esc(kind.replaceAll('_',' '))+'</strong><p class="muted">'+esc(status)+esc(expiry)+(d?.has_document?' · encrypted document on file':'')+'</p></div>'+
+  return '<div class="record"><div><strong>'+esc(kind.replaceAll('_',' '))+'</strong><p class="muted">'+esc(status)+esc(expiry)+(d?.has_document?' · encrypted document on file':'')+'</p>'+(status==='rejected'?'<p class="bad">Reason: '+esc(d.rejection_reason||'Please submit a valid replacement document.')+'</p>':'')+'</div>'
    (d?.has_document?'<button class="btn secondary" data-delete-evidence="'+esc(kind)+'">Remove</button>':'')+'</div>';
  }).join('')+
  (v.manualReview?'<p class="muted">This service category also requires a separate policy review.</p>':'')+
