@@ -29,7 +29,9 @@ test('reject EICAR signature, active PDF actions, and invalid file lengths',()=>
 });
 test('test ClamAV INSTREAM socket protocol and fail closed on detection',async()=>{
  let readLength=0;
+ const sockets=new Set();
  const scanner=net.createServer({allowHalfOpen:true},socket=>{
+  sockets.add(socket);socket.on('close',()=>sockets.delete(socket));
   const chunks=[];
   socket.on('data',part=>chunks.push(part));
   socket.on('end',()=>{
@@ -51,12 +53,14 @@ test('test ClamAV INSTREAM socket protocol and fail closed on detection',async()
    ROUTEDROP_DOC_SCAN_PORT:String(scanner.address().port)
   }),{synthetic:false,scanned:true});
  }finally{
+  for(const socket of sockets)socket.destroy();
   await new Promise(resolve=>scanner.close(resolve));
  }
- const rejector=net.createServer({allowHalfOpen:true},socket=>socket.on('end',()=>socket.end('stream: Eicar-Test-Signature FOUND\n')));
+ const rejectSockets=new Set();
+ const rejector=net.createServer({allowHalfOpen:true},socket=>{rejectSockets.add(socket);socket.on('close',()=>rejectSockets.delete(socket));socket.on('end',()=>socket.end('stream: Eicar-Test-Signature FOUND\\n'.replace('\\\\n','\\n')));});
  await new Promise(resolve=>rejector.listen(0,'127.0.0.1',resolve));
  try{await assert.rejects(security.scanWithClamAV(pdf,{host:'127.0.0.1',port:rejector.address().port}),/rejected/);}
- finally{await new Promise(resolve=>rejector.close(resolve));}
+ finally{for(const socket of rejectSockets)socket.destroy();await new Promise(resolve=>rejector.close(resolve));}
 });
 test('keyring keeps old encryption keys for decryption and chooses active new key',()=>{
  const old=crypto.randomBytes(32),next=crypto.randomBytes(32);
