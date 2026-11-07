@@ -36,6 +36,7 @@ const schema=[
  "CREATE TABLE IF NOT EXISTS provider_verifications (business_id BIGINT NOT NULL REFERENCES businesses(id) ON DELETE CASCADE, kind TEXT NOT NULL CHECK(kind IN ('identity','business_info','driver_license','auto_insurance','liability_insurance','professional_license')), status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','approved','rejected')), evidence_reference TEXT, review_note TEXT, expires_at TIMESTAMPTZ, reviewed_by BIGINT REFERENCES users(id), reviewed_at TIMESTAMPTZ, updated_at TIMESTAMPTZ NOT NULL DEFAULT now(), PRIMARY KEY(business_id,kind))",
  "CREATE TABLE IF NOT EXISTS provider_category_reviews (business_id BIGINT NOT NULL REFERENCES businesses(id) ON DELETE CASCADE, category TEXT NOT NULL, approved BOOLEAN NOT NULL DEFAULT false, review_note TEXT, reviewed_by BIGINT REFERENCES users(id), reviewed_at TIMESTAMPTZ, PRIMARY KEY(business_id,category))",
  "CREATE INDEX IF NOT EXISTS provider_verifications_expiry ON provider_verifications(status,expires_at)",
+ "CREATE TABLE IF NOT EXISTS provider_document_reviewers (user_id BIGINT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE, granted_at TIMESTAMPTZ NOT NULL DEFAULT now())",
  ...evidence.schema
 ];
 async function statusForBusiness(db,businessId,category){
@@ -60,7 +61,7 @@ function install(app,{pool,enabled,requireDb,requireUser,safe,forbidden}){
  const business=[gate,requireDb,requireUser('business')];
  const reviewer=[gate,requireDb,requireUser(),(req,res,next)=>{
   Promise.resolve().then(async()=>{
-   const isReviewer=await pool.query('SELECT 1 FROM deferred_support_agents WHERE user_id=$1',[req.user.id]);
+   const isReviewer=await pool.query('SELECT 1 FROM provider_document_reviewers WHERE user_id=$1',[req.user.id]);
    if(!isReviewer.rowCount)return forbidden(res,'Reviewer permission required.',403);
    next();
   }).catch(next);
