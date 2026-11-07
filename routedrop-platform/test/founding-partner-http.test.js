@@ -29,6 +29,12 @@ test('fictional partner: consent, signup, service listing, encrypted evidence, i
  const schema='routedrop_founding_partner_ci';
  const admin=new Pool({connectionString:process.env.ROUTEDROP_TEST_DATABASE_URL,ssl:false});
  let child,stderr='',exitCode=null;
+ const net=require('node:net');
+ const scanner=net.createServer({allowHalfOpen:true},socket=>{
+  socket.on('data',()=>{});
+  socket.on('end',()=>{socket.end('stream: OK\\0'.replace('\\\\0','\\0'));});
+ });
+ await new Promise(resolve=>scanner.listen(0,'127.0.0.1',resolve));
  try{
   await admin.query('CREATE SCHEMA '+schema);
   const port=await freePort(),base='http://127.0.0.1:'+port;
@@ -47,6 +53,9 @@ test('fictional partner: consent, signup, service listing, encrypted evidence, i
    ROUTEDROP_PROVIDER_DOC_KEY_B64:crypto.randomBytes(32).toString('base64'),
    STRIPE_SECRET_KEY:'sk_test_ci_fixture_no_network',
    STRIPE_WEBHOOK_SECRET:'whsec_ci_fixture',
+   ROUTEDROP_PROVIDER_DOC_SCAN_REQUIRED:'true',
+   ROUTEDROP_DOC_SCAN_HOST:'127.0.0.1',
+   ROUTEDROP_DOC_SCAN_PORT:String(scanner.address().port),
   };
   child=spawn(process.execPath,[path.resolve(__dirname,'../server.js')],{
    cwd:path.resolve(__dirname,'../..'),env,stdio:['ignore','pipe','pipe']
@@ -182,5 +191,6 @@ test('fictional partner: consent, signup, service listing, encrypted evidence, i
   }
   await admin.query('DROP SCHEMA IF EXISTS '+schema+' CASCADE').catch(()=>{});
   await admin.end();
+  await new Promise(resolve=>scanner.close(resolve));
  }
 });
