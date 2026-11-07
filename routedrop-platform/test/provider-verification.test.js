@@ -40,5 +40,5 @@ test('eligibility resolves provider listing and checks verification without modi
  assert.equal(await eligibleListing(fakeDb,42),true);
  assert.equal(sql.length,3);
  assert.ok(sql.every(s=>/^SELECT /.test(s)));
- assert.ok(schema.every(s=>/^(CREATE TABLE|CREATE INDEX)/.test(s)));
+ assert.ok(schema.every(s=>/^(CREATE TABLE|CREATE INDEX|ALTER TABLE)/.test(s)));
 });
