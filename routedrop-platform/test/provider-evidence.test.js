@@ -43,12 +43,11 @@ test('upload, reviewer-only download, approval, replacement and deletion using d
   await db.query('CREATE TABLE users (id BIGINT PRIMARY KEY)');
   await db.query('CREATE TABLE businesses (id BIGINT PRIMARY KEY,owner_id BIGINT NOT NULL REFERENCES users(id),name TEXT,category TEXT)');
   await db.query('CREATE TABLE listings (id BIGINT PRIMARY KEY,business_id BIGINT NOT NULL REFERENCES businesses(id),category TEXT)');
-  await db.query('CREATE TABLE deferred_support_agents (user_id BIGINT PRIMARY KEY REFERENCES users(id))');
   for(const query of verification.schema)await db.query(query);
   await db.query('INSERT INTO users(id) VALUES(1),(2),(3)');
   await db.query("INSERT INTO businesses(id,owner_id,name,category) VALUES(1,1,'CI Example Cleaning','Cleaning'),(2,3,'CI Other','Photography')");
   await db.query("INSERT INTO listings(id,business_id,category) VALUES(20,1,'Cleaning')");
-  await db.query('INSERT INTO deferred_support_agents(user_id) VALUES(2)');
+  await db.query('INSERT INTO provider_document_reviewers(user_id) VALUES(2)');
   const app=express();
   app.use(express.json({limit:'16kb'}));
   const forbidden=(res,msg,code=400)=>res.status(code).json({error:msg});
