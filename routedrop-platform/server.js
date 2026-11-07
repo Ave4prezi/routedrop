@@ -233,7 +233,7 @@ async function queueDeferredEmail(db,bookingId,kind) {
   [bookingId]);
  if(!query.rowCount)return;
  const b=query.rows[0],details={title:b.title,date:new Date(b.slot_start).toLocaleString('en-US',{timeZone:'America/Chicago',dateStyle:'medium',timeStyle:'short'})+' CT',amount:'USD '+(Number(b.price_cents)/100).toFixed(2),name:b.customer_name};
- const recipients={requested:['customer','business'],accepted:['customer'],declined:['customer'],completed:['customer'],disputed:['business'],paid:['customer','business'],failed:['customer','business'],refund:['customer','business'],refund_requested:['business'],refund_declined:['customer'],payment_dispute:['customer']};
+ const recipients={requested:['customer','business'],accepted:['customer'],declined:['customer'],completed:['customer'],disputed:['business'],paid:['customer','business'],failed:['customer','business'],refund:['customer','business'],refund_requested:['business'],refund_declined:['customer'],payment_dispute:['customer'],review_requested:['customer','business'],review_closed:['customer','business']};
  for(const side of recipients[kind]||[]){
   const category='deferred_'+(kind==='payment_dispute'?'dispute':kind)+'_'+side;
   if (notification(category,details))await enqueueNotification(db,'deferred-'+bookingId+'-'+category,b[side+'_email'],category,details);
@@ -368,7 +368,8 @@ app.get('/api/me',requireDb,safe(async(req,res)=>{
   const r=await pool.query('SELECT id,name,city,category, (stripe_account_id IS NOT NULL) AS stripe_connected FROM businesses WHERE owner_id=$1',[req.user.id]);
   business=r.rows[0]||null;
  }
- res.json({user:req.user,business});
+ const support_agent=deferredEnabled && (await pool.query('SELECT 1 FROM deferred_support_agents WHERE user_id=$1',[req.user.id])).rowCount>0;
+ res.json({user:req.user,business,support_agent});
 }));
 app.get('/api/listings',requireDb,safe(async(req,res)=>{
  const oldFilter="SELECT l.id,l.title,l.category,l.neighborhood,l.price_cents,l.slot_start,l.duration_minutes,b.name AS business_name,b.city FROM listings l JOIN businesses b ON b.id=l.business_id WHERE l.status='active' AND l.slot_start>now() AND NOT EXISTS(SELECT 1 FROM bookings k WHERE k.listing_id=l.id AND k.status IN ('awaiting_payment','paid','completed'))";
