@@ -286,6 +286,36 @@ function install(app, {pool,stripe,baseUrl,enabled,requireDb,requireUser,safe,li
   await queueDeferredEmail(pool,id,decision==='close_no_charge'?'review_closed':'review_requested').catch(err=>console.error('Deferred review notification unavailable',err.message));
   res.json({ok:true,status:decision==='close_no_charge'?'closed_no_charge':'awaiting_customer',message:decision==='close_no_charge'?'Dispute closed without a charge.':'Customer approval requested; payment remains blocked until the customer expressly reopens and confirms.'});
  }));
+ app.post('/api/deferred-bookings/:id/accept-resolution',...customer,safe(async(req,res)=>{
+  const id=Number(req.params.id);
+  if(!validId(id)||req.body?.acceptResolution!==true)return forbidden(res,'Customer must explicitly accept the resolution.',400);
+  const client=await pool.connect();
+  try{
+   await client.query('BEGIN');
+   const q=await client.query("SELECT d.id FROM deferred_bookings d JOIN deferred_dispute_reviews r ON r.booking_id=d.id WHERE d.id=$1 AND d.customer_id=$2 AND d.status='disputed' AND d.payment_intent_id IS NULL AND d.paid_at IS NULL AND r.state='awaiting_customer' FOR UPDATE OF d,r",[id,req.user.id]);
+   if(!q.rowCount){await client.query('ROLLBACK');return forbidden(res,'No approved resolution is awaiting your acceptance.',409);}
+   await client.query("UPDATE deferred_dispute_reviews SET state='customer_accepted',customer_accepted_at=now(),updated_at=now() WHERE booking_id=$1 AND state='awaiting_customer'",[id]);
+   const changed=await client.query("UPDATE deferred_bookings SET status='work_completed',dispute_reason=NULL WHERE id=$1 AND status='disputed' AND payment_intent_id IS NULL RETURNING id",[id]);
+   if(!changed.rowCount)throw Error('Booking changed before customer acceptance');
+   await client.query("INSERT INTO deferred_dispute_events(booking_id,actor_id,action) VALUES($1,$2,'customer_accepted')",[id,req.user.id]);
+   await client.query('COMMIT');
+  }catch(err){await client.query('ROLLBACK').catch(()=>{});throw err;}finally{client.release();}
+  res.json({ok:true,status:'work_completed',message:'You accepted the reviewed resolution. No charge was made. You must separately confirm the completed service and approve payment to proceed.'});
+ }));
+ app.post('/api/deferred-bookings/:id/decline-resolution',...customer,safe(async(req,res)=>{
+  const id=Number(req.params.id);
+  if(!validId(id))return forbidden(res,'Invalid booking.',400);
+  const client=await pool.connect();
+  try{
+   await client.query('BEGIN');
+   const q=await client.query("SELECT d.id FROM deferred_bookings d JOIN deferred_dispute_reviews r ON r.booking_id=d.id WHERE d.id=$1 AND d.customer_id=$2 AND d.status='disputed' AND d.payment_intent_id IS NULL AND r.state='awaiting_customer' FOR UPDATE OF d,r",[id,req.user.id]);
+   if(!q.rowCount){await client.query('ROLLBACK');return forbidden(res,'No proposed resolution is awaiting your decision.',409);}
+   await client.query("UPDATE deferred_dispute_reviews SET state='customer_declined',updated_at=now() WHERE booking_id=$1 AND state='awaiting_customer'",[id]);
+   await client.query("INSERT INTO deferred_dispute_events(booking_id,actor_id,action) VALUES($1,$2,'customer_declined')",[id,req.user.id]);
+   await client.query('COMMIT');
+  }catch(err){await client.query('ROLLBACK').catch(()=>{});throw err;}finally{client.release();}
+  res.json({ok:true,status:'disputed',message:'You declined the proposal. No payment will be collected while support reviews the issue.'});
+ }));
  app.get('/api/deferred-refunds',...read,safe(async(req,res)=>{
   const condition=req.user.role==='customer'?'r.customer_id=$1':'b.owner_id=$1';
   const q=await pool.query("SELECT r.id,r.booking_id,r.status,r.reason,r.requested_at,d.price_cents,l.title,l.slot_start FROM deferred_refund_requests r JOIN deferred_bookings d ON d.id=r.booking_id JOIN listings l ON l.id=d.listing_id JOIN businesses b ON b.id=l.business_id WHERE "+condition+" ORDER BY r.requested_at DESC LIMIT 100",[req.user.id]);
