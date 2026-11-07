@@ -69,7 +69,7 @@ function install(app,{pool,enabled,requireDb,requireUser,safe,forbidden}){
  app.get('/api/provider-verification/me',...business,safe(async(req,res)=>{
   const q=await pool.query('SELECT id,category FROM businesses WHERE owner_id=$1',[req.user.id]);
   if(!q.rowCount)return forbidden(res,'Business not found.',404);
-  res.json({businessId:q.rows[0].id,category:q.rows[0].category,verification:await statusForBusiness(pool,q.rows[0].id,q.rows[0].category)});
+  res.json({businessId:q.rows[0].id,category:q.rows[0].category,credentialKinds:TYPES,verification:await statusForBusiness(pool,q.rows[0].id,q.rows[0].category)});
  }));
  app.post('/api/provider-verification/submit',...business,safe(async(req,res)=>{
   const kind=String(req.body.kind||'');
