@@ -169,7 +169,7 @@ function install(app, {pool,stripe,baseUrl,enabled,requireDb,requireUser,safe,li
  const expire=()=>pool.query("UPDATE deferred_bookings SET status='canceled' WHERE status='awaiting_card' AND hold_expires_at<now()");
  app.get('/api/deferred-bookings',...read,safe(async(req,res)=>{
   const filter=req.user.role==='customer'?'d.customer_id=$1':'b.owner_id=$1';
-  const q=await pool.query("SELECT d.id,d.status,d.price_cents,d.fee_cents,d.created_at,d.dispute_reason,(SELECT r.state FROM deferred_dispute_reviews r WHERE r.booking_id=d.id) AS review_state,l.title,l.slot_start,l.neighborhood,b.name AS business_name FROM deferred_bookings d JOIN listings l ON l.id=d.listing_id JOIN businesses b ON b.id=l.business_id WHERE "+filter+" ORDER BY d.created_at DESC LIMIT 100",[req.user.id]);
+  const q=await pool.query("SELECT d.id,d.status,d.price_cents,d.fee_cents,d.created_at,d.dispute_reason,(SELECT r.state FROM deferred_dispute_reviews r WHERE r.booking_id=d.id) AS review_state,(SELECT r.resolution_note FROM deferred_dispute_reviews r WHERE r.booking_id=d.id) AS review_note,l.title,l.slot_start,l.neighborhood,b.name AS business_name FROM deferred_bookings d JOIN listings l ON l.id=d.listing_id JOIN businesses b ON b.id=l.business_id WHERE "+filter+" ORDER BY d.created_at DESC LIMIT 100",[req.user.id]);
   res.json({bookings:q.rows});
  }));
  app.post('/api/deferred-bookings',...customer,safe(async(req,res)=>{
