@@ -93,14 +93,21 @@ async function studio(){
  const b=state.me.business,r=await Promise.all([api('/api/my-listings'),api('/api/bookings')]);
  state.mine=r[0].listings;state.bookings=r[1].bookings;state.deferred=state.config.deferred_booking?(await api('/api/deferred-bookings')).bookings:[];state.refunds=state.config.deferred_booking?(await api('/api/deferred-refunds')).requests:[];
  const verificationData=state.config.provider_verification?(await api('/api/provider-verification/me')).verification:null;
- const subscription=await api('/api/business/subscription');
+
  const cancellations=await api('/api/business/cancellation-requests');
  const completed=state.bookings.filter(x=>x.status==='completed').concat(state.deferred.filter(x=>x.status==='paid'));
  const gross=completed.reduce((sum,x)=>sum+x.price_cents,0),fee=completed.reduce((sum,x)=>sum+x.fee_cents,0);
  $('studio-body').innerHTML=
  '<div class="panel"><div class="row"><div><h3>'+esc(b.name)+'</h3><div class="muted">'+esc(b.city)+' · '+esc(b.category)+'</div></div><span class="pill">'+(b.stripe_connected?'Stripe account started':'Payouts not connected')+'</span></div>'+
  '<div class="buttonrow"><button class="btn" data-action="create-listing">+ Post available slot</button><button class="btn secondary" data-action="connect-stripe">'+(b.stripe_connected?'Continue Stripe onboarding':'Connect payouts')+'</button></div><p class="muted">Payment availability requires your Stripe onboarding to be completed and the RouteDrop platform to activate payments.</p></div>'+
- '<div class="panel"><h3>Business membership · $79/month</h3><p class="muted">Subscription status: '+esc(subscription.status)+(subscription.current_period_end?' · Next period: '+new Date(subscription.current_period_end*1000).toLocaleDateString('en-US'):'')+(subscription.last_invoice_status==='payment_failed'?' · Payment failed: update billing details':'')+(subscription.cancel_at_period_end?' (cancels at period end)':'')+'</p><div class="buttonrow"><button class="btn" data-action="subscribe">Subscribe · $79/month</button><button class="btn secondary" data-action="manage-subscription">Manage billing</button></div><p class="muted">Stripe sandbox only. Membership is not yet required to accept bookings.</p></div>'+
+ '<div class="panel"><h3>Founding partner onboarding</h3><p class="muted">RouteDrop takes 8% of successful completed-service payments. No required monthly membership during early access. Registration and listing setup do not activate live payments.</p>'+
+ '<div class="record"><div><strong>1. Register your business</strong><p class="muted">Complete · '+esc(b.name)+' in '+esc(b.city)+'</p></div></div>'+
+ '<div class="record"><div><strong>2. Review service credentials</strong><p class="muted">'+(state.config.provider_verification?(verificationData.eligible?'Required checks reviewed':'Verification pending. Use synthetic documents only during testing.'):'Verification will open for approved pilot partners.')+'</p></div></div>'+
+ '<div class="record"><div><strong>3. Set up Stripe payouts</strong><p class="muted">'+(b.stripe_connected?'Stripe account linked (payout readiness requires separate verification).':'Payout onboarding not completed.')+'</p></div></div>'+
+ '<div class="record"><div><strong>4. Publish an available service</strong><p class="muted">'+(state.mine.length?'Listing drafted; eligible services appear after verification.':'Create a service listing with a clear price, location and opening.')+'</p></div></div>'+
+ '<div class="record"><div><strong>5. RouteDrop launch approval</strong><p class="muted">Pending. Real bookings and payments are unavailable until activation.</p></div></div>'+
+ '<p class="muted">For services requiring driving or regulated work, RouteDrop may request additional insurance or licensing before approval.</p>'+
+ '<div class="buttonrow"><button class="btn secondary" data-action="upload-credential" '+(state.config.provider_verification?'':'disabled')+'>View document requirements</button></div></div>'+
  '<div class="panel"><h3>Cancellation and refund requests</h3><p class="muted">Full refunds are guaranteed for eligible cancellations requested 24+ hours before service. Late requests are discretionary. Approvals issue a real Stripe refund in the configured payment mode.</p>'+(cancellations.requests.length?cancellations.requests.map(x=>'<div class="record"><div><strong>'+esc(x.title)+'</strong><p>'+when(x.slot_start)+' · '+esc(x.reason)+'</p><p class="muted">Booking #'+x.booking_id+' · '+esc(x.status)+' · '+(x.eligible_full_refund?'24-hour full-refund policy':'Late / discretionary')+'</p>'+(x.refund_amount_cents?'<p>Refund amount: '+money(x.refund_amount_cents)+'</p>':'')+'</div><div>'+(x.status==='pending'?'<button class="btn" data-request-id="'+x.id+'" data-decision="approve">Approve full refund</button>'+(x.eligible_full_refund?'':'<button class="btn secondary" data-request-id="'+x.id+'" data-decision="decline">Decline</button>'):'<strong>'+esc(x.status)+'</strong>')+'</div></div>').join(''):'<p class="muted">No cancellation requests.</p>')+'</div>'+
  '<div class="panel"><h3>Revenue snapshot</h3><div class="row"><div><small>Completed bookings</small><h2>'+completed.length+'</h2></div><div><small>Gross value</small><h2>'+money(gross)+'</h2></div><div><small>Platform fees (8%)</small><h2>'+money(fee)+'</h2></div></div></div>'+
  '<div class="panel"><h3>My route openings</h3>'+(state.mine.length?state.mine.map(x=>'<div class="record"><div><strong>'+esc(x.title)+'</strong><p>'+esc(x.neighborhood)+' · '+when(x.slot_start)+'</p></div><strong>'+money(x.price_cents)+'</strong></div>').join(''):'<p class="muted">No openings published yet.</p>')+'</div>'+
@@ -124,7 +131,7 @@ function verificationPanel(v){
 }
 async function showVerificationUpload(){
  const r=await api('/api/provider-verification/me');
- overlay('<h2 id="modal-title">Secure provider document submission</h2><p class="muted">Submit a PDF, PNG, or JPEG up to 2 MB. The document is encrypted and available only to authorized reviewers. Avoid uploading unrelated personal information.</p>'+
+ overlay('<h2 id="modal-title">Secure provider document submission</h2><p class="muted">TESTING ONLY: use fictional sample PDF, PNG, or JPEG files up to 2 MB. This prototype is not yet cleared to accept real driver licenses, identification or insurance documents.</p>'+
  '<form id="credential-upload-form"><label>Document type</label><select name="kind">'+r.credentialKinds.map(x=>'<option value="'+esc(x)+'">'+esc(x.replaceAll('_',' '))+(r.verification.requirements.includes(x)?' (primary category requirement)':'')+'</option>').join('')+'</select>'+
  '<label>Document file</label><input type="file" name="document" accept=".pdf,.png,.jpg,.jpeg,application/pdf,image/png,image/jpeg" required>'+
  '<p id="form-error" class="bad"></p><button type="submit" class="btn">Submit securely for review</button></form>');
@@ -146,7 +153,14 @@ async function showSupportReviews(){
   '</div></div>').join(''):'<p class="muted">No pending unpaid disputes.</p>'));
 }
 function showRegistration(){
- overlay('<h2 id="modal-title">Create your account</h2><p>Join RouteDrop as a customer or service professional.</p><form id="register-form"><label>Account type</label><select name="role" id="register-role"><option value="customer">Customer</option><option value="business">Business owner</option></select><label>Your full name</label><input name="name" minlength="2" maxlength="90" required autocomplete="name"><label>Email address</label><input name="email" type="email" maxlength="254" required autocomplete="email"><label>Password (12+ characters)</label><input name="password" type="password" minlength="12" maxlength="128" required autocomplete="new-password"><div id="business-fields" class="hidden"><label>Business name</label><input name="businessName" maxlength="120"><label>City</label><input name="city" maxlength="100" value="Decatur, AL"><label>Service category</label><select name="category">'+categoryOptions()+'</select></div><p class="legal">Use a unique password. Verification will be required for payments when email delivery is enabled.</p><p id="form-error" class="error"></p><button type="submit" class="btn">Register</button></form>');
+ const partnerMode=state.config?.provider_verification===true;
+ const intro=partnerMode
+  ?'<h2 id="modal-title">Become a founding RouteDrop partner</h2><p>List your services, reach local customers, and pay an 8% platform fee only when a service payment succeeds. No required monthly membership fee during this early-access pilot.</p><p class="muted">Registration does not activate bookings or payouts. Verification and platform launch approval are required first. Do not submit genuine identity documents during the testing-only phase.</p>'
+  :'<h2 id="modal-title">Create your account</h2><p>Join RouteDrop as a customer or service professional.</p>';
+ const acknowledgement=partnerMode
+  ?'<div id="partner-consent" class="hidden"><label><input type="checkbox" name="pilotConsent" value="true"> I understand this is early access, RouteDrop has not activated live payments, and additional verification may be required before bookings.</label></div>'
+  :'';
+ overlay(intro+'<form id="register-form"><label>Account type</label><select name="role" id="register-role"><option value="customer">Customer</option><option value="business">Business owner</option></select><label>Your full name</label><input name="name" minlength="2" maxlength="90" required autocomplete="name"><label>Email address</label><input name="email" type="email" maxlength="254" required><label>Password (12+ characters)</label><input name="password" type="password" minlength="12" maxlength="128" required autocomplete="new-password"><div id="business-fields" class="hidden"><label>Business name</label><input name="businessName" maxlength="120"><label>City</label><input name="city" maxlength="100" value="Decatur, AL"><label>Primary service category</label><select name="category">'+categoryOptions()+'</select></div>'+acknowledgement+'<p class="legal">Use a unique password. Email verification and payment setup may be required before bookings.</p><p id="form-error" class="error"></p><button type="submit" class="btn">'+(partnerMode?'Join early access':'Register')+'</button></form>');
 }
 function showLogin(){
  overlay('<h2 id="modal-title">Welcome back</h2><p>Log in to your RouteDrop account.</p><form id="login-form"><label>Email</label><input type="email" name="email" maxlength="254" autocomplete="email" required><label>Password</label><input type="password" name="password" autocomplete="current-password" required><p id="form-error" class="error"></p><button class="btn" type="submit">Log in</button><button type="button" class="btn secondary" data-action="forgot-password">Forgot password?</button></form>');
@@ -172,6 +186,7 @@ async function act(e){
  if(el.dataset.tab){switchTab(el.dataset.tab);return;}
  const action=el.dataset.action;
  if(action==='register'){showRegistration();return;}
+ if(action==='register-business'){showRegistration();const selector=$('register-role');selector.value='business';selector.dispatchEvent(new Event('change',{bubbles:true}));return;}
  if(action==='login'){showLogin();return;}
  if(action==='create-listing'){showListing();return;}
  if(action==='support-reviews'){try{await showSupportReviews();}catch(err){message(err.message,true);}return;}
@@ -281,9 +296,9 @@ async function submit(e){
    const file=form.querySelector('[name=document]').files[0];
    if(!file||file.size>2*1024*1024||file.size<24)throw Error('Choose a PDF, PNG, or JPEG between 24 bytes and 2 MB.');
    const response=await api('/api/provider-verification/document',{method:'POST',headers:{'Content-Type':'application/octet-stream','x-evidence-kind':String(d.kind)},body:await file.arrayBuffer()});
-   message('Document received, encrypted, and awaiting manual review.');
+   message('Fictional test document received and awaiting manual review.');
   }
-  if(form.id==='register-form'){const r=await api('/api/register',{method:'POST',body:JSON.stringify(d)});message(r.email_verification_required?'Account created. Check your email for a verification link.':'Account created. Email verification will be available when delivery is configured.');}
+  if(form.id==='register-form'){if(d.role==='business'&&state.config?.provider_verification)d.pilotConsent=d.pilotConsent==='true';const r=await api('/api/register',{method:'POST',body:JSON.stringify(d)});message(r.email_verification_required?'Account created. Check your email for a verification link.':'Account created. Email verification will be available when delivery is configured.');}
   if(form.id==='login-form'){await api('/api/login',{method:'POST',body:JSON.stringify(d)});message('Signed in successfully.');}
   if(form.id==='change-password-form'){const r=await api('/api/auth/change-password',{method:'POST',body:JSON.stringify({currentPassword:d.currentPassword,newPassword:d.newPassword})});state.me=null;message(r.message);}
   if(form.id==='forgot-form'){const r=await api('/api/auth/forgot-password',{method:'POST',body:JSON.stringify({email:d.email})});message(r.message);}
@@ -300,10 +315,11 @@ async function init(){
  document.addEventListener('click',act);
  document.addEventListener('submit',submit);
  $('register-role')?.addEventListener('change',()=>{});
- $('modal').addEventListener('change',e=>{if(e.target.id==='register-role')$('business-fields').classList.toggle('hidden',e.target.value!=='business');});
+ $('modal').addEventListener('change',e=>{if(e.target.id==='register-role'){const isBusiness=e.target.value==='business';$('business-fields').classList.toggle('hidden',!isBusiness);const consent=$('partner-consent');if(consent){consent.classList.toggle('hidden',!isBusiness);consent.querySelector('input').required=isBusiness;}}});
  $('close-modal').addEventListener('click',dismiss);
  $('modal').addEventListener('click',e=>{if(e.target.id==='modal')dismiss();});
  $('search').addEventListener('input',renderOffers);
+ $('category').innerHTML='<option value="">All services</option>'+categoryOptions();
  $('category').addEventListener('change',renderOffers);
  try {
   state.config=await api('/api/config');

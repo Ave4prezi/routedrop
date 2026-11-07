@@ -321,6 +321,7 @@ app.post('/api/register',requireDb,authLimiter,safe(async(req,res)=>{
  const businessName=clean(req.body.businessName,120),city=clean(req.body.city,100),category=clean(req.body.category,40);
  if(!name||!isEmail(email)||password.length<12||password.length>128||!['customer','business'].includes(role))return forbidden(res,'Provide name, email, role, and a password of 12–128 characters.');
  if(role==='business' && (!businessName||!city||!category))return forbidden(res,'Complete the business details.');
+ if(role==='business' && verificationEnabled && req.body.pilotConsent!==true)return forbidden(res,'Confirm the founding partner early-access terms before registering.',400);
  const pw=await bcrypt.hash(password,12);
  const client=await pool.connect();
  try {
