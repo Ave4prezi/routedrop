@@ -34,18 +34,20 @@ test('upload, reviewer-only download, approval, replacement and deletion using d
  const admin=new Pool({connectionString:process.env.ROUTEDROP_TEST_DATABASE_URL,ssl:false});
  let db,server;
  process.env.ROUTEDROP_PROVIDER_DOC_KEY_B64=keyB64;
+ process.env.ROUTEDROP_PRIVATE_PREVIEW_ONLY='true';
+ process.env.ROUTEDROP_STAGING_LOCK='true';
+ process.env.ROUTEDROP_PROVIDER_DOCS_MODE='synthetic';
  try{
   await admin.query('CREATE SCHEMA '+schema);
   db=new Pool({connectionString:process.env.ROUTEDROP_TEST_DATABASE_URL,ssl:false,options:'-c search_path='+schema+',public',max:8});
   await db.query('CREATE TABLE users (id BIGINT PRIMARY KEY)');
   await db.query('CREATE TABLE businesses (id BIGINT PRIMARY KEY,owner_id BIGINT NOT NULL REFERENCES users(id),name TEXT,category TEXT)');
   await db.query('CREATE TABLE listings (id BIGINT PRIMARY KEY,business_id BIGINT NOT NULL REFERENCES businesses(id),category TEXT)');
-  await db.query('CREATE TABLE deferred_support_agents (user_id BIGINT PRIMARY KEY REFERENCES users(id))');
   for(const query of verification.schema)await db.query(query);
   await db.query('INSERT INTO users(id) VALUES(1),(2),(3)');
   await db.query("INSERT INTO businesses(id,owner_id,name,category) VALUES(1,1,'CI Example Cleaning','Cleaning'),(2,3,'CI Other','Photography')");
   await db.query("INSERT INTO listings(id,business_id,category) VALUES(20,1,'Cleaning')");
-  await db.query('INSERT INTO deferred_support_agents(user_id) VALUES(2)');
+  await db.query('INSERT INTO provider_document_reviewers(user_id) VALUES(2)');
   const app=express();
   app.use(express.json({limit:'16kb'}));
   const forbidden=(res,msg,code=400)=>res.status(code).json({error:msg});
@@ -97,5 +99,8 @@ test('upload, reviewer-only download, approval, replacement and deletion using d
   await admin.query('DROP SCHEMA IF EXISTS '+schema+' CASCADE').catch(()=>{});
   await admin.end();
   delete process.env.ROUTEDROP_PROVIDER_DOC_KEY_B64;
+  delete process.env.ROUTEDROP_PRIVATE_PREVIEW_ONLY;
+  delete process.env.ROUTEDROP_STAGING_LOCK;
+  delete process.env.ROUTEDROP_PROVIDER_DOCS_MODE;
  }
 });

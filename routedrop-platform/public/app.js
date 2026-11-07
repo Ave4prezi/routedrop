@@ -22,7 +22,7 @@ function overlay(content){$('modal-body').innerHTML=content;$('modal').classList
 function dismiss(){$('modal').classList.add('hidden');$('modal-body').innerHTML='';}
 function nav(){
  const u=state.me?.user;
- $('nav-account').innerHTML=u?'<span class="muted">'+esc(u.full_name)+'</span>'+(state.config?.email_enabled&&!u.email_verified?'<button data-action="verify-email">Verify email</button>':'')+(state.me?.support_agent?'<button data-action="support-reviews">Support reviews</button>':'')+(state.config?.provider_verification&&state.me?.support_agent?'<button data-action="verification-reviews">Provider reviews</button>':'')+'<button data-action="change-password">Change password</button><button data-action="logout">Log out</button>':'<button data-action="login">Log in</button><button data-action="register">Sign up</button>';
+ $('nav-account').innerHTML=u?'<span class="muted">'+esc(u.full_name)+'</span>'+(state.config?.email_enabled&&!u.email_verified?'<button data-action="verify-email">Verify email</button>':'')+(state.me?.support_agent?'<button data-action="support-reviews">Support reviews</button>':'')+(state.config?.provider_verification&&state.me?.document_reviewer?'<button data-action="verification-reviews">Provider reviews</button>':'')+'<button data-action="change-password">Change password</button><button data-action="logout">Log out</button>':'<button data-action="login">Log in</button><button data-action="register">Sign up</button>';
 }
 function switchTab(tab){
  state.tab=tab;
@@ -33,8 +33,17 @@ function switchTab(tab){
 async function refresh(){
  if(!state.config)return;
  if(!state.config.database){
-  $('offers').innerHTML=noSetup();$('offer-count').textContent='0 live listings';
-  $('my-bookings').innerHTML=noSetup();$('studio-body').innerHTML=noSetup();nav();return;
+  if(state.config.private_preview){
+   const sample='<div class="panel"><h3>Fictional founding-business preview</h3><p class="muted">This is a non-persistent demonstration. No real accounts, documents, customers or Stripe payments are connected.</p><div class="buttonrow"><button class="btn" data-action="demo-onboarding">Explore 5 onboarding steps</button></div></div>';
+   $('offers').innerHTML=sample;
+   $('offer-count').textContent='Fictional demo only';
+   $('my-bookings').innerHTML='<div class="panel"><h3>Customer booking protection</h3><p class="muted">Bookings remain blocked until the provider is approved and live payments are separately enabled. This preview cannot accept bookings.</p></div>';
+   $('studio-body').innerHTML=sample;
+  }else{
+   $('offers').innerHTML=noSetup();$('offer-count').textContent='0 live listings';
+   $('my-bookings').innerHTML=noSetup();$('studio-body').innerHTML=noSetup();
+  }
+  nav();return;
  }
  try{
   const who=await api('/api/me');state.me=who;nav();
@@ -122,7 +131,7 @@ function verificationPanel(v){
  '<p class="muted">Required for your primary category: '+esc(v.requirements.join(', '))+'. Other listing categories may have additional requirements. Do not upload ID numbers in text fields.</p>'+
  v.requirements.map(kind=>{
   const d=existing[kind],status=d?.status||'missing',expiry=d?.expires_at?' · expires '+new Date(d.expires_at).toLocaleDateString():'';
-  return '<div class="record"><div><strong>'+esc(kind.replaceAll('_',' '))+'</strong><p class="muted">'+esc(status)+esc(expiry)+(d?.has_document?' · encrypted document on file':'')+'</p></div>'+
+  return '<div class="record"><div><strong>'+esc(kind.replaceAll('_',' '))+'</strong><p class="muted">'+esc(status)+esc(expiry)+(d?.has_document?' · encrypted document on file':'')+'</p>'+(status==='rejected'?'<p class="bad">Reason: '+esc(d.rejection_reason||'Please submit a valid replacement document.')+'</p>':'')+'</div>'+
    (d?.has_document?'<button class="btn secondary" data-delete-evidence="'+esc(kind)+'">Remove</button>':'')+'</div>';
  }).join('')+
  (v.manualReview?'<p class="muted">This service category also requires a separate policy review.</p>':'')+
@@ -154,8 +163,9 @@ async function showSupportReviews(){
 }
 function showRegistration(){
  const partnerMode=state.config?.provider_verification===true;
+ const previewOnly=state.config?.private_preview===true;
  const intro=partnerMode
-  ?'<h2 id="modal-title">Become a founding RouteDrop partner</h2><p>List your services, reach local customers, and pay an 8% platform fee only when a service payment succeeds. No required monthly membership fee during this early-access pilot.</p><p class="muted">Registration does not activate bookings or payouts. Verification and platform launch approval are required first. Do not submit genuine identity documents during the testing-only phase.</p>'
+  ?'<h2 id="modal-title">'+(previewOnly?'Private preview: fictional business':'Become a founding RouteDrop partner')+'</h2><p>Explore the founding partner setup with an 8% platform fee concept; no required monthly membership during early access.</p><p class="muted">'+(previewOnly?'Use only invented names, company details and example.test or example.invalid email addresses. Never upload real identity, license or insurance documents. No real bookings or payments are available.':'Registration does not activate bookings or payouts. Verification and platform launch approval are required first.')+'</p>'
   :'<h2 id="modal-title">Create your account</h2><p>Join RouteDrop as a customer or service professional.</p>';
  const acknowledgement=partnerMode
   ?'<div id="partner-consent" class="hidden"><label><input type="checkbox" name="pilotConsent" value="true"> I understand this is early access, RouteDrop has not activated live payments, and additional verification may be required before bookings.</label></div>'
@@ -187,6 +197,15 @@ async function act(e){
  const action=el.dataset.action;
  if(action==='register'){showRegistration();return;}
  if(action==='register-business'){showRegistration();const selector=$('register-role');selector.value='business';selector.dispatchEvent(new Event('change',{bubbles:true}));return;}
+ if(action==='demo-onboarding'){
+  overlay('<h2 id="modal-title">RouteDrop founding partner preview</h2><p class="muted">Fictional example only. Interactive registration opens when the isolated preview database is connected.</p>'+
+   '<div class="record"><strong>1. Register a business</strong><p>Invented: Pine Ridge Cleaning · Decatur, AL · Cleaning</p></div>'+
+   '<div class="record"><strong>2. Submit required evidence</strong><p>Fictional identity, business details and liability-insurance sample files</p></div>'+
+   '<div class="record"><strong>3. Independent document review</strong><p>Reviewer inspects fictional files, records a decision and expiration date</p></div>'+
+   '<div class="record"><strong>4. Publish a service opening</strong><p>Example: Kitchen cleaning · $75 · future service slot</p></div>'+
+   '<div class="record"><strong>5. Activate after launch review</strong><p>8% fee on successful real payments once separately approved. No live payments here.</p></div>');
+  return;
+ }
  if(action==='login'){showLogin();return;}
  if(action==='create-listing'){showListing();return;}
  if(action==='support-reviews'){try{await showSupportReviews();}catch(err){message(err.message,true);}return;}
@@ -289,6 +308,7 @@ async function submit(e){
  if(!['register-form','login-form','listing-form','forgot-form','reset-form','change-password-form','credential-upload-form'].includes(e.target.id))return;
  e.preventDefault();
  const form=e.target,d=Object.fromEntries(new FormData(form).entries());
+ if(state.config?.private_preview&&!state.config?.database){const err=$('form-error');if(err)err.textContent='This preview is read-only until its isolated database is connected. Use the onboarding walkthrough for now.';return;}
  const err=$('form-error');err.textContent='';
  const submit=form.querySelector('button[type=submit]');submit.disabled=true;
  try{
@@ -326,7 +346,8 @@ async function init(){
   const actionParams=new URLSearchParams(location.search);
   if(actionParams.has('reset')){const token=actionParams.get('reset');history.replaceState(null,'',location.pathname);showResetPassword(token);}
   else if(actionParams.has('verify')){const token=actionParams.get('verify');history.replaceState(null,'',location.pathname);await verifyEmailToken(token);}
-  if(!state.config.database)message('Private beta: an isolated database must be connected before registration and bookings can work.');
+  if(state.config.private_preview)message('Password-protected fictional preview. No real names, emails, documents, bookings, or payments.');
+ else if(!state.config.database)message('Private beta: an isolated database must be connected before registration and bookings can work.');
   else if(!state.config.payments)message('Accounts and listings enabled. Stripe payments and payouts are not yet configured.');
   if(new URLSearchParams(location.search).has('card'))message('Returned from secure card setup. Your free booking appears after Stripe confirms the saved card.');
   if(new URLSearchParams(location.search).has('recovery'))message('Returned from secure payment recovery. Your booking status updates only after Stripe confirms payment.');

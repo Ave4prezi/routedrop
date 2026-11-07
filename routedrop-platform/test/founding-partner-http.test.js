@@ -29,6 +29,12 @@ test('fictional partner: consent, signup, service listing, encrypted evidence, i
  const schema='routedrop_founding_partner_ci';
  const admin=new Pool({connectionString:process.env.ROUTEDROP_TEST_DATABASE_URL,ssl:false});
  let child,stderr='',exitCode=null;
+ const net=require('node:net');
+ const scanner=net.createServer({allowHalfOpen:true},socket=>{
+  socket.on('data',()=>{});
+  socket.on('end',()=>{socket.end(Buffer.concat([Buffer.from('stream: OK'),Buffer.from([0])]));});
+ });
+ await new Promise(resolve=>scanner.listen(0,'127.0.0.1',resolve));
  try{
   await admin.query('CREATE SCHEMA '+schema);
   const port=await freePort(),base='http://127.0.0.1:'+port;
@@ -47,6 +53,9 @@ test('fictional partner: consent, signup, service listing, encrypted evidence, i
    ROUTEDROP_PROVIDER_DOC_KEY_B64:crypto.randomBytes(32).toString('base64'),
    STRIPE_SECRET_KEY:'sk_test_ci_fixture_no_network',
    STRIPE_WEBHOOK_SECRET:'whsec_ci_fixture',
+   ROUTEDROP_PROVIDER_DOC_SCAN_REQUIRED:'true',
+   ROUTEDROP_DOC_SCAN_HOST:'127.0.0.1',
+   ROUTEDROP_DOC_SCAN_PORT:String(scanner.address().port),
   };
   child=spawn(process.execPath,[path.resolve(__dirname,'../server.js')],{
    cwd:path.resolve(__dirname,'../..'),env,stdio:['ignore','pipe','pipe']
@@ -112,9 +121,9 @@ test('fictional partner: consent, signup, service listing, encrypted evidence, i
   try{
    const reviewer=await db.query("SELECT id FROM users WHERE email='taylor-reviewer@ci.invalid'");
    assert.equal(reviewer.rowCount,1);
-   await db.query('INSERT INTO deferred_support_agents(user_id) VALUES($1)',[reviewer.rows[0].id]);
+   await db.query('INSERT INTO provider_document_reviewers(user_id) VALUES($1)',[reviewer.rows[0].id]);
    const owner=await db.query("SELECT id FROM users WHERE email='morgan-sample@ci.invalid'");
-   await db.query('INSERT INTO deferred_support_agents(user_id) VALUES($1)',[owner.rows[0].id]);
+   await db.query('INSERT INTO provider_document_reviewers(user_id) VALUES($1)',[owner.rows[0].id]);
    const listingDate=new Date(Date.now()+2*86400000).toISOString();
    res=await partner.request('/api/listings',{method:'POST',body:{
     title:'Fictional kitchen cleaning',category:'Cleaning',neighborhood:'East Decatur',
@@ -128,7 +137,56 @@ test('fictional partner: consent, signup, service listing, encrypted evidence, i
     listingId,consent:true,termsVersion:'deferred-v1'
    }});
    assert.equal(res.status,409,'unverified booking blocked before any Stripe request');
-   for(const kind of ['identity','business_info','liability_insurance']){
+   // An uploaded logo is syntactically acceptable as PNG but must not be
+   // accepted as identity evidence by an independent reviewer.
+   const logoPng=Buffer.concat([
+    Buffer.from([137,80,78,71,13,10,26,10]),Buffer.alloc(32),
+    Buffer.from('IEND'),Buffer.alloc(4)
+   ]);
+   const rejectReason='Brand logo only: not valid government identity evidence.';
+   res=await partner.request('/api/provider-verification/document',{method:'POST',body:logoPng,kind:'identity'});
+   assert.equal(res.status,202,'logo sample reaches pending review but is not approved');
+   let queue=(await (await reviewUser.request('/api/provider-verification/review-queue')).json()).queue;
+   assert.ok(queue.some(x=>Number(x.business_id)===businessId&&x.kind==='identity'&&x.has_document),'reviewer queue displays uploaded logo');
+   res=await reviewUser.request('/api/provider-verification/review-document/'+businessId+'/identity');
+   assert.equal(res.status,200,'independent reviewer can inspect the synthetic logo');
+   assert.deepEqual(Buffer.from(await res.arrayBuffer()),logoPng);
+   res=await partner.request('/api/provider-verification/review',{method:'POST',body:{
+    businessId,kind:'identity',decision:'rejected',note:rejectReason
+   }});
+   assert.equal(res.status,403,'business cannot reject its own identity evidence even if a reviewer');
+   res=await reviewUser.request('/api/provider-verification/review',{method:'POST',body:{
+    businessId,kind:'identity',decision:'rejected',note:'Short'
+   }});
+   assert.equal(res.status,400,'short rejection notes are refused');
+   res=await reviewUser.request('/api/provider-verification/review',{method:'POST',body:{
+    businessId,kind:'identity',decision:'rejected',note:rejectReason
+   }});
+   assert.equal(res.status,200,'independent reviewer rejects logo');
+   let statusAfterReject=(await (await partner.request('/api/provider-verification/me')).json()).verification;
+   assert.equal(statusAfterReject.eligible,false);
+   assert.equal(statusAfterReject.documents.find(x=>x.kind==='identity').status,'rejected');
+   assert.equal(statusAfterReject.documents.find(x=>x.kind==='identity').rejection_reason,rejectReason,
+    'provider receives an actionable rejection reason');
+   assert.equal((await (await partner.request('/api/listings')).json()).listings.length,0,
+    'rejected logo must not unlock discoverable services');
+   queue=(await (await reviewUser.request('/api/provider-verification/review-queue')).json()).queue;
+   assert.equal(queue.some(x=>Number(x.business_id)===businessId&&x.kind==='identity'),false,
+    'rejected submissions leave the pending reviewer queue');
+   res=await reviewUser.request('/api/provider-verification/review',{method:'POST',body:{
+    businessId,kind:'identity',decision:'approved',note:'Try to approve rejected evidence'
+   }});
+   assert.equal(res.status,403,'rejected document cannot later be approved without resubmission');
+   res=await partner.request('/api/provider-verification/document',{method:'POST',body:doc,kind:'identity'});
+   assert.equal(res.status,202,'fictional replacement identity evidence submitted');
+   statusAfterReject=(await (await partner.request('/api/provider-verification/me')).json()).verification;
+   assert.equal(statusAfterReject.documents.find(x=>x.kind==='identity').status,'pending');
+   assert.equal(statusAfterReject.documents.find(x=>x.kind==='identity').rejection_reason,null,
+    'replacing the file clears prior rejection details');
+   queue=(await (await reviewUser.request('/api/provider-verification/review-queue')).json()).queue;
+   assert.ok(queue.some(x=>Number(x.business_id)===businessId&&x.kind==='identity'),
+    'resubmitted identity returns to independent reviewer queue');
+   for(const kind of ['business_info','liability_insurance']){
     res=await partner.request('/api/provider-verification/document',{method:'POST',body:doc,kind});
     assert.equal(res.status,202,'fictional '+kind+' accepted as pending');
    }
@@ -170,6 +228,7 @@ test('fictional partner: consent, signup, service listing, encrypted evidence, i
    const audit=await db.query('SELECT action FROM provider_verification_audit WHERE business_id=$1',[businessId]);
    assert.ok(audit.rows.some(x=>x.action==='download'));
    assert.ok(audit.rows.some(x=>x.action==='review_approved'));
+   assert.ok(audit.rows.some(x=>x.action==='review_rejected'), 'independent rejection is audited');
    assert.ok(audit.rows.some(x=>x.action==='revoked'));
    assert.equal((await db.query('SELECT COUNT(*)::int AS count FROM deferred_bookings')).rows[0].count,0,
     'no payment-bearing booking created');
@@ -182,5 +241,6 @@ test('fictional partner: consent, signup, service listing, encrypted evidence, i
   }
   await admin.query('DROP SCHEMA IF EXISTS '+schema+' CASCADE').catch(()=>{});
   await admin.end();
+  await new Promise(resolve=>scanner.close(resolve));
  }
 });

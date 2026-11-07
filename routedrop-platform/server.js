@@ -6,6 +6,7 @@ const cookieParser = require('cookie-parser');
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const { Pool } = require('pg');
+const {securePoolConnection} = require('./db-tls');
 const Stripe = require('stripe');
 const { normalizeSubscriptionEvent, invoiceEvent, selectSubscription, canStartSubscription, subscriptionView, securityPolicy } = require('./subscription-security');
 const { providerReady, emailLink, isActionToken, notification, deliverEmail } = require('./mail');
@@ -29,9 +30,14 @@ const emailReady = providerReady(process.env);
 const paymentsReady = !!(stripe && stripeWebhookSecret && paymentsApproved);
 // Explicitly test-only while the redesigned booking policy is under review.
 const deferredEnabled = process.env.ROUTEDROP_DEFERRED_BETA_ENABLED === 'true' && /^sk_test_/.test(stripeKey) && paymentsReady;
+// Dedicated, password-protected synthetic preview. Has no Stripe key or payment capability.
+const previewOnly = process.env.ROUTEDROP_PRIVATE_PREVIEW_ONLY === 'true' &&
+ process.env.ROUTEDROP_STAGING_LOCK === 'true' &&
+ process.env.ROUTEDROP_PROVIDER_DOCS_MODE === 'synthetic' &&
+ !stripeKey && process.env.ROUTEDROP_LIVE_APPROVED !== 'true';
 // Staging-only. Explicit opt-in; do not turn on for an existing deployment without migration/testing.
-const verificationEnabled = deferredEnabled && process.env.ROUTEDROP_PROVIDER_VERIFICATION_ENABLED === 'true';
-const pool = databaseUrl ? new Pool({ connectionString: databaseUrl, max: 5, idleTimeoutMillis: 30000, connectionTimeoutMillis: 10000, ssl: databaseUrl.includes('localhost') ? false : { rejectUnauthorized: false } }) : null;
+const verificationEnabled = (deferredEnabled || previewOnly) && process.env.ROUTEDROP_PROVIDER_VERIFICATION_ENABLED === 'true';
+const pool = databaseUrl ? new Pool(securePoolConnection(databaseUrl)) : null;
 const safe = fn => (req, res, next) => Promise.resolve(fn(req, res)).catch(next);
 const hash = value => crypto.createHash('sha256').update(value).digest('hex');
 const random = () => crypto.randomBytes(32).toString('hex');
@@ -90,7 +96,7 @@ const ddl = [
  "CREATE TABLE IF NOT EXISTS notification_outbox (id BIGSERIAL PRIMARY KEY, event_key TEXT UNIQUE NOT NULL, recipient TEXT NOT NULL, subject TEXT NOT NULL, body TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','sending','sent','failed')), attempts INTEGER NOT NULL DEFAULT 0, available_at TIMESTAMPTZ NOT NULL DEFAULT now(), sent_at TIMESTAMPTZ, last_error TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())",
  "CREATE INDEX IF NOT EXISTS notification_outbox_due ON notification_outbox(status,available_at)"
 ]; 
-if (deferredEnabled) ddl.push(...postService.sql);
+if (deferredEnabled || previewOnly) ddl.push(...postService.sql);
 if (verificationEnabled) ddl.push(...verification.schema);
 async function startDatabase() {
  if (!pool) return;
@@ -207,7 +213,7 @@ app.get('/api/config',(req,res)=>{
  if(!req.cookies.routedrop_csrf || !/^[a-f0-9]{64}$/.test(req.cookies.routedrop_csrf)){
   res.cookie('routedrop_csrf',random(),{secure:process.env.NODE_ENV==='production',httpOnly:false,sameSite:'lax',path:'/',maxAge:7*24*60*60*1000});
  }
- res.json({database:ready,payments:paymentsReady,status:ready?'beta':'setup_required',email_enabled:emailReady,payments_mode:liveKey?(paymentsApproved?'live':'live_locked'):'test',deferred_booking:deferredEnabled,provider_verification:verificationEnabled,public_url:baseUrl});
+ res.json({database:ready,payments:paymentsReady,status:ready?'beta':'setup_required',email_enabled:emailReady,payments_mode:liveKey?(paymentsApproved?'live':'live_locked'):'test',deferred_booking:deferredEnabled,provider_verification:verificationEnabled,private_preview:previewOnly,public_url:baseUrl});
 });
 async function issueEmailAction(userId,email,purpose) {
  if(!emailReady||!baseUrl)return false;
@@ -322,6 +328,7 @@ app.post('/api/register',requireDb,authLimiter,safe(async(req,res)=>{
  if(!name||!isEmail(email)||password.length<12||password.length>128||!['customer','business'].includes(role))return forbidden(res,'Provide name, email, role, and a password of 12–128 characters.');
  if(role==='business' && (!businessName||!city||!category))return forbidden(res,'Complete the business details.');
  if(role==='business' && verificationEnabled && req.body.pilotConsent!==true)return forbidden(res,'Confirm the founding partner early-access terms before registering.',400);
+ if(previewOnly && !/@(?:example\.test|example\.invalid|ci\.invalid)$/i.test(email))return forbidden(res,'Private preview accepts fictional example.test or example.invalid accounts only.',400);
  const pw=await bcrypt.hash(password,12);
  const client=await pool.connect();
  try {
@@ -373,8 +380,9 @@ app.get('/api/me',requireDb,safe(async(req,res)=>{
   const r=await pool.query('SELECT id,name,city,category, (stripe_account_id IS NOT NULL) AS stripe_connected FROM businesses WHERE owner_id=$1',[req.user.id]);
   business=r.rows[0]||null;
  }
- const support_agent=deferredEnabled && (await pool.query('SELECT 1 FROM deferred_support_agents WHERE user_id=$1',[req.user.id])).rowCount>0;
- res.json({user:req.user,business,support_agent});
+ const support_agent=(deferredEnabled||previewOnly) && (await pool.query('SELECT 1 FROM deferred_support_agents WHERE user_id=$1',[req.user.id])).rowCount>0;
+ const document_reviewer=verificationEnabled && (await pool.query('SELECT 1 FROM provider_document_reviewers WHERE user_id=$1',[req.user.id])).rowCount>0;
+ res.json({user:req.user,business,support_agent,document_reviewer});
 }));
 app.get('/api/listings',requireDb,safe(async(req,res)=>{
  const oldFilter="SELECT l.id,l.title,l.category,l.neighborhood,l.price_cents,l.slot_start,l.duration_minutes,b.name AS business_name,b.city FROM listings l JOIN businesses b ON b.id=l.business_id WHERE l.status='active' AND l.slot_start>now() AND NOT EXISTS(SELECT 1 FROM bookings k WHERE k.listing_id=l.id AND k.status IN ('awaiting_payment','paid','completed'))";
