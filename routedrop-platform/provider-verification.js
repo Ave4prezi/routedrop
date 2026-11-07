@@ -56,11 +56,13 @@ function validExpiry(kind,value){
 function install(app,{pool,enabled,requireDb,requireUser,safe,forbidden}){
  const gate=(req,res,next)=>enabled?next():forbidden(res,'Provider verification is not enabled.',503);
  const business=[gate,requireDb,requireUser('business')];
- const reviewer=[gate,requireDb,requireUser(),safe(async(req,res,next)=>{
-  const isReviewer=await pool.query('SELECT 1 FROM deferred_support_agents WHERE user_id=$1',[req.user.id]);
-  if(!isReviewer.rowCount)return forbidden(res,'Reviewer permission required.',403);
-  next();
- })];
+ const reviewer=[gate,requireDb,requireUser(),(req,res,next)=>{
+  Promise.resolve().then(async()=>{
+   const isReviewer=await pool.query('SELECT 1 FROM deferred_support_agents WHERE user_id=$1',[req.user.id]);
+   if(!isReviewer.rowCount)return forbidden(res,'Reviewer permission required.',403);
+   next();
+  }).catch(next);
+ }];
  app.get('/api/provider-verification/categories',gate,(req,res)=>res.json({groups,note:'Draft marketplace policy; regulated activities require separate legal review.'}));
  app.get('/api/provider-verification/me',...business,safe(async(req,res)=>{
   const q=await pool.query('SELECT id,category FROM businesses WHERE owner_id=$1',[req.user.id]);
