@@ -131,7 +131,7 @@ function verificationPanel(v){
 }
 async function showVerificationUpload(){
  const r=await api('/api/provider-verification/me');
- overlay('<h2 id="modal-title">Secure provider document submission</h2><p class="muted">TESTING ONLY: use fictional sample PDF, PNG, or JPEG files up to 2 MB. This prototype is not yet cleared to accept real driver's licenses, identification or insurance documents.</p>'+
+ overlay('<h2 id="modal-title">Secure provider document submission</h2><p class="muted">TESTING ONLY: use fictional sample PDF, PNG, or JPEG files up to 2 MB. This prototype is not yet cleared to accept real driver licenses, identification or insurance documents.</p>'+
  '<form id="credential-upload-form"><label>Document type</label><select name="kind">'+r.credentialKinds.map(x=>'<option value="'+esc(x)+'">'+esc(x.replaceAll('_',' '))+(r.verification.requirements.includes(x)?' (primary category requirement)':'')+'</option>').join('')+'</select>'+
  '<label>Document file</label><input type="file" name="document" accept=".pdf,.png,.jpg,.jpeg,application/pdf,image/png,image/jpeg" required>'+
  '<p id="form-error" class="bad"></p><button type="submit" class="btn">Submit securely for review</button></form>');
