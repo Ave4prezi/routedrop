@@ -78,7 +78,7 @@ test('fictional $75 service: $0 booking, saved test card, acceptance, completion
   const forbidden=(res,msg,code=400)=>res.status(code).json({error:msg});
   const requireUser=role=>(req,res,next)=>{
    const id=Number(req.get('x-ci-user'));
-   req.user=[1,2,3].includes(id)?{id,role:id===1?'business':'customer'}:null;
+   req.user=[1,2,3].includes(id)?{id,role:id===1?'business':'customer',email:id===1?'fictional-provider@ci.invalid':id===2?'fictional-customer@ci.invalid':'other-customer@ci.invalid'}:null;
    if(!req.user || (role&&req.user.role!==role))return forbidden(res,'Unauthorized',403);
    next();
   };
