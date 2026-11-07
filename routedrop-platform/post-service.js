@@ -237,12 +237,19 @@ function install(app, {pool,stripe,baseUrl,enabled,requireDb,requireUser,safe,li
   res.json({ok:true,status:'work_completed',message:'Customer must confirm completion before any charge.'});
  }));
  app.post('/api/deferred-bookings/:id/dispute',...customer,safe(async(req,res)=>{
-  const reason=typeof req.body.reason==='string'?req.body.reason.trim().slice(0,500):'';
-  if(reason.length<10)return forbidden(res,'Please describe the issue in at least 10 characters.',400);
-  const q=await pool.query("UPDATE deferred_bookings SET status='disputed',dispute_reason=$3 WHERE id=$1 AND customer_id=$2 AND status='work_completed' RETURNING id",[Number(req.params.id),req.user.id,reason]);
-  if(!q.rowCount)return forbidden(res,'This booking cannot be disputed from its current status.',409);
-  await queueDeferredEmail(pool,Number(req.params.id),'disputed').catch(err=>console.error('Deferred booking notification unavailable',err.message));
-  res.json({ok:true,status:'disputed',message:'No payment was initiated. Support review is required.'});
+  const id=Number(req.params.id),reason=typeof req.body?.reason==='string'?req.body.reason.trim().slice(0,500):'';
+  if(!validId(id)||reason.length<10)return forbidden(res,'Please describe the issue in at least 10 characters.',400);
+  const client=await pool.connect();
+  try{
+   await client.query('BEGIN');
+   const q=await client.query("UPDATE deferred_bookings SET status='disputed',dispute_reason=$3 WHERE id=$1 AND customer_id=$2 AND status='work_completed' AND payment_intent_id IS NULL RETURNING id",[id,req.user.id,reason]);
+   if(!q.rowCount){await client.query('ROLLBACK');return forbidden(res,'This booking cannot be disputed from its current status.',409);}
+   await client.query("INSERT INTO deferred_dispute_reviews(booking_id,state,original_reason) VALUES($1,'open',$2) ON CONFLICT(booking_id) DO UPDATE SET state='open',original_reason=EXCLUDED.original_reason,resolution_note=NULL,reviewed_by=NULL,reviewed_at=NULL,customer_accepted_at=NULL,updated_at=now()",[id,reason]);
+   await client.query("INSERT INTO deferred_dispute_events(booking_id,actor_id,action,note) VALUES($1,$2,'reported',$3)",[id,req.user.id,reason]);
+   await client.query('COMMIT');
+  }catch(err){await client.query('ROLLBACK').catch(()=>{});throw err;}finally{client.release();}
+  await queueDeferredEmail(pool,id,'disputed').catch(err=>console.error('Deferred booking notification unavailable',err.message));
+  res.json({ok:true,status:'disputed',message:'No payment was initiated. Independent support review is required.'});
  }));
  app.get('/api/deferred-refunds',...read,safe(async(req,res)=>{
   const condition=req.user.role==='customer'?'r.customer_id=$1':'b.owner_id=$1';
