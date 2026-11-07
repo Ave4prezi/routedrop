@@ -1,6 +1,7 @@
 'use strict';
 // Staging-only draft: policy checks are not a legal determination. No raw identity or
 // insurance documents are stored by this module. Reviewer approval is mandatory.
+const evidence=require('./provider-evidence');
 const groups={
  'Home & property':['Cleaning','Lawn care','Landscaping','Painting','Handyman','Pressure washing','Home repairs'],
  'Automotive':['Car detailing','Mobile car detailing','Car washing','Mobile mechanic','Tire service'],
@@ -34,11 +35,12 @@ function assess(category,records,manualApproved=false,at=Date.now()){
 const schema=[
  "CREATE TABLE IF NOT EXISTS provider_verifications (business_id BIGINT NOT NULL REFERENCES businesses(id) ON DELETE CASCADE, kind TEXT NOT NULL CHECK(kind IN ('identity','business_info','driver_license','auto_insurance','liability_insurance','professional_license')), status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','approved','rejected')), evidence_reference TEXT, review_note TEXT, expires_at TIMESTAMPTZ, reviewed_by BIGINT REFERENCES users(id), reviewed_at TIMESTAMPTZ, updated_at TIMESTAMPTZ NOT NULL DEFAULT now(), PRIMARY KEY(business_id,kind))",
  "CREATE TABLE IF NOT EXISTS provider_category_reviews (business_id BIGINT NOT NULL REFERENCES businesses(id) ON DELETE CASCADE, category TEXT NOT NULL, approved BOOLEAN NOT NULL DEFAULT false, review_note TEXT, reviewed_by BIGINT REFERENCES users(id), reviewed_at TIMESTAMPTZ, PRIMARY KEY(business_id,category))",
- "CREATE INDEX IF NOT EXISTS provider_verifications_expiry ON provider_verifications(status,expires_at)"
+ "CREATE INDEX IF NOT EXISTS provider_verifications_expiry ON provider_verifications(status,expires_at)",
+ ...evidence.schema
 ];
 async function statusForBusiness(db,businessId,category){
  const [records,manual]=await Promise.all([
-  db.query('SELECT kind,status,expires_at,reviewed_at FROM provider_verifications WHERE business_id=$1',[businessId]),
+  db.query('SELECT v.kind,v.status,v.expires_at,v.reviewed_at,EXISTS(SELECT 1 FROM provider_verification_documents d WHERE d.business_id=v.business_id AND d.kind=v.kind) AS has_document FROM provider_verifications v WHERE v.business_id=$1',[businessId]),
   db.query('SELECT approved FROM provider_category_reviews WHERE business_id=$1 AND category=$2',[businessId,category])
  ]);
  return {...assess(category,records.rows,manual.rows[0]?.approved===true),documents:records.rows};
@@ -72,8 +74,8 @@ function install(app,{pool,enabled,requireDb,requireUser,safe,forbidden}){
  app.post('/api/provider-verification/submit',...business,safe(async(req,res)=>{
   const kind=String(req.body.kind||'');
   const reference=String(req.body.reference||'').trim();
-  if(!TYPES.includes(kind)||reference.length<4||reference.length>120||/[\r\n]/.test(reference))
-   return forbidden(res,'Provide a short non-sensitive evidence reference; do not submit document numbers or card data.',400);
+  if(kind!=='business_info'||reference.length<4||reference.length>120||/[\r\n]/.test(reference))
+   return forbidden(res,'Only non-sensitive business information references are accepted here. Upload credential documents securely.',400);
   // A provider may request review but cannot set approved or reviewer fields.
   const q=await pool.query(
    "INSERT INTO provider_verifications(business_id,kind,status,evidence_reference,updated_at) SELECT id,$2,'pending',$3,now() FROM businesses WHERE owner_id=$1 ON CONFLICT(business_id,kind) DO UPDATE SET status='pending',evidence_reference=EXCLUDED.evidence_reference,reviewed_by=NULL,reviewed_at=NULL,review_note=NULL,expires_at=NULL,updated_at=now() RETURNING kind,status",
@@ -82,7 +84,7 @@ function install(app,{pool,enabled,requireDb,requireUser,safe,forbidden}){
   res.status(202).json({submission:q.rows[0],note:'Submitted for independent review; no verification has been granted.'});
  }));
  app.get('/api/provider-verification/review-queue',...reviewer,safe(async(req,res)=>{
-  const q=await pool.query("SELECT v.business_id,b.name,v.kind,v.status,v.evidence_reference,v.updated_at,b.owner_id FROM provider_verifications v JOIN businesses b ON b.id=v.business_id WHERE v.status='pending' ORDER BY v.updated_at LIMIT 100");
+  const q=await pool.query("SELECT v.business_id,b.name,v.kind,v.status,v.evidence_reference,v.updated_at,EXISTS(SELECT 1 FROM provider_verification_documents d WHERE d.business_id=v.business_id AND d.kind=v.kind) AS has_document FROM provider_verifications v JOIN businesses b ON b.id=v.business_id WHERE v.status='pending' AND b.owner_id<>$1 ORDER BY v.updated_at LIMIT 100",[req.user.id]);
   res.json({queue:q.rows});
  }));
  app.post('/api/provider-verification/review',...reviewer,safe(async(req,res)=>{
@@ -91,9 +93,9 @@ function install(app,{pool,enabled,requireDb,requireUser,safe,forbidden}){
    return forbidden(res,'Invalid review details.',400);
   if(decision==='approved'&&!validExpiry(kind,expiresAt))return forbidden(res,'A future expiry date (within one year) is required for insurance, driving and professional credentials.',400);
   const q=await pool.query(
-   "UPDATE provider_verifications v SET status=$3,review_note=$4,expires_at=$5,reviewed_by=$6,reviewed_at=now(),updated_at=now() FROM businesses b WHERE v.business_id=b.id AND v.business_id=$1 AND v.kind=$2 AND v.status='pending' AND b.owner_id<>$6 RETURNING v.business_id,v.kind,v.status",
+   "WITH reviewed AS (UPDATE provider_verifications v SET status=$3,review_note=$4,expires_at=$5,reviewed_by=$6,reviewed_at=now(),updated_at=now() FROM businesses b WHERE v.business_id=b.id AND v.business_id=$1 AND v.kind=$2 AND v.status='pending' AND b.owner_id<>$6 AND ($3='rejected' OR ((v.kind='business_info' AND v.evidence_reference IS NOT NULL) OR EXISTS(SELECT 1 FROM provider_verification_documents d WHERE d.business_id=v.business_id AND d.kind=v.kind))) RETURNING v.business_id,v.kind,v.status), logged AS (INSERT INTO provider_verification_audit(business_id,kind,actor_user_id,action) SELECT business_id,kind,$6,CASE WHEN status='approved' THEN 'review_approved' ELSE 'review_rejected' END FROM reviewed RETURNING id) SELECT reviewed.* FROM reviewed JOIN logged ON true",
    [id,kind,decision,note,decision==='approved'&&expiresAt?new Date(expiresAt).toISOString():null,req.user.id]);
-  if(!q.rowCount)return forbidden(res,'Submission not pending, not found, or self-review is prohibited.',403);
+  if(!q.rowCount)return forbidden(res,'Submission not pending, evidence missing, or self-review is prohibited.',403);
   res.json({review:q.rows[0]});
  }));
  app.post('/api/provider-verification/category-decision',...reviewer,safe(async(req,res)=>{
@@ -103,6 +105,15 @@ function install(app,{pool,enabled,requireDb,requireUser,safe,forbidden}){
   const q=await pool.query("INSERT INTO provider_category_reviews(business_id,category,approved,review_note,reviewed_by,reviewed_at) SELECT b.id,$2,true,$3,$4,now() FROM businesses b WHERE b.id=$1 AND b.owner_id<>$4 ON CONFLICT (business_id,category) DO UPDATE SET approved=true,review_note=EXCLUDED.review_note,reviewed_by=EXCLUDED.reviewed_by,reviewed_at=now() RETURNING business_id,category,approved",
    [id,category,note,req.user.id]);
   if(!q.rowCount)return forbidden(res,'Reviewer cannot approve their own business.',403);
+  res.json({review:q.rows[0]});
+ }));
+ evidence.install(app,{pool,business,reviewer,safe,forbidden});
+ app.post('/api/provider-verification/revoke',...reviewer,safe(async(req,res)=>{
+  const id=Number(req.body.businessId),kind=String(req.body.kind||''),note=String(req.body.note||'').trim();
+  if(!Number.isSafeInteger(id)||id<1||!TYPES.includes(kind)||note.length<12||note.length>500)
+   return forbidden(res,'Invalid revocation details.',400);
+  const q=await pool.query("WITH revoked AS (UPDATE provider_verifications v SET status='rejected',review_note=$3,expires_at=NULL,reviewed_by=$4,reviewed_at=now(),updated_at=now() FROM businesses b WHERE v.business_id=b.id AND v.business_id=$1 AND v.kind=$2 AND b.owner_id<>$4 RETURNING v.business_id,v.kind,v.status), logged AS (INSERT INTO provider_verification_audit(business_id,kind,actor_user_id,action) SELECT business_id,kind,$4,'revoked' FROM revoked RETURNING id) SELECT revoked.* FROM revoked JOIN logged ON true",[id,kind,note,req.user.id]);
+  if(!q.rowCount)return forbidden(res,'Credential not found or self-review is prohibited.',403);
   res.json({review:q.rows[0]});
  }));
 }
