@@ -1,7 +1,7 @@
 'use strict';
 (function(){
 const $=id=>document.getElementById(id);
-const state={config:null,me:null,listings:[],bookings:[],mine:[],tab:'explore'};
+const state={config:null,me:null,listings:[],bookings:[],deferred:[],refunds:[],mine:[],tab:'explore'};
 const esc=v=>String(v===null||v===undefined?'':v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const money=cents=>new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(Number(cents||0)/100);
 const when=iso=>new Intl.DateTimeFormat('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}).format(new Date(iso));
@@ -20,7 +20,7 @@ function overlay(content){$('modal-body').innerHTML=content;$('modal').classList
 function dismiss(){$('modal').classList.add('hidden');$('modal-body').innerHTML='';}
 function nav(){
  const u=state.me?.user;
- $('nav-account').innerHTML=u?'<span class="muted">'+esc(u.full_name)+'</span>'+(state.config?.email_enabled&&!u.email_verified?'<button data-action="verify-email">Verify email</button>':'')+'<button data-action="change-password">Change password</button><button data-action="logout">Log out</button>':'<button data-action="login">Log in</button><button data-action="register">Sign up</button>';
+ $('nav-account').innerHTML=u?'<span class="muted">'+esc(u.full_name)+'</span>'+(state.config?.email_enabled&&!u.email_verified?'<button data-action="verify-email">Verify email</button>':'')+(state.me?.support_agent?'<button data-action="support-reviews">Support reviews</button>':'')+'<button data-action="change-password">Change password</button><button data-action="logout">Log out</button>':'<button data-action="login">Log in</button><button data-action="register">Sign up</button>';
 }
 function switchTab(tab){
  state.tab=tab;
@@ -40,7 +40,7 @@ async function refresh(){
    const r=await api('/api/listings');state.listings=r.listings;renderOffers();
   }else if(state.tab==='bookings'){
    if(!state.me.user){$('my-bookings').innerHTML='<div class="empty">Please log in to see your bookings.</div>';return;}
-   const r=await api('/api/bookings');state.bookings=r.bookings;renderBookings();
+   const r=await api('/api/bookings');state.bookings=r.bookings;state.deferred=state.config.deferred_booking?(await api('/api/deferred-bookings')).bookings:[];state.refunds=state.config.deferred_booking?(await api('/api/deferred-refunds')).requests:[];renderBookings();
   }else if(state.tab==='business') await studio();
  }catch(e){message(e.message,true);}
 }
@@ -49,22 +49,50 @@ function renderOffers(){
  const items=state.listings.filter(x=>(!cat||x.category===cat)&&(!search||[x.title,x.neighborhood,x.business_name,x.city].join(' ').toLowerCase().includes(search)));
  $('offer-count').textContent=items.length+' open slots';
  $('offers').innerHTML=items.length?items.map(x=>
-  '<article class="card"><div class="cardbanner"><span>'+esc(x.category)+'</span><span>Available window</span></div><div class="cardbody"><div class="muted">'+esc(x.business_name)+'</div><h3>'+esc(x.title)+'</h3><div class="detail">⌖ '+esc(x.neighborhood)+', '+esc(x.city)+'</div><div class="detail">◷ '+when(x.slot_start)+' · '+esc(x.duration_minutes)+' min</div><div class="cardfoot"><span class="price">'+money(x.price_cents)+'</span><button class="btn dark" data-book="'+x.id+'">Book this slot</button></div></div></article>').join(''):'<div class="empty"><h3>No openings are listed yet.</h3><p>Local businesses can publish available slots from Business Studio after registration is enabled.</p></div>';
+  '<article class="card"><div class="cardbanner"><span>'+esc(x.category)+'</span><span>Available window</span></div><div class="cardbody"><div class="muted">'+esc(x.business_name)+'</div><h3>'+esc(x.title)+'</h3><div class="detail">⌖ '+esc(x.neighborhood)+', '+esc(x.city)+'</div><div class="detail">◷ '+when(x.slot_start)+' · '+esc(x.duration_minutes)+' min</div><div class="cardfoot"><span class="price">'+money(x.price_cents)+'</span><button class="btn dark" data-book="'+x.id+'">'+(state.config.deferred_booking?'Book free · save card':'Book this slot')+'</button></div></div></article>').join(''):'<div class="empty"><h3>No openings are listed yet.</h3><p>Local businesses can publish available slots from Business Studio after registration is enabled.</p></div>';
 }
+function deferredMarkup(bookings,role){
+ if(!bookings.length)return '<div class="panel"><h3>Pay-after-service bookings</h3><p class="muted">No deferred bookings yet.</p></div>';
+ return '<div class="panel"><h3>Pay-after-service bookings</h3><p class="muted">No upfront charge. A card is saved securely with Stripe. RouteDrop earns 8% only when payment succeeds.</p>'+
+ bookings.map(b=>{
+  let controls='';
+  if(role==='customer'){
+   if(['requested','accepted'].includes(b.status))controls='<button class="btn secondary" data-deferred-action="cancel" data-deferred-id="'+b.id+'">Cancel booking</button>';
+   if(b.status==='work_completed')controls='<button class="btn" data-deferred-action="confirm" data-deferred-id="'+b.id+'">Confirm completed job &amp; pay '+money(b.price_cents)+'</button><button class="btn secondary" data-deferred-action="dispute" data-deferred-id="'+b.id+'">Report a problem</button>';
+   if(['payment_failed','recovery_pending'].includes(b.status))controls='<button class="btn" data-deferred-action="recover" data-deferred-id="'+b.id+'">'+(b.status==='recovery_pending'?'Continue secure payment':'Finish payment securely')+'</button>';
+   if(b.status==='paid')controls='<button class="btn secondary" data-deferred-action="request-refund" data-deferred-id="'+b.id+'">Request refund review</button>';
+   if(b.status==='disputed' && b.review_state==='awaiting_customer')controls='<button class="btn" data-deferred-action="accept-resolution" data-deferred-id="'+b.id+'">Accept support proposal (no charge yet)</button><button class="btn secondary" data-deferred-action="decline-resolution" data-deferred-id="'+b.id+'">Decline proposal</button>';
+  }else{
+   if(b.status==='requested')controls='<button class="btn" data-deferred-action="accept" data-deferred-id="'+b.id+'">Accept</button><button class="btn secondary" data-deferred-action="decline" data-deferred-id="'+b.id+'">Decline</button>';
+   if(b.status==='accepted')controls='<button class="btn" data-deferred-action="complete" data-deferred-id="'+b.id+'">Mark service completed</button>';
+  }
+  const help=b.status==='payment_failed'?'<p class="muted">The original charge failed. Secure Stripe Checkout is available after the failed payment is verified and canceled.</p>':(b.status==='disputed'?'<p class="muted">'+(b.review_state==='awaiting_customer'?'Support has proposed a resolution. Accepting does not charge your card. Payment still requires a separate confirmation.':b.review_state==='customer_declined'?'You declined the proposal; no charge while support reviews again.':'Support review required; no automatic card retry.')+'</p>':(b.review_state==='closed_no_charge'?'<p class="muted">Support closed this complaint without charging your card.</p>':(b.status==='needs_review'?'<p class="muted">Support review required; no automatic card retry.</p>':'')));
+  return '<div class="record"><div><strong>'+esc(b.title)+'</strong><p>'+esc(b.business_name)+' · '+when(b.slot_start)+'</p><p class="muted">Quoted service price '+money(b.price_cents)+' · '+esc(b.status.replace(/_/g,' '))+'</p>'+help+(b.review_note?'<p class="muted">Support resolution: '+esc(b.review_note)+'</p>':'')+'</div><div class="buttonrow">'+controls+'</div></div>';
+ }).join('')+'</div>';
+}
+
+function deferredRefundMarkup(refunds,role){
+ if(!refunds.length)return '';
+ return '<div class="panel"><h3>Pay-after-service refund requests</h3><p class="muted">Requests require provider approval. Stripe confirms any refund and reversal of the provider transfer and RouteDrop fee.</p>'+
+ refunds.map(r=>'<div class="record"><div><strong>'+esc(r.title)+'</strong><p>'+when(r.slot_start)+' · '+money(r.price_cents)+'</p><p class="muted">'+esc(r.reason)+' · '+esc(r.status)+'</p></div><div class="buttonrow">'+
+ (role==='business' && r.status==='pending'?'<button class="btn" data-deferred-refund-id="'+r.id+'" data-deferred-refund-decision="approve">Approve full refund</button><button class="btn secondary" data-deferred-refund-id="'+r.id+'" data-deferred-refund-decision="decline">Decline</button>':'')+'</div></div>').join('')+'</div>';
+}
+
 function renderBookings(){
  const list=state.bookings||[];
  $('my-bookings').innerHTML=list.length?list.map(b=>
-  '<div class="panel"><div class="row"><div><h3>'+esc(b.title)+'</h3><div class="muted">'+esc(b.business_name)+' · '+when(b.slot_start)+'</div></div><span class="pill">'+esc(b.status.replace('_',' '))+'</span></div><div class="record"><span>Service price</span><strong>'+money(b.price_cents)+'</strong></div>'+(b.refund_cents?'<p class="muted">Refunded: '+money(b.refund_cents)+'</p>':'')+(b.dispute_status?'<p class="muted">Payment dispute: '+esc(b.dispute_status)+'</p>':'')+(b.cancellation_request_status?'<p class="muted">Cancellation request: '+esc(b.cancellation_request_status)+'</p>':'')+(state.me.user.role==='customer'&&['paid','completed'].includes(b.status)&&!b.cancellation_request_status?'<button class="btn secondary" data-cancel-request="'+b.id+'">Request cancellation / refund review</button>':'')+(state.me.user.role==='customer'&&b.status==='awaiting_payment'?'<button class="btn" data-retry="'+b.id+'">Retry payment</button>':'')+(state.me.user.role==='business'&&b.status==='paid'&&!['pending','processing','needs_review'].includes(b.cancellation_request_status)?'<button class="btn" data-complete="'+b.id+'">Mark job complete</button>':'')+'</div>').join(''):'<div class="empty"><h3>No bookings yet</h3><p>Bookings will appear here after a customer checks out.</p></div>';
+  '<div class="panel"><div class="row"><div><h3>'+esc(b.title)+'</h3><div class="muted">'+esc(b.business_name)+' · '+when(b.slot_start)+'</div></div><span class="pill">'+esc(b.status.replace('_',' '))+'</span></div><div class="record"><span>Service price</span><strong>'+money(b.price_cents)+'</strong></div>'+(b.refund_cents?'<p class="muted">Refunded: '+money(b.refund_cents)+'</p>':'')+(b.dispute_status?'<p class="muted">Payment dispute: '+esc(b.dispute_status)+'</p>':'')+(b.cancellation_request_status?'<p class="muted">Cancellation request: '+esc(b.cancellation_request_status)+'</p>':'')+(state.me.user.role==='customer'&&['paid','completed'].includes(b.status)&&!b.cancellation_request_status?'<button class="btn secondary" data-cancel-request="'+b.id+'">Request cancellation / refund review</button>':'')+(state.me.user.role==='customer'&&b.status==='awaiting_payment'?'<button class="btn" data-retry="'+b.id+'">Retry payment</button>':'')+(state.me.user.role==='business'&&b.status==='paid'&&!['pending','processing','needs_review'].includes(b.cancellation_request_status)?'<button class="btn" data-complete="'+b.id+'">Mark job complete</button>':'')+'</div>').join(''):'<div class="empty"><h3>No bookings yet</h3><p>Bookings will appear here after a customer books a service.</p></div>';
+ if(state.config.deferred_booking)$('my-bookings').innerHTML+=deferredMarkup(state.deferred,'customer')+deferredRefundMarkup(state.refunds,'customer');
 }
 async function studio(){
  const u=state.me?.user;
  if(!u){$('studio-body').innerHTML='<div class="empty"><h3>Business account required</h3><p>Create a business account to list open route slots.</p><button class="btn" data-action="register">Register a business</button></div>';return;}
  if(u.role!=='business'){$('studio-body').innerHTML='<div class="empty">You are signed in as a customer. Use a separate business account to publish routes.</div>';return;}
  const b=state.me.business,r=await Promise.all([api('/api/my-listings'),api('/api/bookings')]);
- state.mine=r[0].listings;state.bookings=r[1].bookings;
+ state.mine=r[0].listings;state.bookings=r[1].bookings;state.deferred=state.config.deferred_booking?(await api('/api/deferred-bookings')).bookings:[];state.refunds=state.config.deferred_booking?(await api('/api/deferred-refunds')).requests:[];
  const subscription=await api('/api/business/subscription');
  const cancellations=await api('/api/business/cancellation-requests');
- const completed=state.bookings.filter(x=>x.status==='completed');
+ const completed=state.bookings.filter(x=>x.status==='completed').concat(state.deferred.filter(x=>x.status==='paid'));
  const gross=completed.reduce((sum,x)=>sum+x.price_cents,0),fee=completed.reduce((sum,x)=>sum+x.fee_cents,0);
  $('studio-body').innerHTML=
  '<div class="panel"><div class="row"><div><h3>'+esc(b.name)+'</h3><div class="muted">'+esc(b.city)+' · '+esc(b.category)+'</div></div><span class="pill">'+(b.stripe_connected?'Stripe account started':'Payouts not connected')+'</span></div>'+
@@ -74,6 +102,14 @@ async function studio(){
  '<div class="panel"><h3>Revenue snapshot</h3><div class="row"><div><small>Completed bookings</small><h2>'+completed.length+'</h2></div><div><small>Gross value</small><h2>'+money(gross)+'</h2></div><div><small>Platform fees (8%)</small><h2>'+money(fee)+'</h2></div></div></div>'+
  '<div class="panel"><h3>My route openings</h3>'+(state.mine.length?state.mine.map(x=>'<div class="record"><div><strong>'+esc(x.title)+'</strong><p>'+esc(x.neighborhood)+' · '+when(x.slot_start)+'</p></div><strong>'+money(x.price_cents)+'</strong></div>').join(''):'<p class="muted">No openings published yet.</p>')+'</div>'+
  '<div class="panel"><h3>Recent bookings</h3>'+(state.bookings.length?state.bookings.map(x=>'<div class="record"><div><strong>'+esc(x.title)+'</strong><p>'+when(x.slot_start)+' · '+esc(x.status)+'</p></div>'+(x.status==='paid'&&!['pending','processing','needs_review'].includes(x.cancellation_request_status)?'<button class="btn" data-complete="'+x.id+'">Complete</button>':'<strong>'+money(x.price_cents)+'</strong>')+'</div>').join(''):'<p class="muted">No bookings recorded.</p>')+'</div>';
+ if(state.config.deferred_booking)$('studio-body').innerHTML+=deferredMarkup(state.deferred,'business')+deferredRefundMarkup(state.refunds,'business');
+}
+async function showSupportReviews(){
+ const r=await api('/api/support/deferred-disputes');
+ overlay('<h2 id="modal-title">Support dispute reviews</h2><p>Independent support-only decisions. No payment is made here. A customer must accept a proposed resolution and separately approve payment.</p>'+
+  (r.disputes.length?r.disputes.map(d=>'<div class="record"><div><strong>Booking #'+esc(d.id)+' · '+esc(d.title)+'</strong><p>'+esc(d.business_name)+' · '+money(d.price_cents)+'</p><p class="muted">Customer report: '+esc(d.dispute_reason)+'</p><p class="muted">Review: '+esc(d.review_state)+(d.resolution_note?' · '+esc(d.resolution_note):'')+'</p></div><div class="buttonrow">'+
+  (['open','customer_declined'].includes(d.review_state)?'<button class="btn secondary" data-support-decision="close_no_charge" data-support-booking="'+esc(d.id)+'">Close without charge</button><button class="btn" data-support-decision="request_customer_approval" data-support-booking="'+esc(d.id)+'">Request customer approval</button>':'<span class="muted">Awaiting customer response</span>')+
+  '</div></div>').join(''):'<p class="muted">No pending unpaid disputes.</p>'));
 }
 function showRegistration(){
  overlay('<h2 id="modal-title">Create your account</h2><p>Join RouteDrop as a customer or service professional.</p><form id="register-form"><label>Account type</label><select name="role" id="register-role"><option value="customer">Customer</option><option value="business">Business owner</option></select><label>Your full name</label><input name="name" minlength="2" maxlength="90" required autocomplete="name"><label>Email address</label><input name="email" type="email" maxlength="254" required autocomplete="email"><label>Password (12+ characters)</label><input name="password" type="password" minlength="12" maxlength="128" required autocomplete="new-password"><div id="business-fields" class="hidden"><label>Business name</label><input name="businessName" maxlength="120"><label>City</label><input name="city" maxlength="100" value="Decatur, AL"><label>Service category</label><select name="category"><option>Washing</option><option>Lawn care</option><option>Car detailing</option><option>Cleaning</option><option>Other</option></select></div><p class="legal">Use a unique password. Verification will be required for payments when email delivery is enabled.</p><p id="form-error" class="error"></p><button type="submit" class="btn">Register</button></form>');
@@ -95,7 +131,7 @@ async function verifyEmailToken(token){
  catch(e){message('Email verification failed: '+e.message,true);}
 }
 function showListing(){
- overlay('<h2 id="modal-title">Publish an available opening</h2><p>Publish one real service time window. Bookings are held until payment confirmation.</p><form id="listing-form"><label>Service title</label><input name="title" required maxlength="120" placeholder="Driveway cleaning"><label>Category</label><select name="category"><option>Washing</option><option>Lawn care</option><option>Car detailing</option><option>Cleaning</option><option>Other</option></select><label>Service neighborhood</label><input name="neighborhood" maxlength="100" required placeholder="Southeast Decatur"><label>Price in USD</label><input name="price" required type="number" step="0.01" min="5" max="5000"><label>Date & time</label><input name="slotStart" required type="datetime-local"><label>Duration (minutes)</label><input name="durationMinutes" required type="number" min="30" max="480" value="60" step="15"><p id="form-error" class="error"></p><button class="btn" type="submit">Publish route</button></form>');
+ overlay('<h2 id="modal-title">Publish an available opening</h2><p>Publish one real service time window. New deferred bookings save a card with $0 charged today; payment requires customer confirmation after completed work.</p><form id="listing-form"><label>Service title</label><input name="title" required maxlength="120" placeholder="Driveway cleaning"><label>Category</label><select name="category"><option>Washing</option><option>Lawn care</option><option>Car detailing</option><option>Cleaning</option><option>Other</option></select><label>Service neighborhood</label><input name="neighborhood" maxlength="100" required placeholder="Southeast Decatur"><label>Price in USD</label><input name="price" required type="number" step="0.01" min="5" max="5000"><label>Date & time</label><input name="slotStart" required type="datetime-local"><label>Duration (minutes)</label><input name="durationMinutes" required type="number" min="30" max="480" value="60" step="15"><p id="form-error" class="error"></p><button class="btn" type="submit">Publish route</button></form>');
 }
 async function act(e){
  const el=e.target.closest('button');if(!el)return;
@@ -104,6 +140,7 @@ async function act(e){
  if(action==='register'){showRegistration();return;}
  if(action==='login'){showLogin();return;}
  if(action==='create-listing'){showListing();return;}
+ if(action==='support-reviews'){try{await showSupportReviews();}catch(err){message(err.message,true);}return;}
  if(action==='change-password'){showChangePassword();return;}
  if(action==='forgot-password'){showForgotPassword();return;}
  if(action==='verify-email'){try{const r=await api('/api/auth/request-verification',{method:'POST'});message(r.message);}catch(e){message(e.message,true);}return;}
@@ -113,9 +150,60 @@ async function act(e){
  if(el.dataset.book){
   if(!state.me?.user){showLogin();message('Please log in to book a service.');return;}
   if(state.me.user.role!=='customer'){message('Only customer accounts can book services.',true);return;}
-  if(!state.config.payments){message('Checkout is not activated yet. No payment can be collected.',true);return;}
+  if(!state.config.payments){message('Stripe payment setup is not activated yet.',true);return;}
+  const quote=state.listings.find(x=>String(x.id)===String(el.dataset.book));
+  if(state.config.deferred_booking && !confirm('Book '+(quote?.title||'this service')+' for $0 today? You authorize RouteDrop to securely save your card for the quoted price of '+money(quote?.price_cents)+'. Your card is charged only after the provider finishes and you confirm completion. RouteDrop takes 8% from the provider share.'))return;
   el.disabled=true;
-  try{const result=await api('/api/checkout',{method:'POST',body:JSON.stringify({listingId:Number(el.dataset.book)})});location.assign(result.url);}catch(err){message(err.message,true);el.disabled=false;}
+  try{
+   const url=state.config.deferred_booking?'/api/deferred-bookings':'/api/checkout';
+   const body=state.config.deferred_booking?{listingId:Number(el.dataset.book),consent:true,termsVersion:'deferred-v1'}:{listingId:Number(el.dataset.book)};
+   const result=await api(url,{method:'POST',body:JSON.stringify(body)});location.assign(result.url);
+  }catch(err){message(err.message,true);el.disabled=false;}
+  return;
+ }
+ if(el.dataset.supportDecision && el.dataset.supportBooking){
+  const id=Number(el.dataset.supportBooking),decision=el.dataset.supportDecision;
+  const note=prompt('Enter a resolution note (at least 12 characters) shown to the customer and provider. Do not include private information:');
+  if(note===null)return;
+  if(note.trim().length<12)return message('Enter at least 12 characters.',true);
+  if(!confirm(decision==='close_no_charge'?'Close this dispute without collecting payment?':'Ask the customer to review the proposal? Payment remains blocked unless they later approve it.'))return;
+  el.disabled=true;
+  try{const r=await api('/api/support/deferred-disputes/'+id+'/decision',{method:'POST',body:JSON.stringify({decision,note})});message(r.message);await showSupportReviews();}
+  catch(err){message(err.message,true);}finally{el.disabled=false;}return;
+ }
+ if(el.dataset.deferredId && el.dataset.deferredAction){
+  const id=Number(el.dataset.deferredId),action=el.dataset.deferredAction,booking=state.deferred.find(b=>Number(b.id)===id);
+  if(!booking)return message('Refresh bookings and retry.',true);
+  let body={};
+  if(action==='confirm'){
+   if(!confirm('The service is complete and you approve charging '+money(booking.price_cents)+' to your saved card now. Confirm?'))return;
+   body={confirmCompletion:true};
+  }
+  if(action==='complete' && !confirm('Mark this service complete and request customer approval? No charge is made yet.'))return;
+   if(action==='accept-resolution'){
+    if(!confirm('Accept the support proposal and reopen the booking? NO charge occurs now. You would separately confirm the work and authorize payment of '+money(booking.price_cents)+'.'))return;
+    body={acceptResolution:true};
+   }
+   if(action==='decline-resolution' && !confirm('Decline the support proposal? The booking remains disputed and uncharged.'))return;
+  if(action==='cancel' && !confirm('Cancel this booking without a charge?'))return;
+  if(action==='dispute' || action==='request-refund'){
+   const reason=prompt(action==='request-refund'?'Explain why you request a refund (at least 10 characters):':'Describe the problem with the completed service (at least 10 characters).');
+   if(reason===null)return;
+   body={reason};
+  }
+  el.disabled=true;
+  try{const result=await api('/api/deferred-bookings/'+id+'/'+action,{method:'POST',body:JSON.stringify(body)});if(action==='recover' && result.url){location.assign(result.url);return;}message(result.message||'Booking updated.');await refresh();}
+  catch(err){message(err.message,true);}finally{el.disabled=false;}
+  return;
+ }
+ if(el.dataset.deferredRefundId && el.dataset.deferredRefundDecision){
+  const id=Number(el.dataset.deferredRefundId),decision=el.dataset.deferredRefundDecision;
+  const refund=state.refunds.find(r=>Number(r.id)===id);
+  if(!refund || refund.status!=='pending')return message('Refresh refund requests.',true);
+  if(!confirm(decision==='approve'?'Approve a full Stripe refund of '+money(refund.price_cents)+'? This also reverses the provider transfer and RouteDrop 8% application fee.':'Decline this refund request?'))return;
+  el.disabled=true;
+  try{const r=await api('/api/deferred-refunds/'+id+'/decision',{method:'POST',body:JSON.stringify({decision})});message(r.message||('Refund request '+r.status+'.'));await refresh();}
+  catch(err){message(err.message,true);}finally{el.disabled=false;}
   return;
  }
  if(el.dataset.requestId && el.dataset.decision){const decision=el.dataset.decision;const id=Number(el.dataset.requestId);if(!confirm(decision==='approve'?'Issue a full Stripe refund to this customer and reverse the provider transfer and platform fee?':'Decline this discretionary refund request?'))return;el.disabled=true;try{const r=await api('/api/business/cancellation-requests/'+id+'/decision',{method:'POST',body:JSON.stringify({decision})});message(r.message||('Cancellation request '+r.status+'.'));refresh();}catch(err){message(err.message,true);el.disabled=false;}return;}
@@ -159,6 +247,8 @@ async function init(){
   else if(actionParams.has('verify')){const token=actionParams.get('verify');history.replaceState(null,'',location.pathname);await verifyEmailToken(token);}
   if(!state.config.database)message('Private beta: an isolated database must be connected before registration and bookings can work.');
   else if(!state.config.payments)message('Accounts and listings enabled. Stripe payments and payouts are not yet configured.');
+  if(new URLSearchParams(location.search).has('card'))message('Returned from secure card setup. Your free booking appears after Stripe confirms the saved card.');
+  if(new URLSearchParams(location.search).has('recovery'))message('Returned from secure payment recovery. Your booking status updates only after Stripe confirms payment.');
   if(new URLSearchParams(location.search).has('subscription'))message('Returned from subscription billing. Open Business Studio to check your subscription status.');
   if(new URLSearchParams(location.search).has('payment'))message('Returned from checkout. Payment status is confirmed only through the Stripe webhook; check My bookings.');
   if(new URLSearchParams(location.search).has('stripe'))message('Returned from Stripe onboarding. Payout readiness is checked when a checkout begins.');

@@ -10,12 +10,14 @@ const Stripe = require('stripe');
 const { normalizeSubscriptionEvent, invoiceEvent, selectSubscription, canStartSubscription, subscriptionView, securityPolicy } = require('./subscription-security');
 const { providerReady, emailLink, isActionToken, notification, deliverEmail } = require('./mail');
 const { livePaymentsAllowed, checkoutOutcome, refundableAmount, disputeState, cancellationEligibility, refundStatus, refundOperation } = require('./payment-safeguards');
+const postService = require('./post-service');
+const {createStagingGate} = require('./staging-access');
 
 const app = express();
 app.disable('x-powered-by');
 app.set('trust proxy', 1);
 const port = Number(process.env.PORT || 10000);
-const baseUrl = (process.env.PUBLIC_URL || '').replace(/\/+$/, '');
+const baseUrl = (process.env.PUBLIC_URL || (process.env.ROUTEDROP_STAGING_LOCK==='true' && process.env.RENDER_EXTERNAL_HOSTNAME ? 'https://'+process.env.RENDER_EXTERNAL_HOSTNAME : '')).replace(/\/+$/, '');
 const databaseUrl = process.env.DATABASE_URL || '';
 const stripeKey = process.env.STRIPE_SECRET_KEY || '';
 const stripeWebhookSecret = process.env.STRIPE_WEBHOOK_SECRET || '';
@@ -24,6 +26,8 @@ const liveKey = /^(sk|rk)_live_/.test(stripeKey);
 const paymentsApproved = livePaymentsAllowed(stripeKey,process.env.ROUTEDROP_LIVE_APPROVED);
 const emailReady = providerReady(process.env);
 const paymentsReady = !!(stripe && stripeWebhookSecret && paymentsApproved);
+// Explicitly test-only while the redesigned booking policy is under review.
+const deferredEnabled = process.env.ROUTEDROP_DEFERRED_BETA_ENABLED === 'true' && /^sk_test_/.test(stripeKey) && paymentsReady;
 const pool = databaseUrl ? new Pool({ connectionString: databaseUrl, max: 5, idleTimeoutMillis: 30000, connectionTimeoutMillis: 10000, ssl: databaseUrl.includes('localhost') ? false : { rejectUnauthorized: false } }) : null;
 const safe = fn => (req, res, next) => Promise.resolve(fn(req, res)).catch(next);
 const hash = value => crypto.createHash('sha256').update(value).digest('hex');
@@ -34,6 +38,7 @@ const isEmail = v => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v) && v.length <= 254;
 const usd = value => Number.isSafeInteger(value) && value>=500 && value<=500000;
 let ready = false;
 
+app.use(createStagingGate({enabled:process.env.ROUTEDROP_STAGING_LOCK==='true',password:process.env.ROUTEDROP_STAGING_PASSWORD||''}));
 app.use(helmet({
  contentSecurityPolicy: { directives: { defaultSrc:["'self'"], scriptSrc:["'self'"], styleSrc:["'self'","'unsafe-inline'"], imgSrc:["'self'","data:"], connectSrc:["'self'"], objectSrc:["'none'"], frameAncestors:["'none'"], upgradeInsecureRequests: process.env.NODE_ENV==='production' ? [] : null } },
  referrerPolicy: { policy:'no-referrer' }
@@ -81,7 +86,8 @@ const ddl = [
  "CREATE INDEX IF NOT EXISTS email_tokens_user_purpose ON email_action_tokens(user_id,purpose)",
  "CREATE TABLE IF NOT EXISTS notification_outbox (id BIGSERIAL PRIMARY KEY, event_key TEXT UNIQUE NOT NULL, recipient TEXT NOT NULL, subject TEXT NOT NULL, body TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','sending','sent','failed')), attempts INTEGER NOT NULL DEFAULT 0, available_at TIMESTAMPTZ NOT NULL DEFAULT now(), sent_at TIMESTAMPTZ, last_error TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())",
  "CREATE INDEX IF NOT EXISTS notification_outbox_due ON notification_outbox(status,available_at)"
-];
+]; 
+if (deferredEnabled) ddl.push(...postService.sql);
 async function startDatabase() {
  if (!pool) return;
  try {
@@ -136,6 +142,7 @@ app.post('/api/stripe/webhook', express.raw({type:'application/json'}),safe(asyn
   const logged=await client.query('INSERT INTO stripe_events(id) VALUES($1) ON CONFLICT DO NOTHING RETURNING id',[event.id]);
   if (!logged.rowCount){await client.query('COMMIT');return res.json({received:true});}
   const session=event.data.object;
+  if (deferredEnabled) await postService.handleStripeEvent(event,client,stripe,queueDeferredEmail);
   const bookingId=Number(session.metadata&&session.metadata.booking_id);
   if (Number.isSafeInteger(bookingId)&&bookingId>0){
    if (checkoutOutcome(event.type,session)==='paid'){
@@ -196,7 +203,7 @@ app.get('/api/config',(req,res)=>{
  if(!req.cookies.routedrop_csrf || !/^[a-f0-9]{64}$/.test(req.cookies.routedrop_csrf)){
   res.cookie('routedrop_csrf',random(),{secure:process.env.NODE_ENV==='production',httpOnly:false,sameSite:'lax',path:'/',maxAge:7*24*60*60*1000});
  }
- res.json({database:ready,payments:paymentsReady,status:ready?'beta':'setup_required',email_enabled:emailReady,payments_mode:liveKey?(paymentsApproved?'live':'live_locked'):'test',public_url:baseUrl});
+ res.json({database:ready,payments:paymentsReady,status:ready?'beta':'setup_required',email_enabled:emailReady,payments_mode:liveKey?(paymentsApproved?'live':'live_locked'):'test',deferred_booking:deferredEnabled,public_url:baseUrl});
 });
 async function issueEmailAction(userId,email,purpose) {
  if(!emailReady||!baseUrl)return false;
@@ -218,6 +225,19 @@ async function enqueueNotification(db,eventKey,to,kind,details) {
  const msg=notification(kind,details);
  if(!msg)return;
  await db.query("INSERT INTO notification_outbox(event_key,recipient,subject,body) VALUES ($1,$2,$3,$4) ON CONFLICT(event_key) DO NOTHING",[eventKey,to,msg.subject,msg.body]);
+}
+async function queueDeferredEmail(db,bookingId,kind) {
+ if (!emailReady) return;
+ const query = await db.query(
+  "SELECT d.id,d.price_cents,l.title,l.slot_start,cu.email AS customer_email,cu.full_name AS customer_name,bu.email AS business_email FROM deferred_bookings d JOIN listings l ON l.id=d.listing_id JOIN businesses b ON b.id=l.business_id JOIN users cu ON cu.id=d.customer_id JOIN users bu ON bu.id=b.owner_id WHERE d.id=$1",
+  [bookingId]);
+ if(!query.rowCount)return;
+ const b=query.rows[0],details={title:b.title,date:new Date(b.slot_start).toLocaleString('en-US',{timeZone:'America/Chicago',dateStyle:'medium',timeStyle:'short'})+' CT',amount:'USD '+(Number(b.price_cents)/100).toFixed(2),name:b.customer_name};
+ const recipients={requested:['customer','business'],accepted:['customer'],declined:['customer'],completed:['customer'],disputed:['business'],paid:['customer','business'],failed:['customer','business'],refund:['customer','business'],refund_requested:['business'],refund_declined:['customer'],payment_dispute:['customer'],review_requested:['customer','business'],review_closed:['customer','business']};
+ for(const side of recipients[kind]||[]){
+  const category='deferred_'+(kind==='payment_dispute'?'dispute':kind)+'_'+side;
+  if (notification(category,details))await enqueueNotification(db,'deferred-'+bookingId+'-'+category,b[side+'_email'],category,details);
+ }
 }
 async function queueBookingEmail(db,bookingId,kind,keyPrefix) {
  const q=await db.query("SELECT k.id,k.price_cents,l.title,l.slot_start,cu.email AS customer_email,cu.full_name AS customer_name,bu.email AS business_email FROM bookings k JOIN listings l ON l.id=k.listing_id JOIN businesses b ON b.id=l.business_id JOIN users cu ON cu.id=k.customer_id JOIN users bu ON bu.id=b.owner_id WHERE k.id=$1",[bookingId]);
@@ -348,10 +368,13 @@ app.get('/api/me',requireDb,safe(async(req,res)=>{
   const r=await pool.query('SELECT id,name,city,category, (stripe_account_id IS NOT NULL) AS stripe_connected FROM businesses WHERE owner_id=$1',[req.user.id]);
   business=r.rows[0]||null;
  }
- res.json({user:req.user,business});
+ const support_agent=deferredEnabled && (await pool.query('SELECT 1 FROM deferred_support_agents WHERE user_id=$1',[req.user.id])).rowCount>0;
+ res.json({user:req.user,business,support_agent});
 }));
 app.get('/api/listings',requireDb,safe(async(req,res)=>{
- const data=await pool.query("SELECT l.id,l.title,l.category,l.neighborhood,l.price_cents,l.slot_start,l.duration_minutes,b.name AS business_name,b.city FROM listings l JOIN businesses b ON b.id=l.business_id WHERE l.status='active' AND l.slot_start>now() AND NOT EXISTS(SELECT 1 FROM bookings k WHERE k.listing_id=l.id AND k.status IN ('awaiting_payment','paid','completed')) ORDER BY l.slot_start ASC LIMIT 100");
+ const oldFilter="SELECT l.id,l.title,l.category,l.neighborhood,l.price_cents,l.slot_start,l.duration_minutes,b.name AS business_name,b.city FROM listings l JOIN businesses b ON b.id=l.business_id WHERE l.status='active' AND l.slot_start>now() AND NOT EXISTS(SELECT 1 FROM bookings k WHERE k.listing_id=l.id AND k.status IN ('awaiting_payment','paid','completed'))";
+ const extraFilter=deferredEnabled?" AND NOT EXISTS(SELECT 1 FROM deferred_bookings d WHERE d.listing_id=l.id AND d.status IN ('awaiting_card','requested','accepted','work_completed','payment_processing','payment_failed','needs_review','disputed','paid'))":'';
+ const data=await pool.query(oldFilter+extraFilter+' ORDER BY l.slot_start ASC LIMIT 100');
  res.json({listings:data.rows});
 }));
 app.post('/api/listings',requireDb,requireUser('business'),safe(async(req,res)=>{
@@ -488,6 +511,7 @@ app.post('/api/stripe/connect',requireDb,requireUser('business'),safe(async(req,
  res.json({url:url.url});
 }));
 app.post('/api/checkout',requireDb,requireUser('customer'),checkoutLimiter,safe(async(req,res)=>{
+ if(deferredEnabled)return forbidden(res,'Upfront payment is disabled for new bookings. Save a card without a charge instead.',409);
  if(!paymentsReady||!baseUrl)return forbidden(res,'Checkout is disabled until Stripe is fully configured.',503);
  const id=Number(req.body.listingId);
  if(!Number.isSafeInteger(id)||id<1)return forbidden(res,'Invalid listing.');
@@ -562,6 +586,7 @@ app.post('/api/bookings/:id/complete',requireDb,requireUser('business'),safe(asy
  if(!r.rowCount)return forbidden(res,'No eligible paid booking found.',409);
  res.json({ok:true});
 }));
+postService.install(app,{pool,stripe,baseUrl,enabled:deferredEnabled,requireDb,requireUser,safe,limiter:checkoutLimiter,forbidden,queueDeferredEmail});
 app.use(express.static('routedrop-platform/public',{fallthrough:false,maxAge:'15m'}));
 app.use((err,req,res,next)=>{console.error('RouteDrop request error',err.message);res.status(500).json({error:'Unexpected server error.'});});
 app.listen(port,'0.0.0.0',()=>console.log('RouteDrop beta listening on '+port));
