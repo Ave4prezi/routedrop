@@ -161,6 +161,16 @@ async function act(e){
   }catch(err){message(err.message,true);el.disabled=false;}
   return;
  }
+ if(el.dataset.supportDecision && el.dataset.supportBooking){
+  const id=Number(el.dataset.supportBooking),decision=el.dataset.supportDecision;
+  const note=prompt('Enter a review reason of at least 12 characters. This decision is recorded for audit:');
+  if(note===null)return;
+  if(note.trim().length<12)return message('Enter at least 12 characters.',true);
+  if(!confirm(decision==='close_no_charge'?'Close this dispute without collecting payment?':'Ask the customer to review the proposal? Payment remains blocked unless they later approve it.'))return;
+  el.disabled=true;
+  try{const r=await api('/api/support/deferred-disputes/'+id+'/decision',{method:'POST',body:JSON.stringify({decision,note})});message(r.message);await showSupportReviews();}
+  catch(err){message(err.message,true);}finally{el.disabled=false;}return;
+ }
  if(el.dataset.deferredId && el.dataset.deferredAction){
   const id=Number(el.dataset.deferredId),action=el.dataset.deferredAction,booking=state.deferred.find(b=>Number(b.id)===id);
   if(!booking)return message('Refresh bookings and retry.',true);
@@ -170,6 +180,11 @@ async function act(e){
    body={confirmCompletion:true};
   }
   if(action==='complete' && !confirm('Mark this service complete and request customer approval? No charge is made yet.'))return;
+   if(action==='accept-resolution'){
+    if(!confirm('Accept the support proposal and reopen the booking? NO charge occurs now. You would separately confirm the work and authorize payment of '+money(booking.price_cents)+'.'))return;
+    body={acceptResolution:true};
+   }
+   if(action==='decline-resolution' && !confirm('Decline the support proposal? The booking remains disputed and uncharged.'))return;
   if(action==='cancel' && !confirm('Cancel this booking without a charge?'))return;
   if(action==='dispute' || action==='request-refund'){
    const reason=prompt(action==='request-refund'?'Explain why you request a refund (at least 10 characters):':'Describe the problem with the completed service (at least 10 characters).');
