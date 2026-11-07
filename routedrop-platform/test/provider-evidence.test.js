@@ -34,6 +34,9 @@ test('upload, reviewer-only download, approval, replacement and deletion using d
  const admin=new Pool({connectionString:process.env.ROUTEDROP_TEST_DATABASE_URL,ssl:false});
  let db,server;
  process.env.ROUTEDROP_PROVIDER_DOC_KEY_B64=keyB64;
+ process.env.ROUTEDROP_PRIVATE_PREVIEW_ONLY='true';
+ process.env.ROUTEDROP_STAGING_LOCK='true';
+ process.env.ROUTEDROP_PROVIDER_DOCS_MODE='synthetic';
  try{
   await admin.query('CREATE SCHEMA '+schema);
   db=new Pool({connectionString:process.env.ROUTEDROP_TEST_DATABASE_URL,ssl:false,options:'-c search_path='+schema+',public',max:8});
@@ -97,5 +100,8 @@ test('upload, reviewer-only download, approval, replacement and deletion using d
   await admin.query('DROP SCHEMA IF EXISTS '+schema+' CASCADE').catch(()=>{});
   await admin.end();
   delete process.env.ROUTEDROP_PROVIDER_DOC_KEY_B64;
+  delete process.env.ROUTEDROP_PRIVATE_PREVIEW_ONLY;
+  delete process.env.ROUTEDROP_STAGING_LOCK;
+  delete process.env.ROUTEDROP_PROVIDER_DOCS_MODE;
  }
 });
