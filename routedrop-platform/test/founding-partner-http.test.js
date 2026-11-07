@@ -124,7 +124,7 @@ test('fictional partner: consent, signup, service listing, encrypted evidence, i
    const listingId=Number((await res.json()).listing.id);
    assert.equal((await (await partner.request('/api/listings')).json()).listings.length,0,
     'unverified listing must not be discoverable');
-   res=await partner.request('/api/deferred-bookings',{method:'POST',body:{
+   res=await reviewUser.request('/api/deferred-bookings',{method:'POST',body:{
     listingId,consent:true,termsVersion:'deferred-v1'
    }});
    assert.equal(res.status,409,'unverified booking blocked before any Stripe request');
@@ -163,7 +163,7 @@ test('fictional partner: consent, signup, service listing, encrypted evidence, i
    assert.equal(res.status,200);
    assert.equal((await (await partner.request('/api/listings')).json()).listings.length,0,
     'revoked required coverage immediately hides listing');
-   res=await partner.request('/api/deferred-bookings',{method:'POST',body:{
+   res=await reviewUser.request('/api/deferred-bookings',{method:'POST',body:{
     listingId,consent:true,termsVersion:'deferred-v1'
    }});
    assert.equal(res.status,409,'revoked credential blocks booking before Stripe');
