@@ -67,7 +67,7 @@ function deferredMarkup(bookings,role){
    if(b.status==='accepted')controls='<button class="btn" data-deferred-action="complete" data-deferred-id="'+b.id+'">Mark service completed</button>';
   }
   const help=b.status==='payment_failed'?'<p class="muted">The original charge failed. Secure Stripe Checkout is available after the failed payment is verified and canceled.</p>':(b.status==='disputed'?'<p class="muted">'+(b.review_state==='awaiting_customer'?'Support has proposed a resolution. Accepting does not charge your card. Payment still requires a separate confirmation.':b.review_state==='customer_declined'?'You declined the proposal; no charge while support reviews again.':'Support review required; no automatic card retry.')+'</p>':(b.review_state==='closed_no_charge'?'<p class="muted">Support closed this complaint without charging your card.</p>':(b.status==='needs_review'?'<p class="muted">Support review required; no automatic card retry.</p>':'')));
-  return '<div class="record"><div><strong>'+esc(b.title)+'</strong><p>'+esc(b.business_name)+' · '+when(b.slot_start)+'</p><p class="muted">Quoted service price '+money(b.price_cents)+' · '+esc(b.status.replace(/_/g,' '))+'</p>'+help+'</div><div class="buttonrow">'+controls+'</div></div>';
+  return '<div class="record"><div><strong>'+esc(b.title)+'</strong><p>'+esc(b.business_name)+' · '+when(b.slot_start)+'</p><p class="muted">Quoted service price '+money(b.price_cents)+' · '+esc(b.status.replace(/_/g,' '))+'</p>'+help+(b.review_note?'<p class="muted">Support resolution: '+esc(b.review_note)+'</p>':'')+'</div><div class="buttonrow">'+controls+'</div></div>';
  }).join('')+'</div>';
 }
 
@@ -163,7 +163,7 @@ async function act(e){
  }
  if(el.dataset.supportDecision && el.dataset.supportBooking){
   const id=Number(el.dataset.supportBooking),decision=el.dataset.supportDecision;
-  const note=prompt('Enter a review reason of at least 12 characters. This decision is recorded for audit:');
+  const note=prompt('Enter a resolution note (at least 12 characters) shown to the customer and provider. Do not include private information:');
   if(note===null)return;
   if(note.trim().length<12)return message('Enter at least 12 characters.',true);
   if(!confirm(decision==='close_no_charge'?'Close this dispute without collecting payment?':'Ask the customer to review the proposal? Payment remains blocked unless they later approve it.'))return;
