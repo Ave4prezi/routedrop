@@ -57,7 +57,7 @@ test('test ClamAV INSTREAM socket protocol and fail closed on detection',async()
   await new Promise(resolve=>scanner.close(resolve));
  }
  const rejectSockets=new Set();
- const rejector=net.createServer({allowHalfOpen:true},socket=>{rejectSockets.add(socket);socket.on('close',()=>rejectSockets.delete(socket));socket.on('end',()=>socket.end(Buffer.concat([Buffer.from('stream: Eicar-Test-Signature FOUND'),Buffer.from([10])])));});
+ const rejector=net.createServer({allowHalfOpen:true},socket=>{rejectSockets.add(socket);socket.on('close',()=>rejectSockets.delete(socket));socket.on('data',()=>{});socket.on('end',()=>socket.end(Buffer.concat([Buffer.from('stream: Eicar-Test-Signature FOUND'),Buffer.from([10])])));});
  await new Promise(resolve=>rejector.listen(0,'127.0.0.1',resolve));
  try{await assert.rejects(security.scanWithClamAV(pdf,{host:'127.0.0.1',port:rejector.address().port}),/rejected/);}
  finally{for(const socket of rejectSockets)socket.destroy();await new Promise(resolve=>rejector.close(resolve));}
