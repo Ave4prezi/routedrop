@@ -380,7 +380,7 @@ app.get('/api/me',requireDb,safe(async(req,res)=>{
   const r=await pool.query('SELECT id,name,city,category, (stripe_account_id IS NOT NULL) AS stripe_connected FROM businesses WHERE owner_id=$1',[req.user.id]);
   business=r.rows[0]||null;
  }
- const support_agent=deferredEnabled && (await pool.query('SELECT 1 FROM deferred_support_agents WHERE user_id=$1',[req.user.id])).rowCount>0;
+ const support_agent=(deferredEnabled||previewOnly) && (await pool.query('SELECT 1 FROM deferred_support_agents WHERE user_id=$1',[req.user.id])).rowCount>0;
  res.json({user:req.user,business,support_agent});
 }));
 app.get('/api/listings',requireDb,safe(async(req,res)=>{
