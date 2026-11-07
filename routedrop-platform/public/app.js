@@ -125,7 +125,7 @@ function verificationPanel(v){
 async function showVerificationUpload(){
  const r=await api('/api/provider-verification/me');
  overlay('<h2 id="modal-title">Secure provider document submission</h2><p class="muted">Submit a PDF, PNG, or JPEG up to 2 MB. The document is encrypted and available only to authorized reviewers. Avoid uploading unrelated personal information.</p>'+
- '<form id="credential-upload-form"><label>Document type</label><select name="kind">'+r.verification.requirements.map(x=>'<option value="'+esc(x)+'">'+esc(x.replaceAll('_',' '))+'</option>').join('')+'</select>'+
+ '<form id="credential-upload-form"><label>Document type</label><select name="kind">'+r.credentialKinds.map(x=>'<option value="'+esc(x)+'">'+esc(x.replaceAll('_',' '))+(r.verification.requirements.includes(x)?' (primary category requirement)':'')+'</option>').join('')+'</select>'+
  '<label>Document file</label><input type="file" name="document" accept=".pdf,.png,.jpg,.jpeg,application/pdf,image/png,image/jpeg" required>'+
  '<p id="form-error" class="bad"></p><button type="submit" class="btn">Submit securely for review</button></form>');
 }
@@ -133,7 +133,7 @@ async function showVerificationQueue(){
  const r=await api('/api/provider-verification/review-queue');
  overlay('<h2 id="modal-title">Provider document review queue</h2><p class="muted">Restricted operator access. Inspect evidence before approving. Do not accept documents that are expired, mismatched or unverifiable.</p>'+
  (r.queue.length?r.queue.map(d=>'<div class="record"><div><strong>'+esc(d.name)+'</strong><p class="muted">Business #'+esc(d.business_id)+' · '+esc(d.kind.replaceAll('_',' '))+'</p>'+
- (d.has_document?'<a href="/api/provider-verification/review-document/'+encodeURIComponent(d.business_id)+'/'+encodeURIComponent(d.kind)+'">Download encrypted evidence (private)</a>':'<p class="muted">No document uploaded'+(d.evidence_reference?' · business info reference: '+esc(d.evidence_reference):'')+'</p>')+'</div>'+
+ (d.has_document?'<a href="/api/provider-verification/review-document/'+encodeURIComponent(d.business_id)+'/'+encodeURIComponent(d.kind)+'">Download evidence for review (private)</a>':'<p class="muted">No document uploaded'+(d.evidence_reference?' · business info reference: '+esc(d.evidence_reference):'')+'</p>')+'</div>'+
  '<div class="buttonrow"><button class="btn" data-verification-review="approved" data-review-kind="'+esc(d.kind)+'" data-review-business="'+esc(d.business_id)+'">Approve</button>'+
  '<button class="btn secondary" data-verification-review="rejected" data-review-kind="'+esc(d.kind)+'" data-review-business="'+esc(d.business_id)+'">Reject</button></div></div>').join(''):'<p class="muted">No pending document reviews.</p>'));
 }
