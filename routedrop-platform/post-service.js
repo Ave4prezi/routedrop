@@ -251,6 +251,41 @@ function install(app, {pool,stripe,baseUrl,enabled,requireDb,requireUser,safe,li
   await queueDeferredEmail(pool,id,'disputed').catch(err=>console.error('Deferred booking notification unavailable',err.message));
   res.json({ok:true,status:'disputed',message:'No payment was initiated. Independent support review is required.'});
  }));
+ // Support privileges are provisioned out of band. No user can self-register as support.
+ const supportMember=async id=>(await pool.query('SELECT 1 FROM deferred_support_agents WHERE user_id=$1',[id])).rowCount>0;
+ app.get('/api/support/deferred-disputes',...read,safe(async(req,res)=>{
+  if(!await supportMember(req.user.id))return forbidden(res,'Support access required.',403);
+  const q=await pool.query("SELECT d.id,d.status,d.price_cents,d.dispute_reason,l.title,l.slot_start,b.name AS business_name,COALESCE(r.state,'open') AS review_state,r.resolution_note,r.reviewed_at FROM deferred_bookings d JOIN listings l ON l.id=d.listing_id JOIN businesses b ON b.id=l.business_id LEFT JOIN deferred_dispute_reviews r ON r.booking_id=d.id WHERE d.status='disputed' AND d.payment_intent_id IS NULL ORDER BY d.completed_at ASC LIMIT 100");
+  res.json({disputes:q.rows});
+ }));
+ app.post('/api/support/deferred-disputes/:id/decision',...read,safe(async(req,res)=>{
+  if(!await supportMember(req.user.id))return forbidden(res,'Support access required.',403);
+  const id=Number(req.params.id),decision=req.body?.decision,note=typeof req.body?.note==='string'?req.body.note.trim().slice(0,500):'';
+  if(!validId(id)||!['close_no_charge','request_customer_approval'].includes(decision)||note.length<12)return forbidden(res,'Choose a resolution and enter a reason of at least 12 characters.',400);
+  const client=await pool.connect();
+  try{
+   await client.query('BEGIN');
+   const q=await client.query("SELECT d.id,d.customer_id,d.dispute_reason,d.payment_intent_id,d.paid_at,d.status,b.owner_id FROM deferred_bookings d JOIN listings l ON l.id=d.listing_id JOIN businesses b ON b.id=l.business_id WHERE d.id=$1 FOR UPDATE OF d",[id]);
+   const d=q.rows[0];
+   if(!d||d.status!=='disputed'||!d.dispute_reason||d.payment_intent_id||d.paid_at){
+    await client.query('ROLLBACK');return forbidden(res,'Only unpaid, disputed bookings can use this resolution workflow.',409);
+   }
+   if(String(req.user.id)===String(d.customer_id)||String(req.user.id)===String(d.owner_id)){
+    await client.query('ROLLBACK');return forbidden(res,'An involved party cannot resolve this dispute.',403);
+   }
+   await client.query("INSERT INTO deferred_dispute_reviews(booking_id,state,original_reason) VALUES($1,'open',$2) ON CONFLICT(booking_id) DO NOTHING",[id,d.dispute_reason]);
+   const claim=await client.query("UPDATE deferred_dispute_reviews SET state=$2,resolution_note=$3,reviewed_by=$4,reviewed_at=now(),updated_at=now() WHERE booking_id=$1 AND state IN ('open','customer_declined') RETURNING booking_id",[id,decision==='close_no_charge'?'closed_no_charge':'awaiting_customer',note,req.user.id]);
+   if(!claim.rowCount){await client.query('ROLLBACK');return forbidden(res,'This dispute already received a decision.',409);}
+   if(decision==='close_no_charge'){
+    const changed=await client.query("UPDATE deferred_bookings SET status='canceled' WHERE id=$1 AND status='disputed' AND payment_intent_id IS NULL AND paid_at IS NULL RETURNING id",[id]);
+    if(!changed.rowCount)throw Error('Dispute status changed before closure');
+   }
+   await client.query("INSERT INTO deferred_dispute_events(booking_id,actor_id,action,note) VALUES($1,$2,$3,$4)",[id,req.user.id,decision,note]);
+   await client.query('COMMIT');
+  }catch(err){await client.query('ROLLBACK').catch(()=>{});throw err;}finally{client.release();}
+  await queueDeferredEmail(pool,id,decision==='close_no_charge'?'review_closed':'review_requested').catch(err=>console.error('Deferred review notification unavailable',err.message));
+  res.json({ok:true,status:decision==='close_no_charge'?'closed_no_charge':'awaiting_customer',message:decision==='close_no_charge'?'Dispute closed without a charge.':'Customer approval requested; payment remains blocked until the customer expressly reopens and confirms.'});
+ }));
  app.get('/api/deferred-refunds',...read,safe(async(req,res)=>{
   const condition=req.user.role==='customer'?'r.customer_id=$1':'b.owner_id=$1';
   const q=await pool.query("SELECT r.id,r.booking_id,r.status,r.reason,r.requested_at,d.price_cents,l.title,l.slot_start FROM deferred_refund_requests r JOIN deferred_bookings d ON d.id=r.booking_id JOIN listings l ON l.id=d.listing_id JOIN businesses b ON b.id=l.business_id WHERE "+condition+" ORDER BY r.requested_at DESC LIMIT 100",[req.user.id]);
