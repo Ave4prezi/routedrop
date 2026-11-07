@@ -40,7 +40,7 @@ const schema=[
 ];
 async function statusForBusiness(db,businessId,category){
  const [records,manual]=await Promise.all([
-  db.query('SELECT v.kind,v.status,v.expires_at,v.reviewed_at,EXISTS(SELECT 1 FROM provider_verification_documents d WHERE d.business_id=v.business_id AND d.kind=v.kind) AS has_document FROM provider_verifications v WHERE v.business_id=$1',[businessId]),
+  db.query('SELECT v.kind,v.status,v.expires_at,v.reviewed_at,CASE WHEN v.status='rejected' THEN v.review_note ELSE NULL END AS rejection_reason,EXISTS(SELECT 1 FROM provider_verification_documents d WHERE d.business_id=v.business_id AND d.kind=v.kind) AS has_document FROM provider_verifications v WHERE v.business_id=$1',[businessId]),
   db.query('SELECT approved FROM provider_category_reviews WHERE business_id=$1 AND category=$2',[businessId,category])
  ]);
  return {...assess(category,records.rows,manual.rows[0]?.approved===true),documents:records.rows};
