@@ -3,6 +3,7 @@ on:
   push:
     branches:
       - feature/premium-ui-integration-20261109
+      - feature/premium-functional-beta-20261109
   pull_request:
     branches:
       - feature/stripe-payafter-isolated-sandbox-20261107
