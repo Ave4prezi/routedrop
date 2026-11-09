@@ -33,21 +33,8 @@ function switchTab(tab){
 async function refresh(){
  if(!state.config)return;
  if(!state.config.database){
-  if(state.config.private_preview && !state.config.database && false){
-   // Presentation-only fixtures: no database, real user accounts or Stripe actions.
-   const sampleListings=[
-    {title:'A refreshed space',category:'Cleaning',provider:'Avenue89 Studio · fictional',location:'Decatur, AL',price:'$75',time:'Tomorrow · 2:00 PM'},
-    {title:'The weekend lawn reset',category:'Lawn care',provider:'Greenline Care · fictional',location:'Hartselle, AL',price:'$65',time:'Friday · 10:30 AM'},
-    {title:'The detail treatment',category:'Car detailing',provider:'Northside Auto · fictional',location:'Huntsville, AL',price:'$110',time:'Saturday · 9:00 AM'}
-   ];
-   $('offers').innerHTML=sampleListings.map((x,i)=>'<article class="card"><div class="cardbanner"><span>'+esc(x.category)+'</span><span>DESIGN SAMPLE '+(i+1)+'</span></div><div class="cardbody"><div class="muted">'+esc(x.provider)+'</div><h3>'+esc(x.title)+'</h3><div class="detail">⌖ '+esc(x.location)+'</div><div class="detail">◷ '+esc(x.time)+' · sample time</div><div class="cardfoot"><span class="price">'+esc(x.price)+'</span><button class="btn dark" data-action="demo-onboarding">Preview booking ↗</button></div></div></article>').join('');
-   $('offer-count').textContent='3 fictional sample openings · no booking available';
-   $('my-bookings').innerHTML='<div class="panel"><h3>Your appointments, beautifully organized.</h3><p class="muted">This screen previews the customer booking experience. It contains no actual bookings or saved cards.</p><div class="record"><div><strong>Sample: Standard House Cleaning</strong><p>DEMO ONLY · Avenue89 Test Services · Tomorrow, 2:00 PM</p></div><span class="pill">Example booking</span></div><p class="muted">In the connected application, customer confirmations and Stripe-verified payment states appear here.</p></div>';
-   $('studio-body').innerHTML='<div class="panel"><div class="row"><div><div class="eyebrow">SAMPLE BUSINESS</div><h3>Avenue89 Test Services</h3><p class="muted">Fictional UI demonstration, not a connected provider account.</p></div><span class="pill">Design preview</span></div><div class="grid"><div class="panel"><div class="muted">Upcoming bookings</div><h2>03</h2><small>Illustrative only</small></div><div class="panel"><div class="muted">Available openings</div><h2>08</h2><small>Illustrative only</small></div><div class="panel"><div class="muted">Example gross earnings</div><h2>$340</h2><small>Not actual transactions</small></div></div><div class="buttonrow"><button class="btn" data-action="demo-onboarding">Explore provider onboarding ↗</button></div></div><div class="panel"><h3>Upcoming activity · Design samples</h3><div class="record"><strong>House cleaning · Decatur</strong><span class="pill">Example request</span></div><div class="record"><strong>Lawn care · Hartselle</strong><span class="pill">Example accepted</span></div><div class="record"><strong>Detailing · Huntsville</strong><span class="pill">Example completed</span></div></div>';
-  }else{
    $('offers').innerHTML=noSetup();$('offer-count').textContent='0 live listings';
    $('my-bookings').innerHTML=noSetup();$('studio-body').innerHTML=noSetup();
-  }
   nav();return;
  }
  try{
