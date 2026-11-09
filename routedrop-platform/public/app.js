@@ -17,7 +17,7 @@ async function api(url,options={}){
  return data;
 }
 function message(txt,bad=false){const el=$('status');el.textContent=txt||'';el.classList.toggle('bad',!!bad);}
-function noSetup(){return '<div class="empty"><h3>Private beta setup is not finished</h3><p>Registration and persistent bookings will be available once the isolated RouteDrop database is connected. We are not collecting customer details or accepting payments yet.</p></div>';}
+function noSetup(){return '<div class="empty"><h3>The working premium beta is being connected</h3><p>Registration and live test listings will become available after the dedicated database is connected. Payments are disabled, and no personal details are being collected yet.</p></div>';}
 function overlay(content){$('modal-body').innerHTML=content;$('modal').classList.remove('hidden');}
 function dismiss(){$('modal').classList.add('hidden');$('modal-body').innerHTML='';}
 function nav(){
@@ -33,21 +33,8 @@ function switchTab(tab){
 async function refresh(){
  if(!state.config)return;
  if(!state.config.database){
-  if(state.config.private_preview){
-   // Presentation-only fixtures: no database, real user accounts or Stripe actions.
-   const sampleListings=[
-    {title:'A refreshed space',category:'Cleaning',provider:'Avenue89 Studio · fictional',location:'Decatur, AL',price:'$75',time:'Tomorrow · 2:00 PM'},
-    {title:'The weekend lawn reset',category:'Lawn care',provider:'Greenline Care · fictional',location:'Hartselle, AL',price:'$65',time:'Friday · 10:30 AM'},
-    {title:'The detail treatment',category:'Car detailing',provider:'Northside Auto · fictional',location:'Huntsville, AL',price:'$110',time:'Saturday · 9:00 AM'}
-   ];
-   $('offers').innerHTML=sampleListings.map((x,i)=>'<article class="card"><div class="cardbanner"><span>'+esc(x.category)+'</span><span>DESIGN SAMPLE '+(i+1)+'</span></div><div class="cardbody"><div class="muted">'+esc(x.provider)+'</div><h3>'+esc(x.title)+'</h3><div class="detail">⌖ '+esc(x.location)+'</div><div class="detail">◷ '+esc(x.time)+' · sample time</div><div class="cardfoot"><span class="price">'+esc(x.price)+'</span><button class="btn dark" data-action="demo-onboarding">Preview booking ↗</button></div></div></article>').join('');
-   $('offer-count').textContent='3 fictional sample openings · no booking available';
-   $('my-bookings').innerHTML='<div class="panel"><h3>Your appointments, beautifully organized.</h3><p class="muted">This screen previews the customer booking experience. It contains no actual bookings or saved cards.</p><div class="record"><div><strong>Sample: Standard House Cleaning</strong><p>DEMO ONLY · Avenue89 Test Services · Tomorrow, 2:00 PM</p></div><span class="pill">Example booking</span></div><p class="muted">In the connected application, customer confirmations and Stripe-verified payment states appear here.</p></div>';
-   $('studio-body').innerHTML='<div class="panel"><div class="row"><div><div class="eyebrow">SAMPLE BUSINESS</div><h3>Avenue89 Test Services</h3><p class="muted">Fictional UI demonstration, not a connected provider account.</p></div><span class="pill">Design preview</span></div><div class="grid"><div class="panel"><div class="muted">Upcoming bookings</div><h2>03</h2><small>Illustrative only</small></div><div class="panel"><div class="muted">Available openings</div><h2>08</h2><small>Illustrative only</small></div><div class="panel"><div class="muted">Example gross earnings</div><h2>$340</h2><small>Not actual transactions</small></div></div><div class="buttonrow"><button class="btn" data-action="demo-onboarding">Explore provider onboarding ↗</button></div></div><div class="panel"><h3>Upcoming activity · Design samples</h3><div class="record"><strong>House cleaning · Decatur</strong><span class="pill">Example request</span></div><div class="record"><strong>Lawn care · Hartselle</strong><span class="pill">Example accepted</span></div><div class="record"><strong>Detailing · Huntsville</strong><span class="pill">Example completed</span></div></div>';
-  }else{
    $('offers').innerHTML=noSetup();$('offer-count').textContent='0 live listings';
    $('my-bookings').innerHTML=noSetup();$('studio-body').innerHTML=noSetup();
-  }
   nav();return;
  }
  try{
@@ -65,7 +52,7 @@ function renderOffers(){
  const items=state.listings.filter(x=>(!cat||x.category===cat)&&(!search||[x.title,x.neighborhood,x.business_name,x.city].join(' ').toLowerCase().includes(search)));
  $('offer-count').textContent=items.length+' open slots';
  $('offers').innerHTML=items.length?items.map(x=>
-  '<article class="card"><div class="cardbanner"><span>'+esc(x.category)+'</span><span>Available window</span></div><div class="cardbody"><div class="muted">'+esc(x.business_name)+'</div><h3>'+esc(x.title)+'</h3><div class="detail">⌖ '+esc(x.neighborhood)+', '+esc(x.city)+'</div><div class="detail">◷ '+when(x.slot_start)+' · '+esc(x.duration_minutes)+' min</div><div class="cardfoot"><span class="price">'+money(x.price_cents)+'</span><button class="btn dark" data-book="'+x.id+'">'+(state.config.deferred_booking?'Book free · save card':'Book this slot')+'</button></div></div></article>').join(''):'<div class="empty"><h3>No openings are listed yet.</h3><p>Local businesses can publish available slots from Business Studio after registration is enabled.</p></div>';
+  '<article class="card"><div class="cardbanner"><span>'+esc(x.category)+'</span><span>Available window</span></div><div class="cardbody"><div class="muted">'+esc(x.business_name)+'</div><h3>'+esc(x.title)+'</h3><div class="detail">⌖ '+esc(x.neighborhood)+', '+esc(x.city)+'</div><div class="detail">◷ '+when(x.slot_start)+' · '+esc(x.duration_minutes)+' min</div><div class="cardfoot"><span class="price">'+money(x.price_cents)+'</span><button class="btn dark" '+(state.config.payments?'data-book="'+x.id+'"':'disabled aria-label="Bookings disabled during private beta"')+'>'+(state.config.payments?(state.config.deferred_booking?'Book free · save card':'Book this slot'):'Booking opens later')+'</button></div></div></article>').join(''):'<div class="empty"><h3>No openings are listed yet.</h3><p>Local businesses can publish available slots from Business Studio after registration is enabled.</p></div>';
 }
 function deferredMarkup(bookings,role){
  if(!bookings.length)return '<div class="panel"><h3>Pay-after-service bookings</h3><p class="muted">No deferred bookings yet.</p></div>';

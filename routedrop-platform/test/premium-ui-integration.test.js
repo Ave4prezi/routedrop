@@ -12,8 +12,8 @@ test('premium UI keeps application mounting points',()=>{
  for(const tab of ['explore','bookings','business']){assert.match(html,new RegExp('id="'+tab+'"'));assert.match(html,new RegExp('data-tab="'+tab+'"'));}
 });
 test('sandbox and real API wiring preserved',()=>{
- assert.match(html,/PRIVATE DESIGN PREVIEW/);
- assert.match(html,/No real transactions/);
+ assert.match(html,/PRIVATE PREMIUM BETA/);
+ assert.match(html,/Payments and payouts are disabled/);
  assert.match(html,/<script src="\/app\.js" defer>/);
  assert.match(app,/\/api\/deferred-bookings/);
  assert.match(app,/\/api\/stripe\/connect/);
