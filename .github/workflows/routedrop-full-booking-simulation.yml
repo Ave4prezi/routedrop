@@ -1,0 +1,51 @@
+name: RouteDrop full booking simulation
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - test/automate-work-complete-no-charge-20261110
+
+permissions:
+  contents: read
+
+jobs:
+  full-booking:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: localonly
+          POSTGRES_DB: routedrop_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d routedrop_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    defaults:
+      run:
+        working-directory: routedrop-platform
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install packages without postinstall side effects
+        run: npm install --ignore-scripts --no-audit --no-fund
+      - name: Check JavaScript syntax
+        run: |
+          node --check post-service.js
+          node --check server.js
+          node --check test/deferred-payment-lifecycle-http.test.js
+      - name: Full fictional booking: create request, Stripe card setup webhook, accept, complete, customer confirm, simulated charge, payment webhook
+        env:
+          ROUTEDROP_TEST_DATABASE_URL: postgres://postgres:localonly@localhost:5432/routedrop_ci
+        run: node --test test/deferred-payment-lifecycle-http.test.js
+      - name: Assert no external Stripe or production secrets were supplied
+        run: |
+          test -z "${STRIPE_SECRET_KEY:-}"
+          test -z "${DATABASE_URL:-}"
