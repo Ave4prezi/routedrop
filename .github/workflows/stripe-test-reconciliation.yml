@@ -1,0 +1,69 @@
+name: RouteDrop Stripe test-mode reconciliation
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-branch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Restricted test branch only
+        run: |
+          if [[ "$GITHUB_REF" != "refs/heads/test/real-stripe-reconciliation-20261110" ]]; then
+            echo "Select the test/real-stripe-reconciliation-20261110 branch when running this workflow."
+            exit 1
+          fi
+
+  real-stripe:
+    needs: verify-branch
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: routedrop-stripe-test
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: localonly
+          POSTGRES_DB: routedrop_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d routedrop_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    defaults:
+      run:
+        working-directory: routedrop-platform
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: test/real-stripe-reconciliation-20261110
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install test packages
+        run: npm install --ignore-scripts --no-audit --no-fund
+      - name: Require test-only settings
+        env:
+          TEST_KEY: ${{ secrets.ROUTEDROP_STRIPE_TEST_KEY }}
+          CONNECTED: ${{ vars.ROUTEDROP_TEST_PROVIDER_ACCOUNT_ID }}
+          PLATFORM: ${{ vars.ROUTEDROP_STRIPE_TEST_PLATFORM_ID }}
+        run: |
+          if [[ "$TEST_KEY" != sk_test_* || "$CONNECTED" != acct_* || "$PLATFORM" != acct_* ]]; then
+            echo "A test-mode key and both account IDs must be configured in the protected environment."
+            exit 1
+          fi
+      - name: Run real Stripe test reconciliation
+        env:
+          ROUTEDROP_REAL_STRIPE_E2E: 'true'
+          ROUTEDROP_TEST_DATABASE_URL: postgres://postgres:localonly@localhost:5432/routedrop_ci
+          ROUTEDROP_STRIPE_TEST_KEY: ${{ secrets.ROUTEDROP_STRIPE_TEST_KEY }}
+          ROUTEDROP_TEST_PROVIDER_ACCOUNT_ID: ${{ vars.ROUTEDROP_TEST_PROVIDER_ACCOUNT_ID }}
+          ROUTEDROP_STRIPE_TEST_PLATFORM_ID: ${{ vars.ROUTEDROP_STRIPE_TEST_PLATFORM_ID }}
+          ROUTEDROP_LIVE_APPROVED: 'false'
+        run: node --test test/stripe-real-test-reconciliation.test.js
