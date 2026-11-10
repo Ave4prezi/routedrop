@@ -41,7 +41,7 @@ jobs:
           node --check post-service.js
           node --check server.js
           node --check test/deferred-payment-lifecycle-http.test.js
-      - name: Full fictional booking: create request, Stripe card setup webhook, accept, complete, customer confirm, simulated charge, payment webhook
+      - name: 'Full fictional booking: setup, accept, complete, confirm and simulated payment'
         env:
           ROUTEDROP_TEST_DATABASE_URL: postgres://postgres:localonly@localhost:5432/routedrop_ci
         run: node --test test/deferred-payment-lifecycle-http.test.js
