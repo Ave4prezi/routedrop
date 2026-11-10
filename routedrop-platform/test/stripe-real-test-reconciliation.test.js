@@ -113,7 +113,7 @@ test('real Stripe TEST-mode payment and real-event webhook replay after provider
   }
   async function deliver(event,{valid=true}={}){
    const payload=JSON.stringify(event);
-   const sig=Stripe.webhooks.generateTestHeaderString({payload,secret:localWebhookSecret});
+   const sig=stripe.webhooks.generateTestHeaderString({payload,secret:localWebhookSecret});
    const response=await fetch(serverBase+'/api/stripe/webhook',{
     method:'POST',headers:{'content-type':'application/json','stripe-signature':valid?sig:'t=1,v1=bad'},body:payload
    });
