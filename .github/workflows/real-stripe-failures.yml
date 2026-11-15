@@ -1,0 +1,39 @@
+name: RouteDrop REAL Stripe TEST failure scenarios (one-shot)
+on:
+  push:
+    branches:
+      - test/real-stripe-failures-20261115
+    paths:
+      - '.github/stripe-test-run-once.marker'
+permissions:
+  contents: read
+jobs:
+  actual-stripe-failure-exercise:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    environment: routedrop-stripe-test
+    defaults:
+      run:
+        working-directory: routedrop-platform
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install Stripe SDK and project dependencies
+        run: npm install --ignore-scripts --no-audit --no-fund
+      - name: Confirm isolated test-account config
+        env:
+          STRIPE_TEST_KEY: ${{ secrets.ROUTEDROP_STRIPE_TEST_KEY }}
+        run: |
+          if [[ "$STRIPE_TEST_KEY" != sk_test_* ]]; then
+            echo "Blocked: TEST secret required"
+            exit 1
+          fi
+          node --check test/stripe-real-failure-exercise.test.js
+      - name: Exercise genuine TEST declines, 3DS, refund and dispute
+        env:
+          ROUTEDROP_RUN_FAILURE_STRIPE: 'true'
+          ROUTEDROP_LIVE_APPROVED: 'false'
+          ROUTEDROP_STRIPE_TEST_KEY: ${{ secrets.ROUTEDROP_STRIPE_TEST_KEY }}
+        run: node --test test/stripe-real-failure-exercise.test.js
