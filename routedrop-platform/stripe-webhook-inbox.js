@@ -10,9 +10,9 @@ const schema = [
 ];
 
 function validEvent(event) {
-  return event && typeof event.id === 'string' && /^evt_[a-zA-Z0-9]{6,100}$/.test(event.id) &&
+  return Boolean(event && typeof event.id === 'string' && /^evt_[a-zA-Z0-9]{6,100}$/.test(event.id) &&
     typeof event.type === 'string' && event.type.length < 150 &&
-    event.data && event.data.object && typeof event.data.object === 'object';
+    event.data && event.data.object && typeof event.data.object === 'object');
 }
 
 function createWebhookInbox({pool, applyEvent, logger=console}) {
