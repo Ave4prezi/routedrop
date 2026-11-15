@@ -1,0 +1,1 @@
+Run authorized Stripe sandbox-only failure scenarios once. 2026-11-15. No production writes or RouteDrop booking metadata.
