@@ -1,0 +1,55 @@
+name: RouteDrop durable webhook inbox (disposable CI)
+on:
+  push:
+    branches:
+      - test/durable-webhook-inbox-20261115
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  durable-webhook-inbox:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: routedrop_ci
+          POSTGRES_PASSWORD: ci_only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d routedrop_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    defaults:
+      run:
+        working-directory: routedrop-platform
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install dependencies safely
+        run: npm install --ignore-scripts --no-audit --no-fund
+      - name: Verify code syntax
+        run: |
+          node --check server.js
+          node --check post-service.js
+          node --check stripe-webhook-inbox.js
+          node --check test/stripe-webhook-inbox.test.js
+      - name: Verify CI has no payment or production secrets
+        run: |
+          test -z "${STRIPE_SECRET_KEY:-}"
+          test -z "${ROUTEDROP_STRIPE_TEST_KEY:-}"
+          test -z "${DATABASE_URL:-}"
+      - name: Run all tests with disposable PostgreSQL and mocked Stripe
+        env:
+          ROUTEDROP_TEST_DATABASE_URL: postgres://postgres:ci_only@localhost:5432/routedrop_ci
+          ROUTEDROP_RUN_FAILURE_STRIPE: 'false'
+          ROUTEDROP_REAL_STRIPE_E2E: 'false'
+          ROUTEDROP_LIVE_APPROVED: 'false'
+          ROUTEDROP_WEBHOOK_INBOX_ENABLED: 'false'
+          NODE_ENV: test
+        run: node --test --test-concurrency=1 test/*.test.js
