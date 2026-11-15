@@ -51,8 +51,8 @@ jobs:
       - name: Require test-only settings
         env:
           TEST_KEY: ${{ secrets.ROUTEDROP_STRIPE_TEST_KEY }}
-          CONNECTED: ${{ vars.ROUTEDROP_TEST_PROVIDER_ACCOUNT_ID }}
-          PLATFORM: ${{ vars.ROUTEDROP_STRIPE_TEST_PLATFORM_ID }}
+          CONNECTED: acct_1UZc0kLnWnjdMpkQ
+          PLATFORM: acct_1UW6a5LqRW6nZIst
         run: |
           if [[ "$TEST_KEY" != sk_test_* || "$CONNECTED" != acct_* || "$PLATFORM" != acct_* ]]; then
             echo "A test-mode key and both account IDs must be configured in the protected environment."
@@ -63,7 +63,7 @@ jobs:
           ROUTEDROP_REAL_STRIPE_E2E: 'true'
           ROUTEDROP_TEST_DATABASE_URL: postgres://postgres:localonly@localhost:5432/routedrop_ci
           ROUTEDROP_STRIPE_TEST_KEY: ${{ secrets.ROUTEDROP_STRIPE_TEST_KEY }}
-          ROUTEDROP_TEST_PROVIDER_ACCOUNT_ID: ${{ vars.ROUTEDROP_TEST_PROVIDER_ACCOUNT_ID }}
-          ROUTEDROP_STRIPE_TEST_PLATFORM_ID: ${{ vars.ROUTEDROP_STRIPE_TEST_PLATFORM_ID }}
+          ROUTEDROP_TEST_PROVIDER_ACCOUNT_ID: acct_1UZc0kLnWnjdMpkQ
+          ROUTEDROP_STRIPE_TEST_PLATFORM_ID: acct_1UW6a5LqRW6nZIst
           ROUTEDROP_LIVE_APPROVED: 'false'
         run: node --test test/stripe-real-test-reconciliation.test.js
