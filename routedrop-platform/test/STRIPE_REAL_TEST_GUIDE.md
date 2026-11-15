@@ -34,6 +34,7 @@ After the workflow is present on the repository default branch, run **Actions â†
 - Refuses any key other than `sk_test_...`. Refuses a mismatched Stripe platform account, an unready connected provider account, a non-disposable database name, or a live approval flag.
 - PostgreSQL is a temporary local GitHub Actions service database named `routedrop_ci`; per-run schema is deleted at the end.
 - The real test-mode transaction modifies only *new test Stripe objects* in the specified test account, never the existing RouteDrop paid booking or Neon sandbox database.
+- Stripe sends its test events to every enabled test webhook on the account, including the deployed RouteDrop sandbox. To guard against cross-environment ID collision, the CI runner now assigns its temporary database booking a randomized ID of at least 1,000,000,000, instead of starting at 1. Its events are not intended to update any deployed booking.
 - The test account's Stripe test balance and event history will reflect the new simulated $75 transaction. No real money moves.
 - Does not automate the hosted Checkout interface; does not verify outbound delivery from Stripe to the Render webhook URL. Those remain separate tests.
 - **Do not merge the test runner or workflow to production branches automatically.** Review changes and environment protections before making manual workflow access available.
