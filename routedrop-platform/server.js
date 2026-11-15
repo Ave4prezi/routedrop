@@ -12,6 +12,7 @@ const { normalizeSubscriptionEvent, invoiceEvent, selectSubscription, canStartSu
 const { providerReady, emailLink, isActionToken, notification, deliverEmail } = require('./mail');
 const { livePaymentsAllowed, checkoutOutcome, refundableAmount, disputeState, cancellationEligibility, refundStatus, refundOperation } = require('./payment-safeguards');
 const postService = require('./post-service');
+const stripeInboxModule = require('./stripe-webhook-inbox');
 const verification = require('./provider-verification');
 const {createStagingGate} = require('./staging-access');
 const {assertSandboxConfig,allowsFictionalSignup} = require('./payment-sandbox');
@@ -32,6 +33,8 @@ const emailReady = providerReady(process.env);
 const paymentsReady = !!(stripe && stripeWebhookSecret && paymentsApproved);
 // Explicitly test-only while the redesigned booking policy is under review.
 const deferredEnabled = process.env.ROUTEDROP_DEFERRED_BETA_ENABLED === 'true' && /^sk_test_/.test(stripeKey) && paymentsReady;
+// Explicit opt-in for isolated TEST staging only: never changes a live/production webhook.
+const webhookInboxEnabled = deferredEnabled && process.env.ROUTEDROP_STAGING_LOCK === 'true' && process.env.ROUTEDROP_WEBHOOK_INBOX_ENABLED === 'true';
 // Dedicated, password-protected synthetic preview. Has no Stripe key or payment capability.
 const previewOnly = process.env.ROUTEDROP_PRIVATE_PREVIEW_ONLY === 'true' &&
  process.env.ROUTEDROP_STAGING_LOCK === 'true' &&
@@ -99,6 +102,7 @@ const ddl = [
  "CREATE INDEX IF NOT EXISTS notification_outbox_due ON notification_outbox(status,available_at)"
 ]; 
 if (deferredEnabled || previewOnly || paymentSandboxOnly) ddl.push(...postService.sql);
+if (webhookInboxEnabled) ddl.push(...stripeInboxModule.schema);
 if (verificationEnabled) ddl.push(...verification.schema);
 async function startDatabase() {
  if (!pool) return;
@@ -106,6 +110,7 @@ async function startDatabase() {
   for (const statement of ddl) await pool.query(statement);
   ready = true;
   console.log('RouteDrop PostgreSQL ready');
+  if (webhookInboxEnabled) startWebhookInboxWorker();
  } catch(err) { ready=false; console.error('Database unavailable:',err.message); }
 }
 function requireDb(req,res,next) { if (!ready) return forbidden(res,'Accounts are not yet enabled. The private beta database is pending setup.',503); next(); }
@@ -142,17 +147,11 @@ function checkMutation(req,res,next) {
  next();
 }
 app.get('/health', (req,res)=>res.status(200).json({service:'RouteDrop platform beta',server:'up',database:ready?'ready':'not configured',payments:paymentsReady?'configured':'not configured',mode:liveKey?(paymentsApproved?'live':'live_locked'):'beta'}));
-app.post('/api/stripe/webhook', express.raw({type:'application/json'}),safe(async(req,res)=>{
- if (!paymentsReady) return forbidden(res,'Payments not configured',503);
- let event;
- try { event=stripe.webhooks.constructEvent(req.body,req.get('stripe-signature'),stripeWebhookSecret); }
- catch(e) {return forbidden(res,'Invalid webhook signature',400);}
- if (!ready) return forbidden(res,'Database not ready',503);
- const client=await pool.connect();
- try{
-  await client.query('BEGIN');
-  const logged=await client.query('INSERT INTO stripe_events(id) VALUES($1) ON CONFLICT DO NOTHING RETURNING id',[event.id]);
-  if (!logged.rowCount){await client.query('COMMIT');return res.json({received:true});}
+// Shared legacy and inbox processor. The caller owns the SQL transaction; application
+// changes and the stripe_events deduplication marker commit atomically.
+async function applyStripeEvent(event,client) {
+ const logged=await client.query('INSERT INTO stripe_events(id) VALUES($1) ON CONFLICT DO NOTHING RETURNING id',[event.id]);
+ if (!logged.rowCount) return false;
   const session=event.data.object;
   if (deferredEnabled) await postService.handleStripeEvent(event,client,stripe,queueDeferredEmail);
   const bookingId=Number(session.metadata&&session.metadata.booking_id);
@@ -204,9 +203,43 @@ app.post('/api/stripe/webhook', express.raw({type:'application/json'}),safe(asyn
   if(disputeState(event.type,session)!==null){
    await client.query('UPDATE bookings SET dispute_status=$1 WHERE payment_intent_id=$2',[disputeState(event.type,session),session.payment_intent]);
   }
+ return true;
+}
+const webhookInbox = webhookInboxEnabled ? stripeInboxModule.createWebhookInbox({
+ pool,applyEvent:applyStripeEvent
+}) : null;
+let webhookInboxWorkerStarted=false;
+function startWebhookInboxWorker() {
+ if (!webhookInbox || webhookInboxWorkerStarted) return;
+ webhookInboxWorkerStarted=true;
+ const drain=()=>webhookInbox.drainAvailable().catch(err=>console.error('RouteDrop webhook inbox worker unavailable',err.code||err.name));
+ drain();
+ const drainTimer=setInterval(drain,10000); drainTimer.unref();
+ const retention=()=>webhookInbox.pruneProcessed().catch(err=>console.error('RouteDrop webhook inbox retention failed',err.code||err.name));
+ retention();
+ const retentionTimer=setInterval(retention,24*60*60*1000); retentionTimer.unref();
+}
+app.post('/api/stripe/webhook', express.raw({type:'application/json'}),safe(async(req,res)=>{
+ if (!paymentsReady) return forbidden(res,'Payments not configured',503);
+ let event;
+ try { event=stripe.webhooks.constructEvent(req.body,req.get('stripe-signature'),stripeWebhookSecret); }
+ catch(e) {return forbidden(res,'Invalid webhook signature',400);}
+ if (!ready) return forbidden(res,'Database not ready',503);
+ if (webhookInbox) {
+  // Ack only after a signed event is durably stored, never after an in-memory enqueue.
+  await webhookInbox.enqueue(event);
+  res.json({received:true});
+  // Processing never blocks the HTTP response and resumes after a process restart.
+  void webhookInbox.drainAvailable().catch(err=>console.error('RouteDrop webhook inbox scan unavailable',err.code||err.name));
+  return;
+ }
+ const client=await pool.connect();
+ try{
+  await client.query('BEGIN');
+  await applyStripeEvent(event,client);
   await client.query('COMMIT');
   res.json({received:true});
- }catch(err){await client.query('ROLLBACK');throw err;}finally{client.release();}
+ }catch(err){await client.query('ROLLBACK').catch(()=>{});throw err;}finally{client.release();}
 }));
 app.use(express.json({limit:'16kb'}));
 app.use(checkMutation);
