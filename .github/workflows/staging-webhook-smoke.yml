@@ -1,0 +1,46 @@
+name: RouteDrop staging webhook smoke (unconfirmed Stripe TEST event)
+on:
+  push:
+    branches:
+      - test/staging-webhook-smoke-20261115
+permissions:
+  contents: read
+jobs:
+  isolated-webhook-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    environment: routedrop-stripe-test
+    defaults:
+      run:
+        working-directory: routedrop-platform
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install Stripe SDK
+        run: npm install --ignore-scripts --no-audit --no-fund
+      - name: Create an unconfirmed fictional test PaymentIntent to trigger payment_intent.created
+        env:
+          ROUTEDROP_STRIPE_TEST_KEY: ${{ secrets.ROUTEDROP_STRIPE_TEST_KEY }}
+          ROUTEDROP_LIVE_APPROVED: 'false'
+        run: |
+          node <<'NODE'
+          'use strict';
+          const Stripe = require('stripe');
+          (async()=>{
+            const key=process.env.ROUTEDROP_STRIPE_TEST_KEY||'';
+            if(!/^sk_test_/.test(key)||process.env.ROUTEDROP_LIVE_APPROVED!=='false')throw Error('Stripe test-mode-only protection failed');
+            const stripe=new Stripe(key);
+            const account=await stripe.accounts.retrieve();
+            if(account.id!=='acct_1UW6a5LqRW6nZIst')throw Error('Wrong Stripe TEST account: blocked');
+            const run=String(process.env.GITHUB_RUN_ID||'unknown');
+            const intent=await stripe.paymentIntents.create({
+              amount:500,currency:'usd',payment_method_types:['card'],
+              description:'FICTIONAL RouteDrop webhook inbox smoke test, no charge or confirmation',
+              metadata:{routedrop_webhook_smoke:'inbox-test-'+run}
+            },{idempotencyKey:'routedrop-test-only-unconfirmed-inbox-'+run});
+            if(intent.status!=='requires_payment_method'||intent.livemode)throw Error('Unexpected test PaymentIntent state');
+            console.log('Created unconfirmed Stripe TEST PaymentIntent '+intent.id+'; no charge/booking/refund created.');
+          })().catch(e=>{console.error('Staging webhook smoke failed:',e.message);process.exitCode=1});
+          NODE
