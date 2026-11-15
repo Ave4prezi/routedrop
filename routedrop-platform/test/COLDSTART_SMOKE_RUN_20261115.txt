@@ -1,0 +1,1 @@
+RouteDrop staging smoke test marker, 2026-11-15 23:49 UTC. Triggers existing test-only GitHub Actions job to create a single unconfirmed fictional PaymentIntent (no charge). No Render pings or production changes.
