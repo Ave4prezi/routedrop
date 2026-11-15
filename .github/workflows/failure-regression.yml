@@ -1,0 +1,47 @@
+name: RouteDrop failure-path regression
+on:
+  push:
+    branches:
+      - test/failure-regression-20261115
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  failure-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: routedrop_ci
+          POSTGRES_PASSWORD: ci_only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d routedrop_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    defaults:
+      run:
+        working-directory: routedrop-platform
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install dependencies
+        run: npm install --ignore-scripts --no-audit --no-fund
+      - name: Run full mocked Stripe and PostgreSQL regression tests
+        env:
+          ROUTEDROP_TEST_DATABASE_URL: postgres://postgres:ci_only@localhost:5432/routedrop_ci
+          ROUTEDROP_REAL_STRIPE_E2E: 'false'
+          ROUTEDROP_LIVE_APPROVED: 'false'
+          NODE_ENV: test
+        run: node --test --test-concurrency=1 test/*.test.js
+      - name: Assert no payment or production connection environment was supplied
+        run: |
+          test -z "${STRIPE_SECRET_KEY:-}"
+          test -z "${ROUTEDROP_STRIPE_TEST_KEY:-}"
+          test -z "${DATABASE_URL:-}"
