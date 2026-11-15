@@ -3,6 +3,7 @@ on:
   push:
     branches:
       - test/real-stripe-reconciliation-20261110
+      - test/stripe-ci-event-isolation-20261115
   workflow_dispatch:
 permissions:
   contents: read

@@ -69,6 +69,11 @@ test('real Stripe TEST-mode payment and real-event webhook replay after provider
    'CREATE TABLE stripe_events (id TEXT PRIMARY KEY, received_at TIMESTAMPTZ NOT NULL DEFAULT now())'
   ]) await db.query(sql);
   for(const statement of post.sql)await db.query(statement);
+  // Stripe sends real test-mode events to EVERY enabled test webhook endpoint.
+  // Keep this CI booking ID far outside the deployed RouteDrop sandbox's IDs,
+  // so an event cannot accidentally refer to an existing sandbox booking.
+  const isolatedBookingId=crypto.randomInt(1_000_000_000,1_900_000_000);
+  await db.query("SELECT setval(pg_get_serial_sequence('deferred_bookings','id'),$1,false)",[isolatedBookingId]);
   await db.query("INSERT INTO users(id,email,role) VALUES(1,'realstripe-provider@ci.invalid','business'),(2,'realstripe-customer@ci.invalid','customer'),(3,'realstripe-other@ci.invalid','customer')");
   await db.query('INSERT INTO businesses(id,owner_id,stripe_account_id,name) VALUES(1,1,$1,$2)',[destination,'RouteDrop CI Fictional Cleaning']);
   await db.query("INSERT INTO listings(id,business_id,price_cents,slot_start,title,status,neighborhood) VALUES(1,1,7500,now()+interval '24 hours','Synthetic $75 cleaning','active','Decatur CI ONLY')");
@@ -127,6 +132,7 @@ test('real Stripe TEST-mode payment and real-event webhook replay after provider
   assert.equal(row.status,'awaiting_card');
   assert.equal(row.fee_cents,600);
   const id=row.id;
+  assert.equal(Number(id),isolatedBookingId,'CI booking must use an isolated high-value ID');
   checkoutSessionId=row.setup_session_id;
   const remoteCheckout=await stripe.checkout.sessions.retrieve(checkoutSessionId);
   assert.equal(remoteCheckout.mode,'setup');
