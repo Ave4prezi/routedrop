@@ -39,6 +39,22 @@ app.use(helmet({
  contentSecurityPolicy: { directives: { defaultSrc:["'self'"], scriptSrc:["'self'"], styleSrc:["'self'","'unsafe-inline'"], imgSrc:["'self'","data:"], connectSrc:["'self'"], objectSrc:["'none'"], frameAncestors:["'none'"], upgradeInsecureRequests: process.env.NODE_ENV==='production' ? [] : null } },
  referrerPolicy: { policy:'no-referrer' }
 }));
+// Optional password gate for an isolated, database-free UX walkthrough only.
+const previewPass=process.env.ROUTEDROP_PREVIEW_ACCESS_PASSWORD || '';
+if(previewPass){
+ app.use((req,res,next)=>{
+  const auth=req.get('authorization')||'';
+  let pair='';
+  if(auth.startsWith('Basic ')){
+   try{pair=Buffer.from(auth.slice(6),'base64').toString('utf8');}catch{}
+  }
+  const received=Buffer.from(pair);
+  const expected=Buffer.from('routedrop-preview:'+previewPass);
+  const valid=received.length===expected.length && crypto.timingSafeEqual(received,expected);
+  if(!valid){res.set('WWW-Authenticate','Basic realm="RouteDrop private radius preview"');return res.status(401).send('Private preview: enter your access credentials.');}
+  next();
+ });
+}
 app.use(cookieParser());
 app.use((req,res,next) => {
  if (req.path.startsWith('/api/')) res.set('Cache-Control', 'no-store');
