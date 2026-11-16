@@ -1,0 +1,77 @@
+name: 'RouteDrop Stripe Identity adapter and moderator WebAuthn security regression'
+on:
+  push:
+    branches:
+      - feature/identity-passkeys-20261116
+permissions:
+  contents: read
+jobs:
+  isolated-pilot:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: routedrop_test
+          POSTGRES_PASSWORD: routedrop_test
+          POSTGRES_DB: routedrop_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U routedrop_test -d routedrop_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgresql://routedrop_test:routedrop_test@localhost:5432/routedrop_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Validate server and client syntax
+        run: |
+          node --check routedrop-platform/server.js
+          node --check routedrop-platform/booking-pilot.js
+          node --check routedrop-platform/opportunity-pilot.js
+          node --check routedrop-platform/unified-pilot.js
+          node --check routedrop-platform/trust-pilot.js
+          node --check routedrop-platform/safety-pilot.js
+          node --check routedrop-platform/identity-pilot.js
+          node --check routedrop-platform/moderator-passkeys.js
+          node --check routedrop-platform/public/passkey-client.js
+          node --check routedrop-platform/public/app.js
+          node --check routedrop-platform/public/pilot-ui.js
+          node --check routedrop-platform/public/opportunity-ui.js
+          node --check routedrop-platform/public/unified-ui.js
+          node --check routedrop-platform/public/trust-ui.js
+          node --check routedrop-platform/public/safety-ui.js
+          node --check routedrop-platform/public/premium-2-experience.js
+          node --check routedrop-platform/test/pilot-integration.mjs
+          node --check routedrop-platform/test/pilot-browser.mjs
+          node --check routedrop-platform/test/premium-2-browser.mjs
+      - name: Install dependencies without hooks
+        working-directory: routedrop-platform
+        run: npm install --ignore-scripts --no-audit --no-fund
+      - name: Security, service area and policy unit regression tests
+        run: node --test routedrop-platform/test/*.test.js
+      - name: PostgreSQL integration test — account roles and unpaid booking lifecycle
+        run: node routedrop-platform/test/pilot-integration.mjs
+      - name: Install Playwright Chromium
+        working-directory: routedrop-platform
+        run: |
+          npm install --ignore-scripts --no-save --no-audit --no-fund playwright@1.56.1
+          npx playwright install --with-deps chromium
+      - name: Browser test — actual test accounts, booking requests, provider completion, no payments
+        run: node routedrop-platform/test/pilot-browser.mjs
+      - name: Preserve existing Premium 2.0 demo/browser regression
+        run: node routedrop-platform/test/premium-2-browser.mjs
+      - name: Preserve desktop/mobile testing screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: route-identity-passkeys-private-test-screenshots
+          path: |
+            pilot-*.png
+            premium-2-*.png
+          retention-days: 7
+          if-no-files-found: ignore
