@@ -18,9 +18,34 @@ async function api(url,options={}){
 }
 function message(txt,bad=false){const el=$('status');el.textContent=txt||'';el.classList.toggle('bad',!!bad);}
 function noSetup(){return '<div class="empty"><h3>Private beta setup is not finished</h3><p>Registration and persistent bookings will be available once the isolated RouteDrop database is connected. We are not collecting customer details or accepting payments yet.</p></div>';}
-function overlay(content){$('modal-body').innerHTML=content;$('modal').classList.remove('hidden');}
-function dismiss(){$('modal').classList.add('hidden');$('modal-body').innerHTML='';}
+let dialogReturnFocus=null;
+function overlay(content){
+ dialogReturnFocus=document.activeElement;
+ $('modal-body').innerHTML=content;
+ $('modal').classList.remove('hidden');
+ $('close-modal').focus();
+}
+function dismiss(){
+ if($('modal').classList.contains('hidden'))return;
+ $('modal').classList.add('hidden');$('modal-body').innerHTML='';
+ if(dialogReturnFocus?.isConnected)dialogReturnFocus.focus();
+ dialogReturnFocus=null;
+}
+function dialogKeys(event){
+ if($('modal').classList.contains('hidden'))return;
+ if(event.key==='Escape'){event.preventDefault();dismiss();return;}
+ if(event.key!=='Tab')return;
+ const controls=Array.from($('modal').querySelectorAll('button:not([disabled]),a[href],input:not([disabled]),select:not([disabled]),textarea:not([disabled])')).filter(el=>el.getClientRects().length);
+ if(!controls.length)return;
+ const first=controls[0],last=controls[controls.length-1];
+ if(event.shiftKey&&document.activeElement===first){event.preventDefault();last.focus();}
+ else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first.focus();}
+}
 function nav(){
+ if(state.demo&&!state.config?.database){
+  $('nav-account').innerHTML='<button type="button" data-tab="bookings" aria-label="Explore fictional customer experience">Customer tour</button><button type="button" data-tab="business" aria-label="Explore fictional provider experience">Provider tour</button>';
+  return;
+ }
  const u=state.me?.user;
  $('nav-account').innerHTML=u?'<span class="muted">'+esc(u.full_name)+'</span>'+(state.config?.email_enabled&&!u.email_verified?'<button data-action="verify-email">Verify email</button>':'')+'<button data-action="change-password">Change password</button><button data-action="logout">Log out</button>':'<button data-action="login">Log in</button><button data-action="register">Sign up</button>';
 }
@@ -28,6 +53,10 @@ function switchTab(tab){
  state.tab=tab;
  document.querySelectorAll('.page').forEach(el=>el.classList.toggle('hidden',el.id!==tab));
  document.querySelectorAll('[data-tab]').forEach(el=>el.classList.toggle('active',el.dataset.tab===tab));
+ document.querySelectorAll('nav.tabs [data-tab]').forEach(el=>{
+  if(el.dataset.tab===tab)el.setAttribute('aria-current','page');
+  else el.removeAttribute('aria-current');
+ });
  refresh();
 }
 async function refresh(){
@@ -52,7 +81,9 @@ function serviceCoveragePanel(b,readonly=false){
  const choices='<option value="">Choose your approximate city center</option>'+city;
  return '<div class="panel service-area-panel"><div class="row"><div><h3>'+(readonly?'Sample service radius — interactive preview':'Service coverage radius')+'</h3><p class="muted">Choose where your business works and how many miles you travel. This uses an approximate city-center point, never your home address or phone GPS.</p></div><span class="pill">'+(readonly?'Fictional demo':v?'Area configured':'Not configured')+'</span></div>'+
  '<label for="area-city">Service-area center</label><select id="area-city">'+choices+'</select>'+
- '<label for="area-radius">Travel radius: <strong id="area-radius-value">'+(v?v.radiusMiles:15)+' miles</strong></label><input id="area-radius" type="range" min="5" max="50" step="5" value="'+(v?v.radiusMiles:15)+'" aria-describedby="area-help">'+
+ '<label for="area-radius">Travel radius: <strong id="area-radius-value">'+(v?v.radiusMiles:15)+' miles</strong></label><input id="area-radius" type="range" min="5" max="50" step="5" value="'+(v?v.radiusMiles:15)+'" aria-describedby="area-help area-live-summary" aria-valuetext="'+(v?v.radiusMiles:15)+' miles">'+
+ '<div class="radius-presets" aria-label="Quick radius selections">'+[5,10,20,30,40,50].map(m=>'<button type="button" class="radius-preset" data-radius-preset="'+m+'" aria-pressed="'+(m===(v?v.radiusMiles:15))+'">'+m+' mi</button>').join('')+'</div>'+
+ '<p id="area-live-summary" class="radius-summary" role="status" aria-live="polite">'+(v?esc(coverage.summary(v.center,v.radiusMiles)):'Choose a city to preview coverage.')+'</p>'+
  '<div class="coverage-map-wrap" id="business-area-map" aria-live="polite">'+(v?coverage.mapSvg(v.center,v.radiusMiles):'<p class="muted">Select a city to preview your coverage area.</p>')+'</div>'+
  '<p class="muted" id="area-help">The ring shows straight-line miles, not drive time, road access, or confirmed eligibility for a specific address. Routes and service eligibility must be confirmed before booking.</p>'+
  (readonly?'<p class="muted">Preview only: no service area is saved until the database is enabled and a verified business owner signs in.</p>':'<div class="buttonrow"><button type="button" class="btn" data-action="save-coverage">Save service radius</button></div>')+'</div>';
@@ -60,8 +91,11 @@ function serviceCoveragePanel(b,readonly=false){
 function updateCoveragePreview(){
  const city=$('area-city'),range=$('area-radius'),label=$('area-radius-value'),map=$('business-area-map');
  if(!city||!range||!map)return;
- label.textContent=range.value+' miles';
- map.innerHTML=coverage.validate(city.value,range.value)?coverage.mapSvg(city.value,range.value):'<p class="muted">Select a city to preview your coverage area.</p>';
+ label.textContent=range.value+' miles';range.setAttribute('aria-valuetext',range.value+' miles');
+ const v=coverage.validate(city.value,range.value);
+ map.innerHTML=v?coverage.mapSvg(v.center,v.radiusMiles):'<p class="muted">Select a city to preview your coverage area.</p>';
+ const summary=$('area-live-summary');if(summary)summary.textContent=v?coverage.summary(v.center,v.radiusMiles):'Choose a city to preview coverage.';
+ document.querySelectorAll('[data-radius-preset]').forEach(b=>b.setAttribute('aria-pressed',String(Number(b.dataset.radiusPreset)===Number(range.value))));
 }
 function showCoverageFor(x){
  const v=coverage.validate(x.service_center_code,x.service_radius_miles);
@@ -74,7 +108,11 @@ function renderOffers(){
  const items=state.listings.filter(x=>(!cat||x.category===cat)&&(!search||[x.title,x.neighborhood,x.business_name,x.city].join(' ').toLowerCase().includes(search)));
  $('offer-count').textContent=items.length+' '+(state.demo?'example':'available')+' service'+(items.length===1?'':'s');
  $('filter-summary').textContent=items.length?(state.demo?'Fictional businesses for design review — booking is disabled.':'Explore available listings and their declared service areas.'):'No matching services. Reset filters or try another search.';
- document.querySelectorAll('[data-category-choice]').forEach(el=>el.classList.toggle('selected',el.dataset.categoryChoice===cat));
+ document.querySelectorAll('[data-category-choice]').forEach(el=>{
+  const chosen=el.dataset.categoryChoice===cat;
+  el.classList.toggle('selected',chosen);
+  el.setAttribute('aria-pressed',String(chosen));
+ });
  $('offers').innerHTML=items.length?premium.cards(items,state.config,coverage):'<div class="empty"><h3>No matches in this category</h3><p>Try all services or another search term.</p><button type="button" class="btn" data-action="clear-filters">Reset filters</button></div>';
 }
 
@@ -137,6 +175,11 @@ async function act(e){
  const action=el.dataset.action;
  if(action==='search-services'){document.getElementById('available-openings')?.scrollIntoView({behavior:'smooth'});renderOffers();return;}
  if(action==='clear-filters'){$('search').value='';$('category').value='';renderOffers();return;}
+ if(el.dataset.radiusPreset){
+  const range=$('area-radius');
+  if(range){range.value=el.dataset.radiusPreset;updateCoveragePreview();}
+  return;
+ }
  if(action==='save-coverage'){
   const city=$('area-city')?.value,radius=Number($('area-radius')?.value);
   if(!coverage.validate(city,radius))return message('Choose a listed city and a radius between 5 and 50 miles.',true);
@@ -148,8 +191,14 @@ async function act(e){
   }catch(err){message(err.message,true);}finally{el.disabled=false;}
   return;
  }
- if(action==='register'){showRegistration();return;}
- if(action==='login'){showLogin();return;}
+ if(action==='register'||action==='login'){
+  if(state.demo&&!state.config?.database){
+   overlay('<h2 id="modal-title">Explore RouteDrop safely</h2><p>This is an isolated design preview. Account registration and sign-in are intentionally unavailable; please do not submit personal information.</p><div class="buttonrow"><button type="button" class="btn" data-tab="explore">Explore services</button><button type="button" class="btn secondary" data-tab="business">Tour Business Studio</button></div>');
+   return;
+  }
+  if(action==='register')showRegistration();else showLogin();
+  return;
+ }
  if(action==='create-listing'){showListing();return;}
  if(action==='change-password'){showChangePassword();return;}
  if(action==='forgot-password'){showForgotPassword();return;}
@@ -193,6 +242,9 @@ async function submit(e){
 async function init(){
  document.addEventListener('click',act);
  document.addEventListener('submit',submit);
+ document.addEventListener('keydown',dialogKeys);
+ $('search').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();document.getElementById('available-openings')?.scrollIntoView({behavior:'smooth'});}});
+
  $('register-role')?.addEventListener('change',()=>{});
  $('modal').addEventListener('change',e=>{if(e.target.id==='register-role')$('business-fields').classList.toggle('hidden',e.target.value!=='business');});
  $('close-modal').addEventListener('click',dismiss);
