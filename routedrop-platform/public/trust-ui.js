@@ -75,7 +75,7 @@
    '<p class="legal">This appears to other authorized private-test participants only. No real customer identity, phone number, email or address is allowed.</p><p id="form-error" class="error"></p><button class="btn" type="submit">Submit test review</button></form>';
  }
  function reportForm(id){
-  return '<div class="pilot-eyebrow">REVIEW SAFETY · PRIVATE TEST</div><h2 id="modal-title">Report a review</h2><p>Reporting hides this test review until manually reviewed. Do not include personal information.</p><form id="review-report-form"><input type="hidden" name="reviewId" value="'+Number(id)+'"><label>Reason</label><select name="reason"><option>Personal information</option><option>Harassment</option><option>Spam or promotion</option><option>Other</option></select><p id="form-error" class="error"></p><button type="submit" class="btn">Flag test review</button></form>';
+  return '<div class="pilot-eyebrow">REVIEW SAFETY · PRIVATE TEST</div><h2 id="modal-title">Report a review</h2><p>Reporting records a concern for moderation but does not automatically hide a review. The private test does not have an active support team. Do not include personal information.</p><form id="review-report-form"><input type="hidden" name="reviewId" value="'+Number(id)+'"><label>Reason</label><select name="reason"><option>Personal information</option><option>Harassment</option><option>Spam or promotion</option><option>Other</option></select><p id="form-error" class="error"></p><button type="submit" class="btn">Flag test review</button></form>';
  }
  root.RouteDropTrustUI=Object.freeze({demoProfiles,catalog,compareModal,reviewsModal,reviewForm,reportForm,ratingBadge});
 })(window);
