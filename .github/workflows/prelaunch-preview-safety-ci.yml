@@ -1,0 +1,55 @@
+name: RouteDrop prelaunch preview fail-closed and review packet
+on:
+  push:
+    branches:
+      - test/prelaunch-failclosed-review-pack-20261115
+permissions:
+  contents: read
+jobs:
+  safe-review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 16
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: temporaryfixtureonly
+          POSTGRES_DB: routedrop_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d routedrop_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    defaults:
+      run:
+        working-directory: routedrop-platform
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install without lifecycle scripts or payment credentials
+        run: npm install --ignore-scripts --no-audit --no-fund
+      - name: Validate synthetic guard and server syntax
+        run: |
+          node --check preview-startup-policy.js
+          node --check server.js
+          node --check preview-support.js
+          node --check document-security.js
+          node --check public/app.js
+          node --check test/preview-startup-policy.test.js
+      - name: Test bad preview configurations and existing provider protections
+        env:
+          ROUTEDROP_TEST_DATABASE_URL: postgres://postgres:temporaryfixtureonly@127.0.0.1:5432/routedrop_ci
+        run: |
+          node --test test/preview-startup-policy.test.js test/document-security.test.js test/preview-support.test.js test/operator-access.test.js test/provider-expiry.test.js test/provider-preview-ack-http.test.js test/founding-partner-http.test.js test/provider-verification.test.js
+      - name: Verify no public startup with a partial fictional preview configuration
+        run: |
+          if ROUTEDROP_PRIVATE_PREVIEW_ONLY=true ROUTEDROP_PROVIDER_DOCS_MODE=synthetic \
+             ROUTEDROP_STAGING_LOCK=false ROUTEDROP_STAGING_PASSWORD=fictionalonlynotasecret \
+             PORT=0 node server.js 2>/dev/null; then
+            echo "Unsafe fictional preview was allowed to start"
+            exit 1
+          fi
