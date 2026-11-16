@@ -85,12 +85,12 @@ try{
 
   await business.getByRole('button',{name:'Business Studio'}).click();
   await business.locator('[data-pilot-action="accept"]').first().click();
-  assert.ok((await business.locator('.pilot-request-card').first().innerText()).includes('Accepted'));
+  await business.locator('#studio-body .pilot-request-card .pilot-status').getByText('Accepted',{exact:true}).waitFor();
   await business.locator('[data-pilot-action="complete"]').first().click();
-  assert.ok((await business.locator('.pilot-request-card').first().innerText()).includes('Work marked complete'));
+  await business.locator('#studio-body .pilot-request-card .pilot-status').getByText('Work marked complete',{exact:true}).waitFor();
   await customer.getByRole('button',{name:'My bookings'}).click();
   await customer.locator('[data-pilot-action="confirm"]').first().click();
-  assert.ok((await customer.locator('.pilot-request-card').first().innerText()).includes('Customer confirmed'));
+  await customer.locator('#my-bookings .pilot-request-card .pilot-status').getByText('Customer confirmed',{exact:true}).waitFor();
   assert.deepEqual(payments,[],'no Stripe or checkout requests');
   assert.deepEqual(errors,[],'no browser errors');
   for(const p of [business,customer]){
