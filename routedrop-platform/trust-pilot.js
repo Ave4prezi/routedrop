@@ -48,9 +48,8 @@ function registerTrustRoutes(app,{pool,safe,requireDb,requireUser,forbidden}){
    await client.query('BEGIN');
    const q=await client.query("INSERT INTO pilot_review_reports(review_id,reporter_id,reason) SELECT id,$2,$3 FROM pilot_service_reviews WHERE id=$1 AND status='visible' ON CONFLICT(review_id,reporter_id) DO NOTHING RETURNING id",[id,req.user.id,reason]);
    if(!q.rowCount){await client.query('ROLLBACK');return forbidden(res,'Review unavailable or already reported.',409);}
-   await client.query("UPDATE pilot_service_reviews SET status='flagged' WHERE id=$1 AND status='visible'",[id]);
    await client.query('COMMIT');
-   res.status(201).json({message:'Test review flagged and hidden pending manual moderation. No live support escalation was sent.'});
+   res.status(201).json({message:'Test report recorded for moderation review. No automatic removal or live support escalation was initiated.'});
   }catch(e){await client.query('ROLLBACK').catch(()=>{});throw e;}finally{client.release();}
  }));
 }
