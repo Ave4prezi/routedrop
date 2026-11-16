@@ -103,3 +103,14 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible{ou
 .studio-example-owner .tour-portrait{flex:0 0 185px;max-width:185px;border-radius:14px;overflow:hidden}
 .studio-example-owner h3{margin:9px 0 4px}.studio-example-owner p{margin:5px 0;line-height:1.55}
 @media(max-width:640px){.studio-example-owner{align-items:flex-start;flex-direction:column;gap:12px}.studio-example-owner .tour-portrait{width:100%;max-width:240px;flex:auto}}
+
+/* RouteDrop name and demo location: clear branding without requesting device location. */
+.brand-mark{border-radius:11px}
+.brand-mark svg{width:29px;height:29px;color:#fff}
+.brand{letter-spacing:-.058em}
+.brand span:not(.brand-mark){color:#245ef3}
+.preview-place{display:flex;align-items:center;gap:7px;font-size:13px;line-height:1.1;font-weight:750;color:#2b456c;white-space:nowrap;margin-right:auto}
+.preview-place svg{width:20px;height:20px;color:#245ef3;flex:0 0 20px}
+.preview-place small{display:block;font-size:10px;font-weight:600;color:#7187a2;margin-top:3px}
+@media(max-width:980px){.preview-place{margin-right:0}}
+@media(max-width:640px){.preview-place{order:2;margin-right:auto}.navaccount{order:3}.preview-place svg{width:17px;height:17px}.brand{font-size:24px}}
