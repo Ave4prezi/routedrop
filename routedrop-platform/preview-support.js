@@ -6,19 +6,20 @@ const operatorAccess=require('./operator-access');
 const KINDS=Object.freeze(['account_access','provider_eligibility','listing_issue','privacy_access','privacy_correction','privacy_deletion','security_concern','booking_question']);
 const PRIORITIES=Object.freeze({security_concern:'P0',privacy_access:'P1',privacy_correction:'P1',privacy_deletion:'P1',account_access:'P1',provider_eligibility:'P1',listing_issue:'P2',booking_question:'P2'});
 const STATES=Object.freeze(['new','reviewing','escalated','closed_test']);
-const DISPOSITIONS=Object.freeze(['review_started','referred_privacy','referred_security','simulated_resolution']);
+const DISPOSITIONS=Object.freeze(['review_started','referred_privacy','referred_security','referred_operations','simulated_resolution']);
+const referralForKind=kind=>kind==='security_concern'?'referred_security':kind.startsWith('privacy_')?'referred_privacy':'referred_operations';
 const schema=[
  "CREATE TABLE IF NOT EXISTS preview_support_tickets (id BIGSERIAL PRIMARY KEY, requester_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE, kind TEXT NOT NULL CHECK(kind IN ('account_access','provider_eligibility','listing_issue','privacy_access','privacy_correction','privacy_deletion','security_concern','booking_question')), priority TEXT NOT NULL CHECK(priority IN ('P0','P1','P2')), state TEXT NOT NULL DEFAULT 'new' CHECK(state IN ('new','reviewing','escalated','closed_test')), opened_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now(), handled_by BIGINT REFERENCES users(id))",
  "CREATE UNIQUE INDEX IF NOT EXISTS preview_support_one_active_kind ON preview_support_tickets(requester_id,kind) WHERE state IN ('new','reviewing','escalated')",
  "CREATE INDEX IF NOT EXISTS preview_support_queue ON preview_support_tickets(priority,opened_at) WHERE state <> 'closed_test'",
- "CREATE TABLE IF NOT EXISTS preview_support_audit (id BIGSERIAL PRIMARY KEY, ticket_id BIGINT NOT NULL REFERENCES preview_support_tickets(id) ON DELETE CASCADE, actor_id BIGINT NOT NULL REFERENCES users(id), action TEXT NOT NULL CHECK(action IN ('opened','reviewing','escalated','closed_test')), disposition TEXT CHECK(disposition IN ('review_started','referred_privacy','referred_security','simulated_resolution')), occurred_at TIMESTAMPTZ NOT NULL DEFAULT now())"
+ "CREATE TABLE IF NOT EXISTS preview_support_audit (id BIGSERIAL PRIMARY KEY, ticket_id BIGINT NOT NULL REFERENCES preview_support_tickets(id) ON DELETE CASCADE, actor_id BIGINT NOT NULL REFERENCES users(id), action TEXT NOT NULL CHECK(action IN ('opened','reviewing','escalated','closed_test')), disposition TEXT CHECK(disposition IN ('review_started','referred_privacy','referred_security','referred_operations','simulated_resolution')), occurred_at TIMESTAMPTZ NOT NULL DEFAULT now())"
 ];
 const validKind=kind=>typeof kind==='string'&&KINDS.includes(kind);
 function validateTransition(kind,from,to,disposition){
  if(!STATES.includes(from)||!STATES.includes(to)||!DISPOSITIONS.includes(disposition))return false;
  if(to==='reviewing')return (from==='new'||from==='escalated')&&disposition==='review_started';
  if(to==='escalated')return (from==='new'||from==='reviewing')&&
-    (disposition===(kind==='security_concern'?'referred_security':'referred_privacy'));
+    (disposition===referralForKind(kind));
  return to==='closed_test'&&from==='reviewing'&&disposition==='simulated_resolution';
 }
 function install(app,{enabled,pool,requireDb,requireUser,safe,forbidden}){
@@ -66,7 +67,7 @@ function install(app,{enabled,pool,requireDb,requireUser,safe,forbidden}){
    "WITH changed AS (UPDATE preview_support_tickets t SET state=$3,updated_at=now(),handled_by=$2"+
    " WHERE t.id=$1 AND t.requester_id<>$2 AND ("+
    " ($3='reviewing' AND t.state IN ('new','escalated') AND $4='review_started') OR"+
-   " ($3='escalated' AND t.state IN ('new','reviewing') AND $4=CASE WHEN t.kind='security_concern' THEN 'referred_security' ELSE 'referred_privacy' END) OR"+
+   " ($3='escalated' AND t.state IN ('new','reviewing') AND $4=CASE WHEN t.kind='security_concern' THEN 'referred_security' WHEN t.kind LIKE 'privacy_%' THEN 'referred_privacy' ELSE 'referred_operations' END) OR"+
    " ($3='closed_test' AND t.state='reviewing' AND $4='simulated_resolution'))"+
    " RETURNING t.id,t.state,t.kind),"+
    " logged AS (INSERT INTO preview_support_audit(ticket_id,actor_id,action,disposition) SELECT id,$2,state,$4 FROM changed RETURNING ticket_id)"+
@@ -77,4 +78,4 @@ function install(app,{enabled,pool,requireDb,requireUser,safe,forbidden}){
   res.json({ticket:q.rows[0],notice:'Simulation only: closure or escalation does not fulfill any real legal or customer request.'});
  }));
 }
-module.exports={KINDS,PRIORITIES,STATES,DISPOSITIONS,schema,validKind,validateTransition,install};
+module.exports={KINDS,PRIORITIES,STATES,DISPOSITIONS,schema,validKind,referralForKind,validateTransition,install};
