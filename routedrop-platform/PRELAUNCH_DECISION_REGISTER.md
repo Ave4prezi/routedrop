@@ -23,7 +23,7 @@
 - Primary support contact + hours: **PRIMARY DESIGNATED AND SELF-ACCEPTED (identity kept off public GitHub)**; shared temporary business mailbox proposed; both primary and backup report having access; mailbox owner authorization UNCONFIRMED; RouteDrop-specific send/reply test **VERIFIED with fictional test content on November 15, 2026**; **operator-selected support hours are Monday–Friday, 9:00 AM–5:00 PM America/Chicago (Central, observes daylight saving time)**. Staffing/handoff during those hours is not yet verified.
 - Backup support contact: **BACKUP ACCEPTED VERBALLY IN PERSON, AS REPORTED BY PRIMARY CONTACT (identity kept off public GitHub)** on November 15, 2026; written acknowledgment recommended; availability, secure handoff and alternate contact method UNCONFIRMED.
 - Privacy contact: NOT ASSIGNED
-- Security incident lead + backup: NOT ASSIGNED
+- Security incident primary + backup: **INTERNAL POINTS OF CONTACT DESIGNATED BY PROJECT OPERATOR** on November 15, 2026; primary and backup agree to urgent after-hours contact per operator confirmation. Names and personal channels deliberately omitted from public GitHub. **No qualified technical incident responder or tested emergency call tree yet.**
 - Independent assessor: NOT ENGAGED/CONFIRMED
 - Counsel: NOT ENGAGED/CONFIRMED
 - Go-live approver: NOT NAMED
@@ -46,12 +46,20 @@ Public contact emails were verified against the firms' websites. No statements f
 - **Business/operator accountable owner:** an authorized RouteDrop representative must approve vendor selection, budget, legal entity and release decisions. **UNCONFIRMED.**
 - **Primary support lead:** designated by the project operator, who has personally accepted responsibility. **INTERNAL ROLE ASSIGNED; support hours selected as Monday–Friday 9 AM–5 PM Central; direct mailbox send/reply test VERIFIED; actual staffed coverage, training, privacy separation and escalation handoff still PENDING.** Keep identity in a separate access-controlled contact roster, not this public repository.
 - **Backup support/continuity contact:** a distinct backup verbally accepted the role in person, as reported by the primary contact on November 15, 2026. **ACCEPTANCE REPORTED; written role acknowledgment recommended; agreed support window Monday–Friday 9 AM–5 PM Central, but backup availability, independent backup response from the shared mailbox VERIFIED in test thread; support coverage and security escalation handoff still PENDING.** Keep identity in a private roster, not this public repository.
-- **Security incident commander:** a qualified named primary (internal or contracted) must accept incident triage, vendor coordination, containment and counsel escalation. **UNASSIGNED.**
-- **Incident backup:** a second independent contact and tested out-of-band communications are required. **UNASSIGNED.**
+- **Internal first-contact for urgent security incidents:** the project operator accepts primary after-hours escalation and will coordinate containment and external professional assistance. **DESIGNATED by operator; no claim of technical security certification or staffed 24/7 response SLA.**
+- **After-hours security backup:** a distinct backup has accepted urgent contact responsibility as confirmed by project operator. **DESIGNATED; secure out-of-band contact methods, paging test and external qualified responder remain PENDING.**
 - **Privacy/data-rights contact:** an actual owner/inbox must be established and reviewed by counsel before publishing contact details. **UNASSIGNED.**
 - **Independent assessment firm / counsel:** short-listed contacts are only *candidates* and have not accepted or approved anything.
 
 Next decision: after quotes arrive, record proposed scope, costs, independence, and written engagement approval before granting temporary read-only synthetic preview access. Do not send credentials or real documents through introductory email.
+
+### After-hours security escalation — designated contacts, drill not yet tested
+
+As confirmed by the project operator on November 15, 2026, two internal first contacts have agreed to be reachable for urgent security incidents **outside the Monday–Friday 9 AM–5 PM Central routine support window**. The primary handles intake, immediate prioritization, and coordination; the backup takes over if the primary is unavailable. This is a role agreement, **not a verified 24/7 monitoring or response service**. Private names and phone numbers must be stored only in a restricted contact roster, not in this public repository.
+
+**Draft playbook, requiring operational rehearsal:** if a serious security incident is suspected, attempt the primary via an agreed direct phone/text route, then the backup if unreachable. Do not use an ordinary shared mailbox as the sole emergency alarm. Preserve timestamps and evidence, minimize further exposure, suspend affected high-risk operations only when authorized, consult an independent security professional and counsel as appropriate, and never claim a breach has been fully assessed by an internal role assignment. No public emergency response SLA is promised.
+
+**Unresolved before real-data pilot:** test both contact routes, set actual acknowledgement and failover expectations, arrange an external qualified incident responder, document decision authority and after-hours monitoring, and receive security/privacy counsel review.
 
 ### Temporary shared-business support channel proposal — no forwarding
 
