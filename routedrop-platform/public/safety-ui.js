@@ -47,7 +47,7 @@
   '<form id="safety-identity-form"><label class="safety-checkbox"><input type="checkbox" name="explicitConsent" value="yes" required> I voluntarily agree to Stripe-hosted test identity verification and understand that Stripe processes the information under its privacy notice.</label><p id="form-error" class="error"></p><button class="btn" type="submit">Continue to Stripe Identity</button></form>';
  }
  function moderatorForm(){
-  return '<div class="pilot-eyebrow">RESTRICTED INTERNAL PILOT</div><h2 id="modal-title">Moderator access</h2><p>Use your email-verified, allowlisted moderator account, a separate enrollment/access key, and your device's passkey (fingerprint, PIN or security key). No passwordless bypass is allowed. Enrollment is open only during a controlled window.</p>'+
+  return '<div class="pilot-eyebrow">RESTRICTED INTERNAL PILOT</div><h2 id="modal-title">Moderator access</h2><p>Use your email-verified, allowlisted moderator account, a separate enrollment/access key, and a passkey on your device (fingerprint, PIN or security key). No passwordless bypass is allowed. Enrollment is open only during a controlled window.</p>'+
    '<form id="safety-mod-login-form"><label>One-time moderator key</label><input type="password" name="key" required autocomplete="off" minlength="32"><p id="form-error" class="error"></p><button class="btn" type="submit">Access moderation queue</button></form>';
  }
  function decisionForm(kind,id,action){
