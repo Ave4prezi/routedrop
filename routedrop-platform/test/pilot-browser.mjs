@@ -74,7 +74,7 @@ try{
 
   await register(customer,'customer',variant.name+'-customer');
   await customer.locator('nav.tabs [data-tab="explore"]').click();
-  await customer.locator('[data-pilot-request]').first().click();
+  await customer.locator('.card').filter({hasText:'Private Pilot Cleaning '+variant.name}).locator('[data-pilot-request]').click();
   await customer.getByRole('heading',{name:'Request this opening'}).waitFor();
   assert.ok((await customer.locator('#modal-body').innerText()).includes('$0.00'));
   await customer.locator('[data-action="pilot-confirm-request"]').click();
