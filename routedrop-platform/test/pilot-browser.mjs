@@ -79,7 +79,8 @@ try{
   assert.ok((await customer.locator('#modal-body').innerText()).includes('$0.00'));
   await customer.locator('[data-action="pilot-confirm-request"]').click();
   await customer.locator('.pilot-request-card').first().waitFor();
-  assert.ok((await customer.locator('.pilot-request-card').first().innerText()).includes('Awaiting provider response'));
+  const requestedText=await customer.locator('.pilot-request-card').first().innerText();
+  assert.ok(requestedText.includes('Awaiting provider response'),'expected pending customer request; rendered='+JSON.stringify(requestedText)+'; status='+JSON.stringify(await customer.locator('#status').innerText()));
   await customer.screenshot({path:'pilot-customer-'+variant.name+'.png',fullPage:true});
 
   await business.getByRole('button',{name:'Business Studio'}).click();
