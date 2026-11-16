@@ -2,6 +2,12 @@
 
 **NOT ACTIVE CUSTOMER SUPPORT POLICY.** A separate `SYNTHETIC_SUPPORT_TRIAGE_RUNBOOK.md` now describes a code-only, fictional test-ticket queue with role-restricted audit; it cannot receive real incidents or exercise data rights. Do not publish a response SLA, give a support address that has not been verified, or invite real customers/businesses until the owner, backup and contact channels are assigned and tested. Existing Stripe payments remain TEST-only.
 
+## Operator-selected support hours (not yet published or verified)
+
+- **Monday–Friday, 9:00 AM–5:00 PM America/Chicago (Central Time, observing daylight saving time).**
+- Primary support and backup have accepted their roles; identities and the proposed shared mailbox are kept in a separate confidential roster, not this public repository.
+- Actual staffing/handoff during the selected hours, mailbox authorization, bidirectional delivery, response expectations, outside-hours emergency/security escalation, and a dedicated privacy contact still require testing and sign-off. **These hours are a selected operating schedule, not a live support service or guaranteed response SLA.**
+
 ## Proposed ticket fields (minimum necessary)
 
 Incident ID, received date/time, requester role and verified account reference, affected listing/booking/reference IDs, type, severity, current owner, timestamps, action history and resolution. Never place payment card numbers, driver's license images, full policy numbers or passwords in support notes. Restrict attachments and redact before sharing.
@@ -50,7 +56,9 @@ Assign actual owners and supported hours before claiming response targets.
 
 ## Before real pilot
 
-- [ ] Name primary/backup support and incident responders (currently UNASSIGNED)
+- [x] Designate primary and backup support contacts (identity held privately; backup acceptance verbally reported)
+- [ ] Name security/incident primary and backup responders (currently UNASSIGNED)
+- [ ] Verify support coverage/handoff for Monday–Friday 9 AM–5 PM Central and define after-hours escalation
 - [ ] Configure and test help/privacy/security contact channels, hours and handoff procedures
 - [ ] Approve actual customer cancellation/refund and provider appeals language
 - [ ] Establish ticketing with access restrictions and tested retention/deletion rules
