@@ -50,6 +50,7 @@ jobs:
           node --check routedrop-platform/test/pilot-integration.mjs
           node --check routedrop-platform/test/pilot-browser.mjs
           node --check routedrop-platform/test/passkey-browser.mjs
+          node --check routedrop-platform/test/identity-webhook-http.mjs
           node --check routedrop-platform/test/premium-2-browser.mjs
       - name: Install dependencies without hooks
         working-directory: routedrop-platform
@@ -58,6 +59,8 @@ jobs:
         run: node --test routedrop-platform/test/*.test.js
       - name: PostgreSQL integration test — account roles and unpaid booking lifecycle
         run: node routedrop-platform/test/pilot-integration.mjs
+      - name: Signed Stripe Identity TEST webhook — actual HTTP signature and replay regression
+        run: node routedrop-platform/test/identity-webhook-http.mjs
       - name: Install Playwright Chromium
         working-directory: routedrop-platform
         run: |
