@@ -40,7 +40,20 @@ try{
   await page.getByText('Standard house cleaning').waitFor();
   assert.equal(await page.locator('[data-book]').count(),0,'tour must not expose payment booking controls');
   assert.equal(await page.locator('.card').count(),3);
-  assert.equal(await page.locator('.tour-photo svg[role=img]').count(),3,'three distinct fictional owner illustrations expected');
+  assert.equal(await page.locator('.tour-photo svg[role=img]').count(),3,'three fallback illustrations expected');
+  assert.equal(await page.locator('.tour-photo').count(),3,'all three photo cards should be visible');
+  const photoAsset=await page.evaluate(async()=>{
+    const css=getComputedStyle(document.querySelector('.tour-photo'),'::before').backgroundImage;
+    const src=css.match(/url\\(["']?(data:image\\/webp;base64,[^)"']+)/)?.[1];
+    if(!src)return {loaded:false,reason:'photo CSS not applied'};
+    const im=new Image();im.src=src;
+    try{await im.decode();return {loaded:true,width:im.naturalWidth,height:im.naturalHeight};}
+    catch{return {loaded:false,reason:'photo WebP image invalid'};}
+  });
+  assert.equal(photoAsset.loaded,true,photoAsset.reason||'photographs should decode without external requests');
+  assert.deepEqual([photoAsset.width,photoAsset.height],[450,112],'three photo panels should decode from embedded sprite');
+  assert.equal(await page.locator('.preview-place').count(),1,'demo-area map pin should appear in header');
+  assert.match(await page.locator('header .brand').innerText(),/RouteDrop/);
   await page.locator('#search').fill('no-such-place');
   await page.getByRole('heading',{name:'No matching test openings'}).waitFor();
   await page.getByRole('button',{name:'Clear filters'}).first().click();
