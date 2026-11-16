@@ -69,7 +69,7 @@ app.use((req,res,next) => {
  if (req.path.startsWith('/api/')) res.set('Cache-Control', 'no-store');
  next();
 });
-app.use('/api', rateLimit({ windowMs:15*60*1000, limit:200, standardHeaders:'draft-7', legacyHeaders:false }));
+app.use('/api', rateLimit({ windowMs:15*60*1000, limit:process.env.NODE_ENV==='test'?1000:200, standardHeaders:'draft-7', legacyHeaders:false }));
 const authLimiter = rateLimit({ windowMs:15*60*1000, limit:12, standardHeaders:'draft-7', legacyHeaders:false });
 const checkoutLimiter = rateLimit({windowMs:15*60*1000, limit:15, standardHeaders:'draft-7', legacyHeaders:false});
 
