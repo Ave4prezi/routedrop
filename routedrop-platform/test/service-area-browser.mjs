@@ -24,7 +24,7 @@ try{
   await page.getByRole('heading',{name:/Sample service radius/}).waitFor();
   assert.equal(await page.locator('#area-city').inputValue(),'decatur');
   assert.match(await page.locator('#business-area-map svg').getAttribute('aria-label'),/20-mile radius around Decatur/);
-  await page.locator('#area-radius').fill('35');
+  await page.locator('#area-radius').evaluate(el=>{el.value='35';el.dispatchEvent(new Event('input',{bubbles:true}));});
   assert.match(await page.locator('#business-area-map svg').getAttribute('aria-label'),/35-mile radius around Decatur/);
   await page.locator('#area-city').selectOption('hartselle');
   assert.match(await page.locator('#business-area-map svg').getAttribute('aria-label'),/35-mile radius around Hartselle/);
