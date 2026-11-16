@@ -430,7 +430,7 @@ app.get('/api/listings',requireDb,safe(async(req,res)=>{
 app.post('/api/listings',requireDb,requireProvider,safe(async(req,res)=>{
  const title=clean(req.body.title,120),category=clean(req.body.category,50),neighborhood=clean(req.body.neighborhood,100),price=Number(req.body.priceCents),start=new Date(req.body.slotStart),mins=Number(req.body.durationMinutes||60);
  if(!title||!category||!neighborhood||!usd(price)||isNaN(start.getTime())||start.getTime()<Date.now()+10*60*1000||start.getTime()>Date.now()+60*24*60*60*1000||!Number.isInteger(mins)||mins<30||mins>480)return forbidden(res,'Check all service fields. Minimum price is $5 and opening must be within 60 days.');
- const r=await pool.query('INSERT INTO listings(business_id,title,category,neighborhood,price_cents,slot_start,duration_minutes) SELECT id,$2,$3,$4,$5,$6,$7 FROM businesses WHERE owner_id=$1"+(workflowPilot?" AND pilot_screening_status!='suspended'":"")+" RETURNING id',[req.user.id,title,category,neighborhood,price,start.toISOString(),mins]);
+ const r=await pool.query("INSERT INTO listings(business_id,title,category,neighborhood,price_cents,slot_start,duration_minutes) SELECT id,$2,$3,$4,$5,$6,$7 FROM businesses WHERE owner_id=$1"+(workflowPilot?" AND pilot_screening_status!='suspended'":"")+" RETURNING id",[req.user.id,title,category,neighborhood,price,start.toISOString(),mins]);
  if(!r.rowCount)return forbidden(res,'Register a business first.',403);
  res.status(201).json({listing:r.rows[0]});
 }));
