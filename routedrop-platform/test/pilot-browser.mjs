@@ -55,6 +55,8 @@ try{
   await register(business,'business',variant.name+'-provider');
   await business.getByRole('button',{name:'Business Studio'}).click();
   await business.getByText('Your service headquarters.').waitFor();
+  await business.locator('.readiness-panel').getByText('Awaiting secure Stripe TEST connection').waitFor();
+  await business.locator('.readiness-panel').getByText('Disabled · no charges or payouts').waitFor();
   await business.locator('[data-action="create-listing"]').click();
   const form=business.locator('#listing-form');
   await form.locator('input[name="title"]').fill('Private Pilot Cleaning '+variant.name);
@@ -152,6 +154,7 @@ try{
   await individual.getByText('Under test review').waitFor();
   await individual.screenshot({path:'pilot-safety-'+variant.name+'.png',fullPage:true});
   await individual.getByRole('button',{name:'Business Studio'}).click();
+  await individual.locator('.readiness-panel').getByText('Awaiting test review').waitFor();
   assert.equal(await individual.locator('[data-action="post-job"]').count(),0,'individual providers cannot post employer job openings');
   await individual.locator('[data-action="create-listing"]').click();
   const independentForm=individual.locator('#listing-form');
