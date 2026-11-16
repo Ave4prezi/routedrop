@@ -11,6 +11,7 @@ const bookingPilot = require('./booking-pilot');
 const opportunityPilot = require('./opportunity-pilot');
 const unifiedPilot = require('./unified-pilot');
 const trustPilot = require('./trust-pilot');
+const safetyPilot = require('./safety-pilot');
 const Stripe = require('stripe');
 const { normalizeSubscriptionEvent, invoiceEvent, selectSubscription, canStartSubscription, subscriptionView, securityPolicy } = require('./subscription-security');
 const { providerReady, emailLink, isActionToken, notification, deliverEmail } = require('./mail');
@@ -73,6 +74,7 @@ app.use((req,res,next) => {
 app.use('/api', rateLimit({ windowMs:15*60*1000, limit:process.env.NODE_ENV==='test'?1000:200, standardHeaders:'draft-7', legacyHeaders:false }));
 const authLimiter = rateLimit({ windowMs:15*60*1000, limit:12, standardHeaders:'draft-7', legacyHeaders:false });
 const checkoutLimiter = rateLimit({windowMs:15*60*1000, limit:15, standardHeaders:'draft-7', legacyHeaders:false});
+const moderationLimiter=rateLimit({windowMs:15*60*1000,limit:process.env.NODE_ENV==='test'?300:30,standardHeaders:'draft-7',legacyHeaders:false});
 
 const schema = String.raw; // no dynamic SQL interpolation in schema below
 const ddl = [
@@ -111,7 +113,7 @@ const ddl = [
  "CREATE TABLE IF NOT EXISTS notification_outbox (id BIGSERIAL PRIMARY KEY, event_key TEXT UNIQUE NOT NULL, recipient TEXT NOT NULL, subject TEXT NOT NULL, body TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','sending','sent','failed')), attempts INTEGER NOT NULL DEFAULT 0, available_at TIMESTAMPTZ NOT NULL DEFAULT now(), sent_at TIMESTAMPTZ, last_error TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())",
  "CREATE INDEX IF NOT EXISTS notification_outbox_due ON notification_outbox(status,available_at)"
 ];
-if(workflowPilot)ddl.push(...bookingPilot.ddl,...opportunityPilot.ddl,...unifiedPilot.ddl,...trustPilot.ddl);
+if(workflowPilot)ddl.push(...bookingPilot.ddl,...opportunityPilot.ddl,...unifiedPilot.ddl,...trustPilot.ddl,...safetyPilot.ddl);
 async function startDatabase() {
  if (!pool) return;
  try {
@@ -144,6 +146,18 @@ const requireProvider=(req,res,next)=>{
  if(!req.user)return forbidden(res,'Please sign in.',401);
  if(!workflowPilot)return requireUser('business')(req,res,next);
  pool.query('SELECT id FROM businesses WHERE owner_id=$1',[req.user.id]).then(q=>q.rowCount?next():forbidden(res,'Create a test service provider profile first.',403)).catch(next);
+};
+const requireModerator=(req,res,next)=>{
+ // Moderator authority requires both an authenticated, email-verified allowlisted
+ // test account AND a separate 32+ character environment secret. No bypass token.
+ if(!workflowPilot||!safetyPilot.moderatorConfigured())return forbidden(res,'Moderator access is not configured for this pilot.',403);
+ if(!req.user||!req.user.email_verified)return forbidden(res,'Moderator access requires a verified session.',403);
+ const emails=String(process.env.ROUTEDROP_MODERATOR_EMAILS||'').split(',').map(x=>x.trim().toLowerCase());
+ if(!emails.includes(String(req.user.email||'').toLowerCase()))return forbidden(res,'Access denied.',403);
+ const supplied=Buffer.from(req.get('x-routedrop-moderator-key')||'');
+ const expected=Buffer.from(process.env.ROUTEDROP_MODERATION_TOKEN||'');
+ if(supplied.length!==expected.length||!crypto.timingSafeEqual(supplied,expected))return forbidden(res,'Access denied.',403);
+ next();
 };
 async function createSession(userId,res) {
  const token=random();
@@ -233,7 +247,7 @@ app.get('/api/config',(req,res)=>{
  if(!req.cookies.routedrop_csrf || !/^[a-f0-9]{64}$/.test(req.cookies.routedrop_csrf)){
   res.cookie('routedrop_csrf',random(),{secure:process.env.NODE_ENV==='production',httpOnly:false,sameSite:'lax',path:'/',maxAge:7*24*60*60*1000});
  }
- res.json({database:ready,payments:paymentsReady,workflow_pilot:workflowPilot&&ready,opportunity_pilot:workflowPilot&&ready,unified_pilot:workflowPilot&&ready,status:ready?'beta':'setup_required',email_enabled:emailReady,payments_mode:liveKey?(paymentsApproved?'live':'live_locked'):'test',public_url:baseUrl});
+ res.json({database:ready,payments:paymentsReady,workflow_pilot:workflowPilot&&ready,opportunity_pilot:workflowPilot&&ready,unified_pilot:workflowPilot&&ready,safety_pilot:workflowPilot&&ready,moderation_available:workflowPilot&&ready&&safetyPilot.moderatorConfigured(),status:ready?'beta':'setup_required',email_enabled:emailReady,payments_mode:liveKey?(paymentsApproved?'live':'live_locked'):'test',public_url:baseUrl});
 });
 async function issueEmailAction(userId,email,purpose) {
  if(!emailReady||!baseUrl)return false;
@@ -403,18 +417,20 @@ if(workflowPilot && pool){
  bookingPilot.registerPilotRoutes(app,{pool,safe,requireDb,requireUser,requireProvider,forbidden});
  opportunityPilot.registerOpportunityRoutes(app,{pool,safe,requireDb,requireUser,requireProvider,forbidden});
  unifiedPilot.registerUnifiedRoutes(app,{pool,safe,requireDb,requireUser,requireProvider,forbidden});
- trustPilot.registerTrustRoutes(app,{pool,safe,requireDb,requireUser,forbidden});
+ trustPilot.registerTrustRoutes(app,{pool,safe,requireDb,requireUser,forbidden,safetyPilot});
+ safetyPilot.registerSafetyRoutes(app,{pool,safe,requireDb,requireUser,requireProvider,forbidden,requireModerator,moderationLimiter});
 }
 app.get('/api/listings',requireDb,safe(async(req,res)=>{
  if(workflowPilot)await unifiedPilot.syncOpenings(pool);
+ const safetyExclusion=workflowPilot?" AND b.pilot_screening_status!='suspended'":"";
  const pilotExclusion=workflowPilot?" AND NOT EXISTS(SELECT 1 FROM service_requests r WHERE r.listing_id=l.id AND r.status IN ('requested','accepted','completed','confirmed','issue_reported'))":"";
- const data=await pool.query("SELECT l.id,l.title,l.category,l.neighborhood,l.price_cents,l.slot_start,l.duration_minutes,b.name AS business_name,b.city,b.service_center_code,b.service_radius_miles"+(workflowPilot?",b.id AS provider_id,b.provider_kind"+trustPilot.ratingFields("b"):"")+" FROM listings l JOIN businesses b ON b.id=l.business_id WHERE l.status='active' AND l.slot_start>now() AND NOT EXISTS(SELECT 1 FROM bookings k WHERE k.listing_id=l.id AND k.status IN ('awaiting_payment','paid','completed'))"+pilotExclusion+" ORDER BY l.slot_start ASC LIMIT 100");
+ const data=await pool.query("SELECT l.id,l.title,l.category,l.neighborhood,l.price_cents,l.slot_start,l.duration_minutes,b.name AS business_name,b.city,b.service_center_code,b.service_radius_miles"+(workflowPilot?",b.id AS provider_id,b.provider_kind"+trustPilot.ratingFields("b"):"")+" FROM listings l JOIN businesses b ON b.id=l.business_id WHERE l.status='active' AND l.slot_start>now() AND NOT EXISTS(SELECT 1 FROM bookings k WHERE k.listing_id=l.id AND k.status IN ('awaiting_payment','paid','completed'))"+pilotExclusion+safetyExclusion+" ORDER BY l.slot_start ASC LIMIT 100");
  res.json({listings:data.rows});
 }));
 app.post('/api/listings',requireDb,requireProvider,safe(async(req,res)=>{
  const title=clean(req.body.title,120),category=clean(req.body.category,50),neighborhood=clean(req.body.neighborhood,100),price=Number(req.body.priceCents),start=new Date(req.body.slotStart),mins=Number(req.body.durationMinutes||60);
  if(!title||!category||!neighborhood||!usd(price)||isNaN(start.getTime())||start.getTime()<Date.now()+10*60*1000||start.getTime()>Date.now()+60*24*60*60*1000||!Number.isInteger(mins)||mins<30||mins>480)return forbidden(res,'Check all service fields. Minimum price is $5 and opening must be within 60 days.');
- const r=await pool.query('INSERT INTO listings(business_id,title,category,neighborhood,price_cents,slot_start,duration_minutes) SELECT id,$2,$3,$4,$5,$6,$7 FROM businesses WHERE owner_id=$1 RETURNING id',[req.user.id,title,category,neighborhood,price,start.toISOString(),mins]);
+ const r=await pool.query('INSERT INTO listings(business_id,title,category,neighborhood,price_cents,slot_start,duration_minutes) SELECT id,$2,$3,$4,$5,$6,$7 FROM businesses WHERE owner_id=$1"+(workflowPilot?" AND pilot_screening_status!='suspended'":"")+" RETURNING id',[req.user.id,title,category,neighborhood,price,start.toISOString(),mins]);
  if(!r.rowCount)return forbidden(res,'Register a business first.',403);
  res.status(201).json({listing:r.rows[0]});
 }));
