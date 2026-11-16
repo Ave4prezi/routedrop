@@ -1,0 +1,23 @@
+name: RouteDrop service coverage radius
+on:
+  push:
+    branches: [feature/business-service-radius-20261115]
+permissions:
+  contents: read
+jobs:
+  area-tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Syntax check
+        run: |
+          node --check routedrop-platform/public/service-area.js
+          node --check routedrop-platform/public/app.js
+          node --check routedrop-platform/server.js
+          node --check routedrop-platform/test/service-area.test.js
+      - name: Run radius validation and integration contract tests
+        run: node --test routedrop-platform/test/service-area.test.js
