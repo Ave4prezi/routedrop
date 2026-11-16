@@ -73,7 +73,7 @@ try{
   await business.screenshot({path:'pilot-business-'+variant.name+'.png',fullPage:true});
 
   await register(customer,'customer',variant.name+'-customer');
-  await customer.getByRole('button',{name:'Explore services'}).click();
+  await customer.locator('nav.tabs [data-tab="explore"]').click();
   await customer.locator('[data-pilot-request]').first().click();
   await customer.getByRole('heading',{name:'Request this opening'}).waitFor();
   assert.ok((await customer.locator('#modal-body').innerText()).includes('$0.00'));
