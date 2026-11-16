@@ -35,10 +35,12 @@ function nextState(role,current,action){
 const statuses=Object.freeze(['requested','accepted','completed','confirmed','declined','canceled','issue_reported']);
 const isId=value=>Number.isSafeInteger(Number(value))&&Number(value)>0;
 
-function registerPilotRoutes(app,{pool,safe,requireDb,requireUser,forbidden}){
+function registerPilotRoutes(app,{pool,safe,requireDb,requireUser,requireProvider,forbidden}){
  if(!pool)throw Error('Pilot routes require a distinct PostgreSQL database');
  app.get('/api/pilot/requests',requireDb,requireUser(),safe(async(req,res)=>{
-  const where=req.user.role==='customer'?'r.customer_id=$1':'b.owner_id=$1';
+  const view=req.query.view|| (req.user.role==='business'?'provider':'customer');
+  if(!['customer','provider'].includes(view))return forbidden(res,'Select customer or provider view.',400);
+  const where=view==='customer'?'r.customer_id=$1':'b.owner_id=$1';
   const result=await pool.query(
    `SELECT r.id,r.listing_id,r.status,r.price_cents,r.created_at,r.updated_at,
     l.title,l.slot_start,l.duration_minutes,l.neighborhood,l.category,
@@ -55,9 +57,11 @@ function registerPilotRoutes(app,{pool,safe,requireDb,requireUser,forbidden}){
   res.set('Cache-Control','no-store').json({requests:result.rows});
  }));
 
- app.post('/api/pilot/requests',requireDb,requireUser('customer'),safe(async(req,res)=>{
+ app.post('/api/pilot/requests',requireDb,requireUser(),safe(async(req,res)=>{
   const id=Number(req.body?.listingId);
   if(!isId(id))return forbidden(res,'Select a valid available service.',400);
+  const self=await pool.query('SELECT 1 FROM listings l JOIN businesses b ON b.id=l.business_id WHERE l.id=$1 AND b.owner_id=$2',[id,req.user.id]);
+  if(self.rowCount)return forbidden(res,'You cannot request your own service opening.',403);
   const client=await pool.connect();
   try{
    await client.query('BEGIN');
@@ -87,13 +91,15 @@ function registerPilotRoutes(app,{pool,safe,requireDb,requireUser,forbidden}){
  app.post('/api/pilot/requests/:id/action',requireDb,requireUser(),safe(async(req,res)=>{
   const id=Number(req.params.id),action=req.body?.action;
   if(!isId(id)||typeof action!=='string')return forbidden(res,'Invalid request or action.',400);
-  const states=transition[req.user.role];
+  const provider=['accept','decline','complete'].includes(action);
+  if(provider){const access=await pool.query('SELECT 1 FROM businesses WHERE owner_id=$1',[req.user.id]);if(!access.rowCount)return forbidden(res,'Only a provider account can take this action.',403);}
+  const role=provider?'business':'customer';
+  const states=transition[role];
   if(!states)return forbidden(res,'This role cannot manage requests.',403);
   // Select the allowed FROM status from our fixed transition graph, never user-supplied SQL.
   const entry=Object.entries(states).find(([,actions])=>Object.hasOwn(actions,action));
   if(!entry)return forbidden(res,'This action is not allowed for your account.',403);
   const [from,allowed]=entry,to=allowed[action];
-  const provider=req.user.role==='business';
   const query=provider?
    `UPDATE service_requests r SET status=$1,updated_at=now()
     FROM listings l JOIN businesses b ON b.id=l.business_id
@@ -108,7 +114,7 @@ function registerPilotRoutes(app,{pool,safe,requireDb,requireUser,forbidden}){
   res.json({ok:true,request:result.rows[0],message:'Service request updated. No payment was collected.'});
  }));
 
- app.patch('/api/pilot/listings/:id/status',requireDb,requireUser('business'),safe(async(req,res)=>{
+ app.patch('/api/pilot/listings/:id/status',requireDb,requireProvider,safe(async(req,res)=>{
   const id=Number(req.params.id),status=req.body?.status;
   if(!isId(id)||!['active','paused'].includes(status))return forbidden(res,'Select active or paused status for a valid listing.',400);
   const r=await pool.query(

@@ -129,13 +129,70 @@ try{
   await customer.getByRole('button',{name:'Explore services'}).click();
   await customer.locator('.card').filter({hasText:'Solo Mowing '+variant.name}).getByText('Individual provider · unverified').waitFor();
   await individual.screenshot({path:'pilot-individual-'+variant.name+'.png',fullPage:true});
+  // Same account that booked earlier now becomes an independent service provider and job seeker.
+  await customer.getByRole('button',{name:'Business Studio'}).click();
+  await customer.locator('#studio-body [data-action="start-provider"]').first().click();
+  const providerForm=customer.locator('#provider-setup-form');
+  await providerForm.locator('[name="kind"]').selectOption('individual');
+  await providerForm.locator('[name="displayName"]').fill('Unified Lawn Sample '+variant.name);
+  await providerForm.locator('[name="city"]').fill('Decatur, AL');
+  await providerForm.locator('[name="category"]').selectOption('Lawn care');
+  await providerForm.locator('button[type="submit"]').click();
+  await customer.locator('#modal').waitFor({state:'hidden'});
+  await customer.getByText('Your independent service studio.').waitFor();
+  await customer.locator('[data-action="new-service-profile"]').click();
+  const permanentForm=customer.locator('#service-profile-form');
+  await permanentForm.locator('[name="title"]').fill('Recurring Lawn Service '+variant.name);
+  await permanentForm.locator('[name="category"]').selectOption('Lawn care');
+  await permanentForm.locator('[name="neighborhood"]').fill('Decatur area');
+  await permanentForm.locator('[name="description"]').fill('Fictional recurring lawn mowing every week for protected customer and provider testing.');
+  await permanentForm.locator('[name="price"]').fill('45');
+  await permanentForm.locator('[name="durationMinutes"]').fill('60');
+  await permanentForm.locator('button[type="submit"]').click();
+  await customer.locator('#modal').waitFor({state:'hidden'});
+  await customer.locator('[data-add-weekly]').first().click();
+  const weekForm=customer.locator('#weekly-form');
+  const dayName=new Intl.DateTimeFormat('en-US',{timeZone:'America/Chicago',weekday:'long'}).format(new Date(Date.now()+36*60*60*1000));
+  const dayIndex=['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'].indexOf(dayName);
+  await weekForm.locator('[name="dayOfWeek"]').selectOption(String(dayIndex));
+  await weekForm.locator('[name="localTime"]').fill('12:00');
+  await weekForm.locator('button[type="submit"]').click();
+  await customer.locator('#modal').waitFor({state:'hidden'});
+  await customer.getByText(dayName+' · 12:00 Central', {exact:false}).waitFor();
+  await customer.screenshot({path:'pilot-unified-studio-'+variant.name+'.png',fullPage:true});
+  await customer.getByRole('button',{name:'Find Work & Jobs'}).click();
+  await customer.locator('[data-action="job-interests"]').click();
+  const seekerForm=customer.locator('#job-interests-form');
+  await seekerForm.locator('[name="city"]').fill('Decatur, AL');
+  await seekerForm.locator('[name="category"]').selectOption('Warehousing');
+  await seekerForm.locator('button[type="submit"]').click();
+  await customer.locator('#modal').waitFor({state:'hidden'});
+  await customer.getByText('Saved test interests: Warehousing · Decatur, AL').waitFor();
+  await customer.getByRole('button',{name:'Explore services'}).click();
+  await customer.locator('#profile-cards .unified-profile').filter({hasText:'Recurring Lawn Service '+variant.name}).waitFor();
+  await customer.screenshot({path:'pilot-unified-explore-'+variant.name+'.png',fullPage:true});
+  // A separate established business account is also a customer of the independent provider.
+  await business.getByRole('button',{name:'Explore services'}).click();
+  await business.locator('#profile-cards .unified-profile').filter({hasText:'Recurring Lawn Service '+variant.name}).locator('[data-pilot-request]').click();
+  await business.getByRole('heading',{name:'Request this opening'}).waitFor();
+  await business.locator('[data-action="pilot-confirm-request"]').click();
+  await business.locator('#my-bookings .pilot-request-card').filter({hasText:'Recurring Lawn Service '+variant.name}).getByText('Awaiting provider response').waitFor();
+  await customer.getByRole('button',{name:'Business Studio'}).click();
+  const incoming=customer.locator('#studio-body .pilot-request-card').filter({hasText:'Recurring Lawn Service '+variant.name});
+  await incoming.locator('[data-pilot-action="accept"]').click();
+  await incoming.locator('[data-pilot-action="complete"]').click();
+  await business.getByRole('button',{name:'My bookings'}).click();
+  await business.locator('#my-bookings .pilot-request-card').filter({hasText:'Recurring Lawn Service '+variant.name}).locator('[data-pilot-action="confirm"]').click();
+  await business.locator('#my-bookings .pilot-request-card').filter({hasText:'Recurring Lawn Service '+variant.name}).getByText('Customer confirmed',{exact:true}).waitFor();
+  await customer.getByRole('button',{name:'My bookings'}).click();
+  await customer.locator('#my-bookings .pilot-request-card').filter({hasText:'Private Pilot Cleaning '+variant.name}).getByText('Customer confirmed',{exact:true}).waitFor();
   assert.deepEqual(payments,[],'no Stripe or checkout requests');
   assert.deepEqual(errors,[],'no browser errors');
   for(const p of [business,customer]){
    const overflow=await p.evaluate(()=>document.documentElement.scrollWidth-window.innerWidth);
    assert.ok(overflow<=2,'no horizontal overflow '+variant.name+': '+overflow);
   }
-  console.log('PASS '+variant.name+' independent signup, job post/search, customer booking lifecycle, no payments');
+  console.log('PASS '+variant.name+' one account customer+provider+job seeker, recurring service, payment-free booking lifecycle');
   await businessContext.close();await customerContext.close();await individualContext.close();
  }
 }finally{if(browser)await browser.close();app.kill('SIGTERM');}

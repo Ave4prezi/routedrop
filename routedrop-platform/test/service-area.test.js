@@ -35,7 +35,9 @@ test('map SVG depicts radius explicitly and includes an approximate-coverage war
  assert.equal(area.mapSvg('nope',15),'');
 });
 test('business coverage is an owner-only write with strict validation, not a customer GPS lookup',()=>{
- assert.match(server,/app\.put\('\/api\/business\/service-area',requireDb,requireUser\('business'\)/);
+ assert.match(server,/app\.put\('\/api\/business\/service-area',requireDb,requireProvider/);
+ assert.match(server,/const requireProvider=/);
+ assert.match(server,/SELECT id FROM businesses WHERE owner_id=\$1/);
  assert.match(server,/serviceArea\.validate\(req\.body\?\.center,req\.body\?\.radiusMiles\)/);
  assert.match(server,/WHERE owner_id=\$3 RETURNING service_center_code,service_radius_miles/);
  assert.match(server,/SELECT id,name,city,category,service_center_code,service_radius_miles/);
