@@ -1,0 +1,34 @@
+name: RouteDrop fictional customer and provider browser walkthrough
+on:
+  push:
+    branches:
+      - ux/premium-beta-customer-business-clarity-20261115
+permissions:
+  contents: read
+jobs:
+  browser-tour:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install app and browser testing tools without lifecycle scripts
+        working-directory: routedrop-platform
+        run: |
+          npm install --ignore-scripts --no-audit --no-fund
+          npm install --ignore-scripts --no-save --no-audit --no-fund playwright@1.56.1
+          npx playwright install --with-deps chromium
+      - name: Run browser walkthrough against ephemeral, database-free, no-payments app
+        env:
+          CI: 'true'
+        run: node routedrop-platform/test/preview-tour.browser.mjs
+      - name: Preserve fictional UI screenshots for PR review
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: routedrop-fictional-ux-screenshots
+          path: tour-*.png
+          if-no-files-found: ignore
+          retention-days: 7

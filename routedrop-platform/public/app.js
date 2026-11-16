@@ -1,7 +1,7 @@
 'use strict';
 (function(){
 const $=id=>document.getElementById(id);
-const state={config:null,me:null,listings:[],bookings:[],deferred:[],refunds:[],mine:[],tab:'explore'};
+const state={config:null,me:null,listings:[],bookings:[],deferred:[],refunds:[],mine:[],tab:'explore',tour:false};
 const esc=v=>String(v===null||v===undefined?'':v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const SERVICE_CATEGORIES=["Cleaning","Lawn care","Landscaping","Painting","Handyman","Pressure washing","Home repairs","Car detailing","Mobile car detailing","Car washing","Mobile mechanic","Tire service","Barber","Hair stylist","Nail technician","Makeup artist","Personal trainer","Massage therapist","Photography","Videography","DJ","Event decorating","Event planning","Catering","Moving","Junk removal","Delivery","Courier","Passenger transportation","IT support","Computer repair","Tutoring","Bookkeeping","Graphic design","Digital marketing","Pet grooming","Pet sitting","Dog walking","Childcare","Home health care","Washing","Other"];
 const categoryOptions=()=>SERVICE_CATEGORIES.map(x=>'<option>'+esc(x)+'</option>').join('');
@@ -17,7 +17,7 @@ async function api(url,options={}){
  return data;
 }
 function message(txt,bad=false){const el=$('status');el.textContent=txt||'';el.classList.toggle('bad',!!bad);}
-function noSetup(){return '<div class="empty"><h3>The working premium beta is being connected</h3><p>Registration and live test listings will become available after the dedicated database is connected. Payments are disabled, and no personal details are being collected yet.</p></div>';}
+function noSetup(){return '<div class="empty"><h3>Private preview setup is still underway</h3><p>Real sign-up, bookings and payments are unavailable. You can tour both customer and business screens with invented examples, without a database or account.</p><div class="buttonrow"><button type="button" class="btn" data-action="start-tour">Start guided tour (fictional)</button><button type="button" class="btn secondary" data-action="demo-onboarding">See provider steps</button></div></div>';}
 function overlay(content){$('modal-body').innerHTML=content;$('modal').classList.remove('hidden');}
 function dismiss(){$('modal').classList.add('hidden');$('modal-body').innerHTML='';}
 function nav(){
@@ -33,8 +33,11 @@ function switchTab(tab){
 async function refresh(){
  if(!state.config)return;
  if(!state.config.database){
-   $('offers').innerHTML=noSetup();$('offer-count').textContent='0 live listings';
-   $('my-bookings').innerHTML=noSetup();$('studio-body').innerHTML=noSetup();
+  if(state.tour){renderGuidedTour();nav();return;}
+  $('offers').innerHTML=noSetup();$('offer-count').textContent='0 test listings';
+  $('filter-summary').textContent='Test listings are unavailable until the isolated database is connected.';
+  $('clear-filters').classList.add('hidden');
+  $('my-bookings').innerHTML=noSetup();$('studio-body').innerHTML=noSetup();
   nav();return;
  }
  try{
@@ -42,17 +45,56 @@ async function refresh(){
   if(state.tab==='explore'){
    const r=await api('/api/listings');state.listings=r.listings;renderOffers();
   }else if(state.tab==='bookings'){
-   if(!state.me.user){$('my-bookings').innerHTML='<div class="empty">Please log in to see your bookings.</div>';return;}
+   if(!state.me.user){$('my-bookings').innerHTML='<div class="empty"><h3>View your test bookings</h3><p>Sign in with a fictional test account to see simulated appointments. Real bookings and payments are disabled.</p><button class="btn" type="button" data-action="login">Log in</button></div>';return;}
    const r=await api('/api/bookings');state.bookings=r.bookings;state.deferred=state.config.deferred_booking?(await api('/api/deferred-bookings')).bookings:[];state.refunds=state.config.deferred_booking?(await api('/api/deferred-refunds')).requests:[];renderBookings();
   }else if(state.tab==='business') await studio();
  }catch(e){message(e.message,true);}
 }
+// Fictional tour examples adapted from the November 9 RouteDrop Premium Experience concept.
+// SVG portraits are original illustrations, not photographs or identities of real providers.
+const TOUR_OPENINGS=[
+ {id:101,category:'Cleaning',title:'Standard house cleaning',business_name:'BrightNest Cleaning Co.',neighborhood:'Southeast Decatur',city:'Decatur, AL',slot_start:'2026-12-08T16:00:00.000Z',duration_minutes:120,price_cents:7500,tourKind:'cleaning',tourOwner:'Jordan (fictional)',tourRole:'Home cleaning professional'},
+ {id:102,category:'Car detailing',title:'Signature car detail',business_name:'Northside Detail Co.',neighborhood:'Downtown Decatur',city:'Decatur, AL',slot_start:'2026-12-09T19:00:00.000Z',duration_minutes:90,price_cents:12000,tourKind:'detail',tourOwner:'Taylor (fictional)',tourRole:'Auto detailing professional'},
+ {id:103,category:'Lawn care',title:'Lawn refresh & edging',business_name:'Greenline Outdoor Co.',neighborhood:'Hartselle area',city:'Hartselle, AL',slot_start:'2026-12-10T17:00:00.000Z',duration_minutes:60,price_cents:6500,tourKind:'lawn',tourOwner:'Morgan (fictional)',tourRole:'Lawn care professional'}
+];
+function tourPortrait(kind){
+ const palettes={cleaning:{bg:'#e9f1ff',shirt:'#2558be',skin:'#aa6d4c',hair:'#34231e',tool:'#3d77d4'},detail:{bg:'#e5f8f6',shirt:'#086d78',skin:'#d79b74',hair:'#242b36',tool:'#167c9a'},lawn:{bg:'#eff4df',shirt:'#487b36',skin:'#855a41',hair:'#26281e',tool:'#76a35a'}};
+ const p=palettes[kind]||palettes.cleaning;
+ const prop=kind==='detail'?'<path d="M229 159h65l18 24h23l8 29H217z" fill="#164c69"/><circle cx="244" cy="210" r="13" fill="#293341"/><circle cx="315" cy="210" r="13" fill="#293341"/><path d="M238 180h58" stroke="#ffffff" stroke-width="6" stroke-linecap="round"/>':kind==='lawn'?'<path d="M236 175l62-44" stroke="#326b40" stroke-width="10" stroke-linecap="round"/><path d="M300 124l15 12-7 30-25-17z" fill="#568d41"/><path d="M244 198l72 16" stroke="#326b40" stroke-width="7"/><circle cx="254" cy="216" r="13" fill="#364a35"/><circle cx="309" cy="227" r="13" fill="#364a35"/>':'<path d="M258 140h26l8 22v70h-43v-70z" fill="#4e94eb"/><rect x="254" y="130" width="34" height="16" rx="5" fill="#a6d7ff"/><path d="M286 150l22-17" stroke="#5685b9" stroke-width="6" stroke-linecap="round"/><circle cx="299" cy="128" r="13" fill="#c8effa"/>';
+ return '<svg class="tour-portrait" viewBox="0 0 360 245" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Illustration of a fictional '+esc(kind==='detail'?'car-detailing':kind==='lawn'?'lawn-care':'cleaning')+' business owner"><rect width="360" height="245" fill="'+p.bg+'"/><circle cx="293" cy="55" r="85" fill="#fff" opacity=".44"/><circle cx="65" cy="221" r="78" fill="'+p.tool+'" opacity=".1"/><path d="M40 264c1-86 50-111 118-111 65 0 114 24 117 111" fill="'+p.shirt+'"/><rect x="130" y="139" width="52" height="43" rx="22" fill="'+p.skin+'"/><ellipse cx="156" cy="103" rx="60" ry="70" fill="'+p.skin+'"/><path d="M96 117c-17-70 6-109 66-109 54 0 75 42 51 108-3-40-15-65-26-74-18 18-56 19-82 10-4 19-7 42-9 65z" fill="'+p.hair+'"/><path d="M136 111q6 5 13 0m31 0q6 5 13 0" stroke="#362b28" stroke-width="3.5" stroke-linecap="round" fill="none"/><path d="M146 136q14 10 28 0" stroke="#7b4032" stroke-width="4" stroke-linecap="round" fill="none"/><path d="M141 181l15 15 17-15" fill="#fff" opacity=".85"/>'+prop+'<rect x="12" y="12" width="130" height="27" rx="13.5" fill="#ffffff" opacity=".92"/><text x="77" y="30" font-family="system-ui,sans-serif" font-size="11" fill="#254065" text-anchor="middle" font-weight="700">FICTIONAL EXAMPLE</text></svg>';
+}
+function tourListingImage(item){return state.tour&&item.tourKind?'<div class="tour-photo tour-photo--'+esc(item.tourKind)+'" role="img" aria-label="AI-generated photo illustration of a fictional '+esc(item.tourRole)+'">'+tourPortrait(item.tourKind)+'</div>':'';}
+
+function tourNotice(){return '<div class="tour-notice" role="note"><strong>Guided tour · fictional examples only</strong><span>No registration, real providers, payments or uploads. Actions are disabled.</span><button type="button" class="text-action" data-action="exit-tour">Exit tour</button></div>';}
+function renderGuidedTour(){
+ if(state.config?.database)return;
+ message('Guided tour active: all listings and bookings below are invented. Nothing is saved or charged.');
+ if(state.tab==='explore'){
+  state.listings=TOUR_OPENINGS;
+  renderOffers();
+  if(!$('tour-explore-notice')){$('offers').insertAdjacentHTML('beforebegin','<div id="tour-explore-notice">'+tourNotice()+'</div>');}
+ }else if(state.tab==='bookings'){
+  $('my-bookings').innerHTML=tourNotice()+'<div class="panel"><h3>Example customer journey</h3><p class="muted">Demonstration only; no booking exists.</p><div class="record"><strong>1. Request an available service</strong><p>Future approved model: save a card securely, with $0 charged today.</p></div><div class="record"><strong>2. Provider completes the work</strong><p>The provider marks the service complete. No automatic charge occurs.</p></div><div class="record"><strong>3. Customer confirms and pays</strong><p>The customer separately approves the quoted amount after reviewing the finished work.</p></div><p class="muted">Dispute, refund, and payment controls are not available in this tour.</p><button type="button" class="btn secondary" data-action="tour-to-services">View example services</button></div>';
+ }else if(state.tab==='business'){
+  $('studio-body').innerHTML=tourNotice()+'<div class="panel"><div class="studio-example-owner"><div class="studio-owner-photo" role="img" aria-label="AI-generated fictional cleaning business owner portrait">'+tourPortrait('cleaning')+'</div><div><span class="eyebrow">FICTIONAL OWNER PROFILE</span><h3>BrightNest Cleaning Co.</h3><p>Jordan (fictional) · Home cleaning professional · Southeast Decatur</p><p class="muted">Inspired by the previous RouteDrop Premium Experience concept. This is an illustration, not a real business or verified identity.</p></div></div><p class="muted">No real account, licenses, bookings or payouts.</p><div class="record"><strong>1. Review proposed terms</strong><p>No required monthly membership during founding early access. RouteDrop proposes 8% from successfully collected service payments, not an extra customer charge.</p></div><div class="record"><strong>2. Submit credentials after approval</strong><p>Real identity and insurance uploads are disabled until independent security and legal review.</p></div><div class="record"><strong>3. Publish future availability</strong><p>Example: standard house cleaning · $75. No live listing is created here.</p></div><div class="record"><strong>4. Get independently approved</strong><p>Required verification and launch authorization must be completed before accepting real bookings.</p></div><div class="record"><strong>5. Complete work and receive payout</strong><p>In the proposed model, the customer confirms completion and approves the charge before fees or provider payouts.</p></div><button type="button" class="btn secondary" data-action="tour-to-services">See customer view</button></div>';
+ }
+}
+
+function clearFilters(){
+ $('search').value='';$('category').value='';
+ if(state.config?.database||state.tour)renderOffers();
+ else {$('filter-summary').textContent='Test listings are unavailable until the isolated database is connected.';$('clear-filters').classList.add('hidden');}
+ $('search').focus();
+}
 function renderOffers(){
  const search=$('search').value.trim().toLowerCase(),cat=$('category').value;
  const items=state.listings.filter(x=>(!cat||x.category===cat)&&(!search||[x.title,x.neighborhood,x.business_name,x.city].join(' ').toLowerCase().includes(search)));
- $('offer-count').textContent=items.length+' open slots';
+ $('offer-count').textContent=items.length+' of '+state.listings.length+' test openings';
+ const filtered=Boolean(cat||search);
+ $('filter-summary').textContent=filtered?'Showing '+items.length+' matching fictional opening'+(items.length===1?'':'s')+'.':'Showing all fictional test openings.';
+ $('clear-filters').classList.toggle('hidden',!filtered);
  $('offers').innerHTML=items.length?items.map(x=>
-  '<article class="card"><div class="cardbanner"><span>'+esc(x.category)+'</span><span>Available window</span></div><div class="cardbody"><div class="muted">'+esc(x.business_name)+'</div><h3>'+esc(x.title)+'</h3><div class="detail">⌖ '+esc(x.neighborhood)+', '+esc(x.city)+'</div><div class="detail">◷ '+when(x.slot_start)+' · '+esc(x.duration_minutes)+' min</div><div class="cardfoot"><span class="price">'+money(x.price_cents)+'</span><button class="btn dark" '+(state.config.payments?'data-book="'+x.id+'"':'disabled aria-label="Bookings disabled during private beta"')+'>'+(state.config.payments?(state.config.deferred_booking?'Book free · save card':'Book this slot'):'Booking opens later')+'</button></div></div></article>').join(''):'<div class="empty"><h3>No openings are listed yet.</h3><p>Local businesses can publish available slots from Business Studio after registration is enabled.</p></div>';
+  '<article class="card">'+tourListingImage(x)+'<div class="cardbanner"><span>'+esc(x.category)+'</span><span>'+(state.tour?'Illustrated demo':'Available window')+'</span></div><div class="cardbody">'+(state.tour?'<div class="tour-owner"><strong>'+esc(x.tourOwner)+'</strong><small>'+esc(x.tourRole)+'</small></div>':'')+'<div class="muted">'+esc(x.business_name)+'</div><h3>'+esc(x.title)+'</h3><div class="detail">⌖ '+esc(x.neighborhood)+', '+esc(x.city)+'</div><div class="detail">◷ '+when(x.slot_start)+' · '+esc(x.duration_minutes)+' min</div><div class="cardfoot"><span class="price">'+money(x.price_cents)+'</span><button class="btn dark" '+(state.config.payments?'data-book="'+x.id+'"':'disabled aria-label="Bookings disabled during private beta"')+'>'+(state.config.payments?(state.config.deferred_booking?'Book free · save card':'Book this slot'):'Booking opens later')+'</button></div></div></article>').join(''):(filtered?'<div class="empty"><h3>No matching test openings</h3><p>Try another service or location, or reset your search.</p><button type="button" class="btn secondary" data-action="clear-filters">Clear filters</button></div>':'<div class="empty"><h3>No test openings available</h3><p>Businesses can explore the private beta in Business Studio. Real jobs and bookings are not active.</p><button type="button" class="btn secondary" data-action="business-tab">Explore Business Studio</button></div>');
 }
 function deferredMarkup(bookings,role){
  if(!bookings.length)return '<div class="panel"><h3>Pay-after-service bookings</h3><p class="muted">No deferred bookings yet.</p></div>';
@@ -89,8 +131,8 @@ function renderBookings(){
 }
 async function studio(){
  const u=state.me?.user;
- if(!u){$('studio-body').innerHTML='<div class="empty"><h3>Business account required</h3><p>Create a business account to list open route slots.</p><button class="btn" data-action="register">Register a business</button></div>';return;}
- if(u.role!=='business'){$('studio-body').innerHTML='<div class="empty">You are signed in as a customer. Use a separate business account to publish routes.</div>';return;}
+ if(!u){$('studio-body').innerHTML='<div class="empty"><h3>Explore Business Studio</h3><p>Use only fictional test business details. No real jobs or payments are enabled.</p><button class="btn" type="button" data-action="register-business">Preview business signup</button><button class="btn secondary" type="button" data-action="demo-onboarding">View onboarding steps</button></div>';return;}
+ if(u.role!=='business'){$('studio-body').innerHTML='<div class="empty"><h3>Customer account</h3><p>Business Studio requires a separate fictional business account. You can see the process without changing your account.</p><button class="btn secondary" type="button" data-action="demo-onboarding">Preview provider onboarding</button></div>';return;}
  const b=state.me.business,r=await Promise.all([api('/api/my-listings'),api('/api/bookings')]);
  state.mine=r[0].listings;state.bookings=r[1].bookings;state.deferred=state.config.deferred_booking?(await api('/api/deferred-bookings')).bookings:[];state.refunds=state.config.deferred_booking?(await api('/api/deferred-refunds')).requests:[];
  const verificationData=state.config.provider_verification?(await api('/api/provider-verification/me')).verification:null;
@@ -99,8 +141,8 @@ async function studio(){
  const completed=state.bookings.filter(x=>x.status==='completed').concat(state.deferred.filter(x=>x.status==='paid'));
  const gross=completed.reduce((sum,x)=>sum+x.price_cents,0),fee=completed.reduce((sum,x)=>sum+x.fee_cents,0);
  $('studio-body').innerHTML=
- '<div class="panel"><div class="row"><div><h3>'+esc(b.name)+'</h3><div class="muted">'+esc(b.city)+' · '+esc(b.category)+'</div></div><span class="pill">'+(b.stripe_connected?'Stripe account started':'Payouts not connected')+'</span></div>'+
- '<div class="buttonrow"><button class="btn" data-action="create-listing">+ Post available slot</button><button class="btn secondary" data-action="connect-stripe">'+(b.stripe_connected?'Continue Stripe onboarding':'Connect payouts')+'</button></div><p class="muted">Payment availability requires your Stripe onboarding to be completed and the RouteDrop platform to activate payments.</p></div>'+
+ '<div class="panel"><div class="row"><div><h3>'+esc(b.name)+'</h3><div class="muted">'+esc(b.city)+' · '+esc(b.category)+'</div></div><span class="pill">'+(state.config.payments?(b.stripe_connected?'Stripe onboarding started':'Payouts not connected'):'Payments disabled in preview')+'</span></div>'+
+ '<div class="buttonrow"><button class="btn" data-action="create-listing">+ Add fictional opening</button>'+(state.config.payments?'<button class="btn secondary" data-action="connect-stripe">'+(b.stripe_connected?'Continue Stripe onboarding':'Connect payouts')+'</button>':'<span class="muted">Stripe onboarding unavailable in this paymentless preview.</span>')+'</div><p class="muted">This beta uses fictional service openings. Real bookings, provider verification and payouts need separate approval.</p></div>'+
  '<div class="panel"><h3>Founding partner onboarding</h3><p class="muted">RouteDrop takes 8% of successful completed-service payments. No required monthly membership during early access. Registration and listing setup do not activate live payments.</p>'+
  '<div class="record"><div><strong>1. Register your business</strong><p class="muted">Complete · '+esc(b.name)+' in '+esc(b.city)+'</p></div></div>'+
  '<div class="record"><div><strong>2. Review service credentials</strong><p class="muted">'+(state.config.provider_verification?(verificationData.eligible?'Required checks reviewed':'Verification pending. Use synthetic documents only during testing.'):'Verification will open for approved pilot partners.')+'</p></div></div>'+
@@ -109,7 +151,7 @@ async function studio(){
  '<div class="record"><div><strong>5. RouteDrop launch approval</strong><p class="muted">Pending. Real bookings and payments are unavailable until activation.</p></div></div>'+
  '<p class="muted">For services requiring driving or regulated work, RouteDrop may request additional insurance or licensing before approval.</p>'+
  '<div class="buttonrow"><button class="btn secondary" data-action="upload-credential" '+(state.config.provider_verification?'':'disabled')+'>View document requirements</button></div></div>'+
- '<div class="panel"><h3>Cancellation and refund requests</h3><p class="muted">Full refunds are guaranteed for eligible cancellations requested 24+ hours before service. Late requests are discretionary. Approvals issue a real Stripe refund in the configured payment mode.</p>'+(cancellations.requests.length?cancellations.requests.map(x=>'<div class="record"><div><strong>'+esc(x.title)+'</strong><p>'+when(x.slot_start)+' · '+esc(x.reason)+'</p><p class="muted">Booking #'+x.booking_id+' · '+esc(x.status)+' · '+(x.eligible_full_refund?'24-hour full-refund policy':'Late / discretionary')+'</p>'+(x.refund_amount_cents?'<p>Refund amount: '+money(x.refund_amount_cents)+'</p>':'')+'</div><div>'+(x.status==='pending'?'<button class="btn" data-request-id="'+x.id+'" data-decision="approve">Approve full refund</button>'+(x.eligible_full_refund?'':'<button class="btn secondary" data-request-id="'+x.id+'" data-decision="decline">Decline</button>'):'<strong>'+esc(x.status)+'</strong>')+'</div></div>').join(''):'<p class="muted">No cancellation requests.</p>')+'</div>'+
+ '<div class="panel"><h3>Cancellation and refund requests</h3><p class="muted">Draft cancellation terms are not approved for real customers. Refund controls in a separately enabled test environment do not authorize live refunds.</p>'+(cancellations.requests.length?cancellations.requests.map(x=>'<div class="record"><div><strong>'+esc(x.title)+'</strong><p>'+when(x.slot_start)+' · '+esc(x.reason)+'</p><p class="muted">Booking #'+x.booking_id+' · '+esc(x.status)+' · '+(x.eligible_full_refund?'24-hour full-refund policy':'Late / discretionary')+'</p>'+(x.refund_amount_cents?'<p>Refund amount: '+money(x.refund_amount_cents)+'</p>':'')+'</div><div>'+(x.status==='pending'?'<button class="btn" data-request-id="'+x.id+'" data-decision="approve">Approve full refund</button>'+(x.eligible_full_refund?'':'<button class="btn secondary" data-request-id="'+x.id+'" data-decision="decline">Decline</button>'):'<strong>'+esc(x.status)+'</strong>')+'</div></div>').join(''):'<p class="muted">No cancellation requests.</p>')+'</div>'+
  '<div class="panel"><h3>Revenue snapshot</h3><div class="row"><div><small>Completed bookings</small><h2>'+completed.length+'</h2></div><div><small>Gross value</small><h2>'+money(gross)+'</h2></div><div><small>Platform fees (8%)</small><h2>'+money(fee)+'</h2></div></div></div>'+
  '<div class="panel"><h3>My route openings</h3>'+(state.mine.length?state.mine.map(x=>'<div class="record"><div><strong>'+esc(x.title)+'</strong><p>'+esc(x.neighborhood)+' · '+when(x.slot_start)+'</p></div><strong>'+money(x.price_cents)+'</strong></div>').join(''):'<p class="muted">No openings published yet.</p>')+'</div>'+
  '<div class="panel"><h3>Recent bookings</h3>'+(state.bookings.length?state.bookings.map(x=>'<div class="record"><div><strong>'+esc(x.title)+'</strong><p>'+when(x.slot_start)+' · '+esc(x.status)+'</p></div>'+(x.status==='paid'&&!['pending','processing','needs_review'].includes(x.cancellation_request_status)?'<button class="btn" data-complete="'+x.id+'">Complete</button>':'<strong>'+money(x.price_cents)+'</strong>')+'</div>').join(''):'<p class="muted">No bookings recorded.</p>')+'</div>';
@@ -181,14 +223,19 @@ async function verifyEmailToken(token){
  catch(e){message('Email verification failed: '+e.message,true);}
 }
 function showListing(){
- overlay('<h2 id="modal-title">Publish an available opening</h2><p>Publish one real service time window. New deferred bookings save a card with $0 charged today; payment requires customer confirmation after completed work.</p><form id="listing-form"><label>Service title</label><input name="title" required maxlength="120" placeholder="Driveway cleaning"><label>Category</label><select name="category">'+categoryOptions()+'</select><label>Service neighborhood</label><input name="neighborhood" maxlength="100" required placeholder="Southeast Decatur"><label>Price in USD</label><input name="price" required type="number" step="0.01" min="5" max="5000"><label>Date & time</label><input name="slotStart" required type="datetime-local"><label>Duration (minutes)</label><input name="durationMinutes" required type="number" min="30" max="480" value="60" step="15"><p id="form-error" class="error"></p><button class="btn" type="submit">Publish route</button></form>');
+ overlay('<h2 id="modal-title">Add a fictional service opening</h2><p>Use an invented service and a future test date only. Real jobs, card collection and payments are not enabled here.</p><form id="listing-form"><label>Service title</label><input name="title" required maxlength="120" placeholder="Driveway cleaning"><label>Category</label><select name="category">'+categoryOptions()+'</select><label>Service neighborhood</label><input name="neighborhood" maxlength="100" required placeholder="Southeast Decatur"><label>Price in USD</label><input name="price" required type="number" step="0.01" min="5" max="5000"><label>Date & time</label><input name="slotStart" required type="datetime-local"><label>Duration (minutes)</label><input name="durationMinutes" required type="number" min="30" max="480" value="60" step="15"><p id="form-error" class="error"></p><button class="btn" type="submit">Publish route</button></form>');
 }
 async function act(e){
  const el=e.target.closest('button');if(!el)return;
  if(el.dataset.tab){switchTab(el.dataset.tab);return;}
  const action=el.dataset.action;
- if(action==='register'){showRegistration();return;}
- if(action==='register-business'){showRegistration();const selector=$('register-role');selector.value='business';selector.dispatchEvent(new Event('change',{bubbles:true}));return;}
+ if(action==='start-tour'){if(state.config?.database)return message('Tour is available only in database-free private preview.');state.tour=true;switchTab('explore');return;}
+ if(action==='exit-tour'){state.tour=false;$('tour-explore-notice')?.remove();state.listings=[];switchTab('explore');return;}
+ if(action==='tour-to-services'){switchTab('explore');return;}
+ if(action==='register'){if(state.config&&!state.config.database){message('The private beta database is not connected. Explore the fictional onboarding walkthrough instead.');return;}showRegistration();return;}
+ if(action==='clear-filters'){clearFilters();return;}
+ if(action==='business-tab'){switchTab('business');return;}
+ if(action==='register-business'){if(state.config&&!state.config.database){if(!state.tour)state.tour=true;message('Fictional business signup is unavailable until the isolated test database is ready. Explore the fictional Business Studio instead.');switchTab('business');return;}showRegistration();const selector=$('register-role');selector.value='business';selector.dispatchEvent(new Event('change',{bubbles:true}));return;}
  if(action==='demo-onboarding'){
   overlay('<h2 id="modal-title">RouteDrop founding partner preview</h2><p class="muted">Fictional example only. Interactive registration opens when the isolated preview database is connected.</p>'+
    '<div class="record"><strong>1. Register a business</strong><p>Invented: Pine Ridge Cleaning · Decatur, AL · Cleaning</p></div>'+
@@ -319,7 +366,7 @@ async function submit(e){
    const amount=Math.round(Number(d.price)*100),date=new Date(d.slotStart);
    if(!Number.isSafeInteger(amount)||!Number.isFinite(date.getTime()))throw Error('Invalid price or date.');
    await api('/api/listings',{method:'POST',body:JSON.stringify({title:d.title,category:d.category,neighborhood:d.neighborhood,priceCents:amount,slotStart:date.toISOString(),durationMinutes:Number(d.durationMinutes)})});
-   message('Opening published.');}
+   message('Fictional test opening added. No live bookings are available.');}
   dismiss();refresh();
  }catch(ex){err.textContent=ex.message;}finally{submit.disabled=false;}
 }
@@ -331,10 +378,13 @@ async function init(){
  $('close-modal').addEventListener('click',dismiss);
  $('modal').addEventListener('click',e=>{if(e.target.id==='modal')dismiss();});
  $('search').addEventListener('input',renderOffers);
+ $('clear-filters').addEventListener('click',clearFilters);
  $('category').innerHTML='<option value="">All services</option>'+categoryOptions();
  $('category').addEventListener('change',renderOffers);
  try {
   state.config=await api('/api/config');
+  // The dedicated, database-free UX preview opens with its fictional service photos visible.
+  state.tour=!state.config.database && (location.hostname==='routedrop-ux-tour-private-av.onrender.com'||new URLSearchParams(location.search).get('tour')==='1');
   const actionParams=new URLSearchParams(location.search);
   if(actionParams.has('reset')){const token=actionParams.get('reset');history.replaceState(null,'',location.pathname);showResetPassword(token);}
   else if(actionParams.has('verify')){const token=actionParams.get('verify');history.replaceState(null,'',location.pathname);await verifyEmailToken(token);}

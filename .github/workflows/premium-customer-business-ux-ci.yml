@@ -1,0 +1,23 @@
+name: RouteDrop premium beta customer and provider UX checks
+on:
+  push:
+    branches:
+      - ux/premium-beta-customer-business-clarity-20261115
+permissions:
+  contents: read
+jobs:
+  source-and-ui:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check UI and app syntax
+        run: |
+          node --check routedrop-platform/public/app.js
+          node --check routedrop-platform/server.js
+          node --check routedrop-platform/test/premium-customer-business-ux.test.js
+      - name: Verify customer/provider text, filters, and pay-disabled boundaries
+        run: node --test routedrop-platform/test/premium-customer-business-ux.test.js
