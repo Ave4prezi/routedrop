@@ -29,7 +29,7 @@
     row('Provider screening',screeningLabels[screeningStatus]||'Unknown pilot status',screeningStatus==='test_reviewed'?'readiness-done':'readiness-pending')+
     row('Stripe identity',identityLabel,identityEnabled&&identityStatus==='verified_test'?'readiness-done':'readiness-pending')+
     row('Customer payments','Disabled · no charges or payouts','readiness-blocked')+
-   '</ul><div class="buttonrow"><button type="button" class="btn secondary" data-tab="safety">View Trust &amp; Safety</button></div>'+
+   '</ul><div class="buttonrow"><button type="button" class="btn secondary" data-tab="safety">Review setup requirements</button></div>'+
    '<p class="legal"><strong>Important:</strong> A completed TEST verification, screening review, or published listing does not create a verified badge, real provider approval, or permission to accept real customers.</p></section>';
  }
  root.RouteDropReadiness=Object.freeze({providerChecklist});
