@@ -3,6 +3,7 @@ import {spawn} from 'node:child_process';
 import {once} from 'node:events';
 import net from 'node:net';
 import pg from 'pg';
+import crypto from 'node:crypto';
 
 const pool=new pg.Pool({connectionString:process.env.TEST_DATABASE_URL});
 const suffix=String(Date.now()),moderationToken='local-test-moderator-very-long-unique-key-2026';
@@ -13,7 +14,7 @@ const port=socket.address().port;await new Promise(resolve=>socket.close(resolve
 const base='http://127.0.0.1:'+port,pass='local-ephemeral-test-only';
 const auth='Basic '+Buffer.from('routedrop-preview:'+pass).toString('base64');
 const server=spawn(process.execPath,['routedrop-platform/server.js'],{
- env:{...process.env,PORT:String(port),DATABASE_URL:process.env.TEST_DATABASE_URL,ROUTEDROP_WORKFLOW_PILOT:'true',ROUTEDROP_PREVIEW_ACCESS_PASSWORD:pass,ROUTEDROP_LIVE_APPROVED:'false',STRIPE_SECRET_KEY:'',STRIPE_WEBHOOK_SECRET:'',PUBLIC_URL:'',NODE_ENV:'test',ROUTEDROP_MODERATION_TOKEN:moderationToken,ROUTEDROP_MODERATOR_EMAILS:moderatorEmail},
+ env:{...process.env,PORT:String(port),DATABASE_URL:process.env.TEST_DATABASE_URL,ROUTEDROP_WORKFLOW_PILOT:'true',ROUTEDROP_PREVIEW_ACCESS_PASSWORD:pass,ROUTEDROP_LIVE_APPROVED:'false',STRIPE_SECRET_KEY:'',STRIPE_WEBHOOK_SECRET:'',PUBLIC_URL:'',NODE_ENV:'test',ROUTEDROP_MODERATION_TOKEN:moderationToken,ROUTEDROP_MODERATOR_EMAILS:moderatorEmail,ROUTEDROP_MODERATOR_PASSKEYS_ENABLED:'true',ROUTEDROP_WEBAUTHN_ORIGIN:'https://moderator.example.test',ROUTEDROP_WEBAUTHN_RP_ID:'moderator.example.test',ROUTEDROP_MODERATOR_ENROLLMENT_ENABLED:'false',ROUTEDROP_IDENTITY_TEST_ENABLED:'false'},
  stdio:['ignore','pipe','pipe']
 });
 let errors='';server.stderr.on('data',x=>errors+=x.toString());
@@ -75,6 +76,20 @@ try{
  assert.equal((await call(moderator,'/api/pilot/safety/moderation','GET',undefined,{'x-routedrop-moderator-key':'wrong'})).code,403,'no access with wrong key');
  assert.equal((await call(moderator,'/api/pilot/safety/moderation')).code,403,'session alone cannot moderate');
  assert.equal((await call(null,'/api/pilot/safety/moderation','GET',undefined,modHeaders)).code,401,'key alone cannot moderate without an authenticated session');
+ assert.equal((await call(moderator,'/api/pilot/safety/moderation','GET',undefined,modHeaders)).code,403,'even allowlisted verified moderators need fresh WebAuthn step-up');
+ const passkeyStatus=await call(moderator,'/api/pilot/moderator/passkeys/status','GET',undefined,modHeaders);
+ assert.equal(passkeyStatus.code,200);
+ assert.equal(passkeyStatus.data.registered,0);
+ assert.equal(passkeyStatus.data.enrollment_enabled,false,'enrollment disabled by default');
+ assert.equal((await call(moderator,'/api/pilot/moderator/passkeys/register/options','POST',{},modHeaders)).code,403,'no enrollment outside controlled window');
+ assert.equal((await call(moderator,'/api/pilot/moderator/passkeys/authenticate/options','POST',{},modHeaders)).code,409,'unregistered passkey cannot authenticate');
+ // CI-only DB fixture representing a successful passkey ceremony; no HTTP bypass.
+ const modSession=moderator.cookie.match(/__Host-rd_session=([a-f0-9]{64})/);
+ assert.ok(modSession);
+ const sessionHash=crypto.createHash('sha256').update(modSession[1]).digest('hex');
+ const modWho=(await call(moderator,'/api/me')).data.user;
+ await pool.query("INSERT INTO pilot_moderator_stepup(session_hash,user_id,expires_at) VALUES($1,$2,now()+interval '10 minutes')",[sessionHash,modWho.id]);
+ assert.equal((await call(moderator,'/api/pilot/safety/moderation','GET',undefined,modHeaders)).code,200,'signed-in moderator with short step-up can access queue');
  const screeningBefore=await call(business,'/api/pilot/safety/provider');
  assert.equal(screeningBefore.data.screening.pilot_screening_status,'not_started');
  assert.equal(screeningBefore.data.identity_verified,false);
@@ -278,6 +293,11 @@ try{
  assert.equal((await call(moderator,'/api/pilot/safety/moderation/providers/'+businessId,'POST',{action:'reinstate',note:'Allow provider to resubmit fictional screening details for human review.'},modHeaders)).code,200);
  assert.equal((await call(business,'/api/pilot/safety/provider')).data.screening.pilot_screening_status,'needs_changes');
  assert.ok((await call(otherCustomer,'/api/listings')).data.listings.some(x=>Number(x.id)===beforeSuspension),'reinstatement restores discoverability');
+ assert.equal((await call(business,'/api/pilot/identity/status')).data.identity_verified,false,'new provider has no verified identity');
+ assert.equal((await call(business,'/api/pilot/identity/start','POST',{explicitConsent:true})).code,503,'Stripe Identity disabled without test credentials');
+ const expired=await pool.query("UPDATE pilot_moderator_stepup SET expires_at=now()-interval '5 seconds' WHERE session_hash=$1 RETURNING user_id",[sessionHash]);
+ assert.equal(expired.rowCount,1);
+ assert.equal((await call(moderator,'/api/pilot/safety/moderation','GET',undefined,modHeaders)).code,403,'expired passkey step-up blocks moderator even with secret');
  assert.equal((await call(customer,'/api/checkout','POST',{listingId:second})).code,503,'Stripe checkout unavailable');
  assert.equal((await call(business,'/api/stripe/connect','POST',{})).code,503,'Stripe payouts unavailable');
  assert.equal((await call(customer,'/api/bookings')).data.bookings.length,0,'no paid bookings');
