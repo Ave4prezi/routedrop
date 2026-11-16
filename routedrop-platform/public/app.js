@@ -3,7 +3,8 @@
 const $=id=>document.getElementById(id);
 const coverage=window.RouteDropServiceArea;
 const premium=window.RouteDropPremium2;
-const state={config:null,me:null,listings:[],bookings:[],mine:[],tab:'explore',demo:false,demoRequests:[],demoCounter:0,demoListingId:null,demoSlot:'afternoon',demoArea:{center:'decatur',radiusMiles:20}};
+const pilot=window.RouteDropPilotUI;
+const state={config:null,me:null,listings:[],bookings:[],mine:[],tab:'explore',demo:false,demoRequests:[],demoCounter:0,demoListingId:null,demoSlot:'afternoon',demoArea:{center:'decatur',radiusMiles:20},pilotRequests:[],pilotListingId:null};
 const esc=v=>String(v===null||v===undefined?'':v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const money=cents=>new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(Number(cents||0)/100);
 const when=iso=>new Intl.DateTimeFormat('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}).format(new Date(iso));
@@ -70,6 +71,12 @@ async function refresh(){
   if(state.tab==='explore'){
    const r=await api('/api/listings');state.listings=r.listings;renderOffers();
   }else if(state.tab==='bookings'){
+   if(state.config.workflow_pilot){
+    if(!state.me.user){$('my-bookings').innerHTML='<div class="empty"><h3>Test account required</h3><p>Create a customer test account or sign in to see requests.</p><button type="button" class="btn" data-action="register">Create test account</button></div>';return;}
+    if(state.me.user.role!=='customer'){$('my-bookings').innerHTML='<div class="empty">Business accounts manage incoming requests in Business Studio.</div>';return;}
+    state.pilotRequests=(await api('/api/pilot/requests')).requests;
+    $('my-bookings').innerHTML=pilot.customer(state.pilotRequests);return;
+   }
    if(!state.me.user){$('my-bookings').innerHTML='<div class="empty">Please log in to see your bookings.</div>';return;}
    const r=await api('/api/bookings');state.bookings=r.bookings;renderBookings();
   }else if(state.tab==='business') await studio();
@@ -126,6 +133,11 @@ async function studio(){
  const u=state.me?.user;
  if(!u){$('studio-body').innerHTML='<div class="empty"><h3>Business account required</h3><p>Create a business account to list open route slots.</p><button class="btn" data-action="register">Register a business</button></div>';return;}
  if(u.role!=='business'){$('studio-body').innerHTML='<div class="empty">You are signed in as a customer. Use a separate business account to publish routes.</div>';return;}
+ if(state.config.workflow_pilot){
+  const [listings,requests]=await Promise.all([api('/api/my-listings'),api('/api/pilot/requests')]);
+  state.mine=listings.listings;state.pilotRequests=requests.requests;
+  $('studio-body').innerHTML=pilot.studio(state.me.business,state.mine,state.pilotRequests,serviceCoveragePanel(state.me.business));return;
+ }
  const b=state.me.business,r=await Promise.all([api('/api/my-listings'),api('/api/bookings')]);
  state.mine=r[0].listings;state.bookings=r[1].bookings;
  const subscription=await api('/api/business/subscription');
@@ -167,7 +179,30 @@ function showListing(){
 async function act(e){
  const el=e.target.closest('button');if(!el)return;
  if(el.dataset.tab){if(!$('modal').classList.contains('hidden'))dismiss();switchTab(el.dataset.tab);return;}
- if(el.dataset.profileListing){const x=state.listings.find(item=>Number(item.id)===Number(el.dataset.profileListing));if(x)overlay(premium.profile(x,coverage));return;}
+ if(el.dataset.profileListing){const x=state.listings.find(item=>Number(item.id)===Number(el.dataset.profileListing));if(x)overlay(premium.profile(x,coverage,state.config));return;}
+ if(el.dataset.pilotRequest&&state.config?.workflow_pilot){
+  const x=state.listings.find(item=>Number(item.id)===Number(el.dataset.pilotRequest));
+  if(!x)return;
+  if(!state.me?.user){showLogin();message('Sign in with a customer test account first.');return;}
+  if(state.me.user.role!=='customer'){message('Only test customer accounts can request a service.',true);return;}
+  state.pilotListingId=x.id;overlay(pilot.requestModal(x));return;
+ }
+ if(el.dataset.pilotAction&&state.config?.workflow_pilot){
+  const id=Number(el.dataset.pilotId),action=el.dataset.pilotAction;
+  if(!Number.isSafeInteger(id)||id<1)return;
+  el.disabled=true;
+  try{await api('/api/pilot/requests/'+id+'/action',{method:'POST',body:JSON.stringify({action})});message('Test request updated. No payment was made.');await refresh();}
+  catch(err){message(err.message,true);}finally{if(el.isConnected)el.disabled=false;}
+  return;
+ }
+ if(el.dataset.pilotListingId&&state.config?.workflow_pilot){
+  const id=Number(el.dataset.pilotListingId),status=el.dataset.pilotListingStatus;
+  if(!Number.isSafeInteger(id)||!['active','paused'].includes(status))return;
+  el.disabled=true;
+  try{await api('/api/pilot/listings/'+id+'/status',{method:'PATCH',body:JSON.stringify({status})});message('Test listing '+status+'.');await refresh();}
+  catch(err){message(err.message,true);}finally{if(el.isConnected)el.disabled=false;}
+  return;
+ }
  if(el.dataset.demoBook&&state.demo&&!state.config?.database){
   const x=premium.DEMO.find(item=>item.id===Number(el.dataset.demoBook));
   if(!x)return;
@@ -203,10 +238,19 @@ async function act(e){
    return;
  }
  const action=el.dataset.action;
+ if(action==='pilot-confirm-request'&&state.config?.workflow_pilot){
+  if(!Number.isSafeInteger(Number(state.pilotListingId)))return;
+  el.disabled=true;
+  try{
+   await api('/api/pilot/requests',{method:'POST',body:JSON.stringify({listingId:Number(state.pilotListingId)})});
+   dismiss();message('Request saved in the isolated test database. No payment was collected.');switchTab('bookings');
+  }catch(err){message(err.message,true);}finally{if(el.isConnected)el.disabled=false;}
+  return;
+ }
  if(action==='search-services'){document.getElementById('available-openings')?.scrollIntoView({behavior:'smooth'});renderOffers();return;}
  if(action==='demo-back-to-profile'&&state.demo&&!state.config?.database){
   const x=premium.DEMO.find(item=>item.id===state.demoListingId);
-  if(x)overlay(premium.profile(x,coverage));
+  if(x)overlay(premium.profile(x,coverage,state.config));
   return;
  }
  if(action==='demo-confirm-request'&&state.demo&&!state.config?.database){
@@ -312,7 +356,10 @@ async function init(){
   const actionParams=new URLSearchParams(location.search);
   if(actionParams.has('reset')){const token=actionParams.get('reset');history.replaceState(null,'',location.pathname);showResetPassword(token);}
   else if(actionParams.has('verify')){const token=actionParams.get('verify');history.replaceState(null,'',location.pathname);await verifyEmailToken(token);}
-  if(!state.config.database)message('Private beta: an isolated database must be connected before registration and bookings can work.');
+  if(state.config.workflow_pilot){
+   const notice=document.querySelector('.announce');if(notice)notice.innerHTML='<strong>ISOLATED ACCOUNT TEST</strong><span>Test accounts and unpaid requests only · No payments or production customers</span>';
+   message('Isolated RouteDrop booking pilot: use test identities only. All payments and payouts are disabled.');
+  }else if(!state.config.database)message('Private beta: an isolated database must be connected before registration and bookings can work.');
   else if(!state.config.payments)message('Accounts and listings enabled. Stripe payments and payouts are not yet configured.');
   if(new URLSearchParams(location.search).has('subscription'))message('Returned from subscription billing. Open Business Studio to check your subscription status.');
   if(new URLSearchParams(location.search).has('payment'))message('Returned from checkout. Payment status is confirmed only through the Stripe webhook; check My bookings.');
