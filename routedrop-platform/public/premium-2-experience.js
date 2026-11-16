@@ -16,7 +16,7 @@
    '<div class="detail">⌖ '+h(x.neighborhood)+', '+h(x.city)+'</div><div class="detail">'+(demo?'Example duration: ':'Duration: ')+h(x.duration_minutes)+' min</div>'+
    '<button class="profile-open" type="button" data-profile-listing="'+Number(x.id)+'">Explore business profile ↗</button>'+
    (valid?'<button class="coverage-open" type="button" data-coverage-listing="'+Number(x.id)+'">⌖ '+h(area.summary(valid.center,valid.radiusMiles))+' · View map</button>':'<p class="muted">Service area not listed</p>')+
-   '<div class="cardfoot"><span class="price">'+money(x.price_cents)+'</span><button class="btn dark" '+(demo?'data-demo-book="'+Number(x.id)+'"':config?.payments?'data-book="'+Number(x.id)+'"':'disabled aria-label="Bookings not available"')+'>'+(demo?'Try booking preview ↗':config?.payments?'Book this slot':'Not yet available')+'</button></div></div></article>';
+   '<div class="cardfoot"><span class="price">'+money(x.price_cents)+'</span><button class="btn dark" '+(demo?'data-demo-book="'+Number(x.id)+'"':config?.workflow_pilot?'data-pilot-request="'+Number(x.id)+'"':config?.payments?'data-book="'+Number(x.id)+'"':'disabled aria-label="Bookings not available"')+'>'+(demo?'Try booking preview ↗':config?.workflow_pilot?'Request this opening ↗':config?.payments?'Book this slot':'Not yet available')+'</button></div></div></article>';
   }).join('');
  }
  const WINDOWS=Object.freeze({morning:'9:00 AM',afternoon:'1:00 PM',evening:'5:00 PM'});
@@ -68,7 +68,7 @@
   radiusMarkup+
   '<div class="panel"><h3>Designed for the way you work</h3><div class="record"><div><strong>Set your territory</strong><p>Experiment with city-center coverage and quick radius settings.</p></div><span class="pill">Interactive preview</span></div><div class="record"><div><strong>Manage your availability</strong><p>Future verified providers can publish service hours and accurate prices.</p></div><span class="pill">Planned</span></div><div class="record"><div><strong>Earn after completed work</strong><p>The proposed fee applies only to real, successfully collected payments after launch approval.</p></div><span class="pill">Not active</span></div></div>';
  }
- function profile(x,area){
+ function profile(x,area,config={}){
   const demo=Boolean(x.demoKind),valid=area.validate(x.service_center_code,x.service_radius_miles);
   const details={
    cleaning:['General surface cleaning','Kitchen and bathroom touch-ups','Floor care and finishing details'],
@@ -83,7 +83,7 @@
   '<p class="profile-description">'+(demo?h(x.demoAbout):'This listing has a price and opening, but additional provider credentials, independent reviews and service photos have not been verified for display.')+'</p>'+
   '<div class="profile-service-block"><div><span class="profile-overline">SERVICE OVERVIEW</span><h3>'+h(x.title)+'</h3><p>'+h(x.neighborhood)+' · '+h(x.duration_minutes)+' minutes</p></div><div class="profile-price"><small>'+(demo?'SAMPLE PRICE':'LISTED PRICE')+'</small><strong>'+money(x.price_cents)+'</strong></div></div>'+
   checklist+
-  (demo?'<div class="demo-profile-cta"><button type="button" class="btn" data-demo-book="'+Number(x.id)+'">Preview a booking <span aria-hidden="true">↗</span></button><span>Fictional workflow. No personal details, booking or payment.</span></div>':'')+
+  (demo?'<div class="demo-profile-cta"><button type="button" class="btn" data-demo-book="'+Number(x.id)+'">Preview a booking <span aria-hidden="true">↗</span></button><span>Fictional workflow. No personal details, booking or payment.</span></div>':config.workflow_pilot?'<div class="demo-profile-cta"><button type="button" class="btn" data-pilot-request="'+Number(x.id)+'">Request this opening</button><span>Isolated account test. No payment collection.</span></div>':'')+
   (valid?'<h3>Service-area preview</h3><p>'+h(area.summary(valid.center,valid.radiusMiles))+'. Straight-line estimate; road access and address-level coverage are not guaranteed.</p><div class="coverage-map-wrap">'+area.mapSvg(valid.center,valid.radiusMiles)+'</div>':'<p>No coverage radius is currently listed.</p>')+
   '<p class="legal">'+(demo?'Fictional demonstration. No real reviews, verified provider, availability or booking exists.':'No verified identity or customer rating claims are being made.')+'</p>';
  }
