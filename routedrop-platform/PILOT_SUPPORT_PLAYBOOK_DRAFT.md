@@ -1,6 +1,6 @@
 # RouteDrop provider and customer support — OPERATOR PLAYBOOK DRAFT
 
-**NOT ACTIVE CUSTOMER SUPPORT POLICY.** Do not publish a response SLA, give a support address that has not been verified, or invite real customers/businesses until the owner, backup and contact channels are assigned and tested. Existing Stripe payments remain TEST-only.
+**NOT ACTIVE CUSTOMER SUPPORT POLICY.** A separate `SYNTHETIC_SUPPORT_TRIAGE_RUNBOOK.md` now describes a code-only, fictional test-ticket queue with role-restricted audit; it cannot receive real incidents or exercise data rights. Do not publish a response SLA, give a support address that has not been verified, or invite real customers/businesses until the owner, backup and contact channels are assigned and tested. Existing Stripe payments remain TEST-only.
 
 ## Proposed ticket fields (minimum necessary)
 
