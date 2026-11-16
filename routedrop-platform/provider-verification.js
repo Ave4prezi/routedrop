@@ -2,6 +2,7 @@
 // Staging-only draft: policy checks are not a legal determination. No raw identity or
 // insurance documents are stored by this module. Reviewer approval is mandatory.
 const evidence=require('./provider-evidence');
+const launchApproval=require('./provider-launch-approval');
 const groups={
  'Home & property':['Cleaning','Lawn care','Landscaping','Painting','Handyman','Pressure washing','Home repairs'],
  'Automotive':['Car detailing','Mobile car detailing','Car washing','Mobile mechanic','Tire service'],
@@ -39,24 +40,30 @@ const schema=[
  "CREATE TABLE IF NOT EXISTS provider_document_reviewers (user_id BIGINT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE, granted_at TIMESTAMPTZ NOT NULL DEFAULT now())",
  ...evidence.schema
 ];
-async function statusForBusiness(db,businessId,category){
+async function statusForBusiness(db,businessId,category,requireLaunch=false){
  const [records,manual]=await Promise.all([
   db.query('SELECT v.kind,v.status,v.expires_at,v.reviewed_at,CASE WHEN v.status=\'rejected\' THEN v.review_note ELSE NULL END AS rejection_reason,EXISTS(SELECT 1 FROM provider_verification_documents d WHERE d.business_id=v.business_id AND d.kind=v.kind) AS has_document FROM provider_verifications v WHERE v.business_id=$1',[businessId]),
   db.query('SELECT approved FROM provider_category_reviews WHERE business_id=$1 AND category=$2',[businessId,category])
  ]);
- return {...assess(category,records.rows,manual.rows[0]?.approved===true),documents:records.rows};
+ const credentials=assess(category,records.rows,manual.rows[0]?.approved===true);
+ if(!requireLaunch)return {...credentials,documents:records.rows};
+ const launch=await launchApproval.status(db,businessId,category);
+ return {...credentials,eligible:credentials.eligible&&launch.active,
+  missing:launch.active?credentials.missing:[...credentials.missing,'launch_approval'],
+  documents:records.rows,launch};
+
 }
-async function eligibleListing(db,id){
+async function eligibleListing(db,id,requireLaunch=false){
  const found=await db.query('SELECT business_id,category FROM listings WHERE id=$1',[id]);
  if(!found.rowCount)return false;
- return (await statusForBusiness(db,found.rows[0].business_id,found.rows[0].category)).eligible;
+ return (await statusForBusiness(db,found.rows[0].business_id,found.rows[0].category,requireLaunch)).eligible;
 }
 function validExpiry(kind,value){
  if(['identity','business_info'].includes(kind))return value==null||value==='';
  const t=Date.parse(value);
  return Number.isFinite(t)&&t>Date.now()&&t<Date.now()+366*86400000;
 }
-function install(app,{pool,enabled,requireDb,requireUser,safe,forbidden}){
+function install(app,{pool,enabled,launchApprovalEnabled=false,requireDb,requireUser,safe,forbidden}){
  const gate=(req,res,next)=>enabled?next():forbidden(res,'Provider verification is not enabled.',503);
  const business=[gate,requireDb,requireUser('business')];
  const reviewer=[gate,requireDb,requireUser(),(req,res,next)=>{
@@ -70,7 +77,7 @@ function install(app,{pool,enabled,requireDb,requireUser,safe,forbidden}){
  app.get('/api/provider-verification/me',...business,safe(async(req,res)=>{
   const q=await pool.query('SELECT id,category FROM businesses WHERE owner_id=$1',[req.user.id]);
   if(!q.rowCount)return forbidden(res,'Business not found.',404);
-  res.json({businessId:q.rows[0].id,category:q.rows[0].category,credentialKinds:TYPES,verification:await statusForBusiness(pool,q.rows[0].id,q.rows[0].category)});
+  res.json({businessId:q.rows[0].id,category:q.rows[0].category,credentialKinds:TYPES,verification:await statusForBusiness(pool,q.rows[0].id,q.rows[0].category,launchApprovalEnabled)});
  }));
  app.post('/api/provider-verification/submit',...business,safe(async(req,res)=>{
   const kind=String(req.body.kind||'');
@@ -109,6 +116,7 @@ function install(app,{pool,enabled,requireDb,requireUser,safe,forbidden}){
   res.json({review:q.rows[0]});
  }));
  evidence.install(app,{pool,business,reviewer,safe,forbidden});
+ launchApproval.install(app,{enabled:launchApprovalEnabled,pool,requireDb,requireUser,safe,forbidden,credentialsStatus:statusForBusiness});
  app.post('/api/provider-verification/revoke',...reviewer,safe(async(req,res)=>{
   const id=Number(req.body.businessId),kind=String(req.body.kind||''),note=String(req.body.note||'').trim();
   if(!Number.isSafeInteger(id)||id<1||!TYPES.includes(kind)||note.length<12||note.length>500)

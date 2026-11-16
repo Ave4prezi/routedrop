@@ -13,6 +13,7 @@ const { providerReady, emailLink, isActionToken, notification, deliverEmail } = 
 const { livePaymentsAllowed, checkoutOutcome, refundableAmount, disputeState, cancellationEligibility, refundStatus, refundOperation } = require('./payment-safeguards');
 const postService = require('./post-service');
 const verification = require('./provider-verification');
+const launchApproval = require('./provider-launch-approval');
 const previewAck = require('./preview-acknowledgement');
 const {createStagingGate} = require('./staging-access');
 
@@ -38,6 +39,8 @@ const previewOnly = process.env.ROUTEDROP_PRIVATE_PREVIEW_ONLY === 'true' &&
  !stripeKey && process.env.ROUTEDROP_LIVE_APPROVED !== 'true';
 // Staging-only. Explicit opt-in; do not turn on for an existing deployment without migration/testing.
 const verificationEnabled = (deferredEnabled || previewOnly) && process.env.ROUTEDROP_PROVIDER_VERIFICATION_ENABLED === 'true';
+// Only the paymentless, private fictional preview may use this additional gate.
+const launchApprovalEnabled = previewOnly && verificationEnabled;
 const pool = databaseUrl ? new Pool(securePoolConnection(databaseUrl)) : null;
 const safe = fn => (req, res, next) => Promise.resolve(fn(req, res)).catch(next);
 const hash = value => crypto.createHash('sha256').update(value).digest('hex');
@@ -99,6 +102,7 @@ const ddl = [
 ]; 
 if (deferredEnabled || previewOnly) ddl.push(...postService.sql);
 if (verificationEnabled) ddl.push(...verification.schema);
+if (launchApprovalEnabled) ddl.push(...launchApproval.schema);
 if (previewOnly && verificationEnabled) ddl.push(...previewAck.schema);
 async function startDatabase() {
  if (!pool) return;
@@ -215,7 +219,7 @@ app.get('/api/config',(req,res)=>{
  if(!req.cookies.routedrop_csrf || !/^[a-f0-9]{64}$/.test(req.cookies.routedrop_csrf)){
   res.cookie('routedrop_csrf',random(),{secure:process.env.NODE_ENV==='production',httpOnly:false,sameSite:'lax',path:'/',maxAge:7*24*60*60*1000});
  }
- res.json({database:ready,payments:paymentsReady,status:ready?'beta':'setup_required',email_enabled:emailReady,payments_mode:liveKey?(paymentsApproved?'live':'live_locked'):'test',deferred_booking:deferredEnabled,provider_verification:verificationEnabled,private_preview:previewOnly,preview_agreement:previewOnly&&verificationEnabled?previewAck.publicTerms():null,public_url:baseUrl});
+ res.json({database:ready,payments:paymentsReady,status:ready?'beta':'setup_required',email_enabled:emailReady,payments_mode:liveKey?(paymentsApproved?'live':'live_locked'):'test',deferred_booking:deferredEnabled,provider_verification:verificationEnabled,private_preview:previewOnly,provider_launch_gate:launchApprovalEnabled,preview_agreement:previewOnly&&verificationEnabled?previewAck.publicTerms():null,public_url:baseUrl});
 });
 async function issueEmailAction(userId,email,purpose) {
  if(!emailReady||!baseUrl)return false;
@@ -388,7 +392,8 @@ app.get('/api/me',requireDb,safe(async(req,res)=>{
  }
  const support_agent=(deferredEnabled||previewOnly) && (await pool.query('SELECT 1 FROM deferred_support_agents WHERE user_id=$1',[req.user.id])).rowCount>0;
  const document_reviewer=verificationEnabled && (await pool.query('SELECT 1 FROM provider_document_reviewers WHERE user_id=$1',[req.user.id])).rowCount>0;
- res.json({user:req.user,business,support_agent,document_reviewer});
+ const launch_approver=launchApprovalEnabled && (await pool.query('SELECT 1 FROM provider_launch_approvers WHERE user_id=$1',[req.user.id])).rowCount>0;
+ res.json({user:req.user,business,support_agent,document_reviewer,launch_approver});
 }));
 app.get('/api/listings',requireDb,safe(async(req,res)=>{
  const oldFilter="SELECT l.id,l.title,l.category,l.neighborhood,l.price_cents,l.slot_start,l.duration_minutes,b.name AS business_name,b.city FROM listings l JOIN businesses b ON b.id=l.business_id WHERE l.status='active' AND l.slot_start>now() AND NOT EXISTS(SELECT 1 FROM bookings k WHERE k.listing_id=l.id AND k.status IN ('awaiting_payment','paid','completed'))";
@@ -397,7 +402,7 @@ app.get('/api/listings',requireDb,safe(async(req,res)=>{
  // Eligibility per listing is computed by category; no unreviewed listing is publicly advertised.
  const verified=[];
  const data=await pool.query(oldFilter+extraFilter+' ORDER BY l.slot_start ASC LIMIT 100');
- if(verificationEnabled){for(const listing of data.rows){if(await verification.eligibleListing(pool,listing.id))verified.push(listing);}}
+ if(verificationEnabled){for(const listing of data.rows){if(await verification.eligibleListing(pool,listing.id,launchApprovalEnabled))verified.push(listing);}}
  res.json({listings:verificationEnabled?verified:data.rows});
 }));
 app.post('/api/listings',requireDb,requireUser('business'),safe(async(req,res)=>{
@@ -544,7 +549,7 @@ app.post('/api/checkout',requireDb,requireUser('customer'),checkoutLimiter,safe(
   await client.query('BEGIN');
   offer=(await client.query("SELECT l.id,l.title,l.price_cents,l.slot_start,b.stripe_account_id FROM listings l JOIN businesses b ON b.id=l.business_id WHERE l.id=$1 AND l.status='active' AND l.slot_start>now() FOR UPDATE OF l",[id])).rows[0];
   if(!offer){await client.query('ROLLBACK');return forbidden(res,'Route is not available.',404);}
-  if(verificationEnabled && !(await verification.eligibleListing(client,id))){await client.query('ROLLBACK');return forbidden(res,'Provider verification is pending for this service.',409);}
+  if(verificationEnabled && !(await verification.eligibleListing(client,id,launchApprovalEnabled))){await client.query('ROLLBACK');return forbidden(res,'Provider verification is pending for this service.',409);}
   await client.query("UPDATE bookings SET status='canceled' WHERE listing_id=$1 AND status='awaiting_payment' AND hold_expires_at<now()",[id]);
   const fee=Math.max(1,Math.round(offer.price_cents*.08));
   const result=await client.query("INSERT INTO bookings(listing_id,customer_id,status,price_cents,fee_cents,hold_expires_at) VALUES($1,$2,'awaiting_payment',$3,$4,now()+interval '45 minutes') RETURNING id",[id,req.user.id,offer.price_cents,fee]);
@@ -610,8 +615,8 @@ app.post('/api/bookings/:id/complete',requireDb,requireUser('business'),safe(asy
  if(!r.rowCount)return forbidden(res,'No eligible paid booking found.',409);
  res.json({ok:true});
 }));
-verification.install(app,{pool,enabled:verificationEnabled,requireDb,requireUser,safe,forbidden});
-postService.install(app,{pool,stripe,baseUrl,enabled:deferredEnabled,verificationEnabled,verifyListing:verification.eligibleListing,requireDb,requireUser,safe,limiter:checkoutLimiter,forbidden,queueDeferredEmail});
+verification.install(app,{pool,enabled:verificationEnabled,launchApprovalEnabled,requireDb,requireUser,safe,forbidden});
+postService.install(app,{pool,stripe,baseUrl,enabled:deferredEnabled,verificationEnabled,verifyListing:(db,id)=>verification.eligibleListing(db,id,launchApprovalEnabled),requireDb,requireUser,safe,limiter:checkoutLimiter,forbidden,queueDeferredEmail});
 app.use(express.static('routedrop-platform/public',{fallthrough:false,maxAge:'15m'}));
 app.use((err,req,res,next)=>{console.error('RouteDrop request error',err.message);res.status(500).json({error:'Unexpected server error.'});});
 app.listen(port,'0.0.0.0',()=>console.log('RouteDrop beta listening on '+port));
