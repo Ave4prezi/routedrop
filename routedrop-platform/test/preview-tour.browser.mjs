@@ -53,7 +53,7 @@ try{
   assert.equal(photoAsset.loaded,true,photoAsset.reason||'photographs should decode without external requests');
   assert.deepEqual([photoAsset.width,photoAsset.height],[450,112],'three photo panels should decode from embedded sprite');
   assert.equal(await page.locator('.preview-place').count(),1,'demo-area map pin should appear in header');
-  assert.match(await page.locator('header .brand').innerText(),/RouteDrop/);
+  assert.match((await page.locator('header .brand').textContent()).replace(/\s+/g,''),/RouteDrop/);
   await page.locator('#search').fill('no-such-place');
   await page.getByRole('heading',{name:'No matching test openings'}).waitFor();
   await page.getByRole('button',{name:'Clear filters'}).first().click();
