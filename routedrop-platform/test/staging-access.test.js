@@ -28,3 +28,36 @@ test('health endpoint and signed Stripe webhook remain reachable by Render and S
  assert.equal(run({enabled:true,password,path:'/api/stripe/webhook'}).called,true);
  assert.equal(run({enabled:true,password,path:'/api/checkout'}).statusCode,401);
 });
+
+test('browser sign-in protects the preview and leaves health and raw webhooks reachable',async(t)=>{
+ const app=require('express')();
+ app.use(require('cookie-parser')());
+ require('../staging-access').mountStagingSignIn(app,{enabled:true,password});
+ app.get('/',(_req,res)=>res.send('authenticated preview'));
+ app.get('/health',(_req,res)=>res.send('ready'));
+ app.post('/api/stripe/webhook',require('express').raw({type:'application/json'}),(req,res)=>res.send(req.body));
+ const server=app.listen(0);
+ t.after(()=>server.close());
+ const url='http://localhost:'+server.address().port;
+ const request=(path,options)=>fetch(url+path,{redirect:'manual',...options});
+
+ assert.equal((await request('/')).headers.get('location'),'/preview-sign-in');
+ const page=await request('/preview-sign-in');
+ const cookie=page.headers.get('set-cookie').split(';')[0];
+ const token=(await page.text()).match(/name="formToken" value="([^"]+)/)[1];
+ const login=(site,secret=password)=>request('/preview-sign-in',{
+  method:'POST',headers:{cookie,'sec-fetch-site':site},
+  body:new URLSearchParams({username:'routedrop-staging',password:secret,formToken:token})
+ });
+ assert.equal((await login('cross-site')).status,403);
+ assert.equal((await login('same-origin','incorrect')).status,401);
+ const accepted=await login('same-origin');
+ assert.equal(accepted.status,303);
+ const session=accepted.headers.getSetCookie().find(value=>value.startsWith('__Host-rd_preview='));
+ for(const flag of ['Secure','HttpOnly','SameSite=Strict'])assert.ok(session.split('; ').includes(flag));
+ assert.equal(await (await request('/',{headers:{cookie:session.split(';')[0]}})).text(),'authenticated preview');
+ assert.equal(await (await request('/health')).text(),'ready');
+ const payload='{"test":true}';
+ const webhook=await request('/api/stripe/webhook',{method:'POST',headers:{'content-type':'application/json'},body:payload});
+ assert.equal(await webhook.text(),payload);
+});

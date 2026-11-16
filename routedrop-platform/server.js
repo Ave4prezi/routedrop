@@ -12,7 +12,7 @@ const { providerReady, emailLink, isActionToken, notification, deliverEmail } = 
 const { livePaymentsAllowed, checkoutOutcome, refundableAmount, disputeState, cancellationEligibility, refundStatus, refundOperation } = require('./payment-safeguards');
 const postService = require('./post-service');
 const stripeInboxModule = require('./stripe-webhook-inbox');
-const {createStagingGate} = require('./staging-access');
+const {mountStagingSignIn} = require('./staging-access');
 
 const app = express();
 app.disable('x-powered-by');
@@ -41,12 +41,12 @@ const isEmail = v => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v) && v.length <= 254;
 const usd = value => Number.isSafeInteger(value) && value>=500 && value<=500000;
 let ready = false;
 
-app.use(createStagingGate({enabled:process.env.ROUTEDROP_STAGING_LOCK==='true',password:process.env.ROUTEDROP_STAGING_PASSWORD||''}));
 app.use(helmet({
  contentSecurityPolicy: { directives: { defaultSrc:["'self'"], scriptSrc:["'self'"], styleSrc:["'self'","'unsafe-inline'"], imgSrc:["'self'","data:"], connectSrc:["'self'"], objectSrc:["'none'"], frameAncestors:["'none'"], upgradeInsecureRequests: process.env.NODE_ENV==='production' ? [] : null } },
  referrerPolicy: { policy:'no-referrer' }
 }));
 app.use(cookieParser());
+mountStagingSignIn(app,{enabled:process.env.ROUTEDROP_STAGING_LOCK==='true',password:process.env.ROUTEDROP_STAGING_PASSWORD||''});
 app.use((req,res,next) => {
  if (req.path.startsWith('/api/')) res.set('Cache-Control', 'no-store');
  next();
