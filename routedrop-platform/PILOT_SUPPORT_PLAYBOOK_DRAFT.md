@@ -6,7 +6,7 @@
 
 - **Monday–Friday, 9:00 AM–5:00 PM America/Chicago (Central Time, observing daylight saving time).**
 - Primary support and backup have accepted their roles; identities and the proposed shared mailbox are kept in a separate confidential roster, not this public repository.
-- Actual staffing/handoff during the selected hours, mailbox authorization, bidirectional delivery, response expectations, outside-hours emergency/security escalation, and a dedicated privacy contact still require testing and sign-off. **These hours are a selected operating schedule, not a live support service or guaranteed response SLA.**
+- The operator reports both contacts accepted support/incident roles and a harmless email reply and direct call/return call were successfully tested. Actual support staffing, mailbox ownership authorization, RouteDrop folder access segregation, primary-unavailable failover, independent security responder, response expectations, and privacy contact still require testing and sign-off. **These hours are a selected operating schedule, not a live support service or guaranteed response SLA.**
 
 ## Proposed ticket fields (minimum necessary)
 
@@ -57,7 +57,9 @@ Assign actual owners and supported hours before claiming response targets.
 ## Before real pilot
 
 - [x] Designate primary and backup support contacts (identity held privately; backup acceptance verbally reported)
-- [ ] Name security/incident primary and backup responders (currently UNASSIGNED)
+- [x] Designate internal primary and backup incident first contacts (identities privately held; phone call/return call verified by operator)
+- [ ] Complete the fictional primary-unavailable and backup escalation exercise in `AFTER_HOURS_SECURITY_FAILOVER_DRILL.md` and verify the independent failover route
+- [ ] Engage a qualified external security incident responder and agree escalation terms
 - [ ] Verify support coverage/handoff for Monday–Friday 9 AM–5 PM Central and define after-hours escalation
 - [ ] Configure and test help/privacy/security contact channels, hours and handoff procedures
 - [ ] Approve actual customer cancellation/refund and provider appeals language
