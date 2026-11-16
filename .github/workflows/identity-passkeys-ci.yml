@@ -56,6 +56,9 @@ jobs:
       - name: Install dependencies without hooks
         working-directory: routedrop-platform
         run: npm install --ignore-scripts --no-audit --no-fund
+      - name: Audit runtime package vulnerabilities (high and critical)
+        working-directory: routedrop-platform
+        run: npm audit --omit=dev --audit-level=high
       - name: Security, service area and policy unit regression tests
         run: node --test routedrop-platform/test/*.test.js
       - name: PostgreSQL integration test — account roles and unpaid booking lifecycle
