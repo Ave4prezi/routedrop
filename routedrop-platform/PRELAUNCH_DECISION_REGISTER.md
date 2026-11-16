@@ -59,7 +59,7 @@ As confirmed by the project operator on November 15, 2026, two internal first co
 
 **Draft playbook, requiring operational rehearsal:** if a serious security incident is suspected, attempt the primary via an agreed direct phone/text route, then the backup if unreachable. Do not use an ordinary shared mailbox as the sole emergency alarm. Preserve timestamps and evidence, minimize further exposure, suspend affected high-risk operations only when authorized, consult an independent security professional and counsel as appropriate, and never claim a breach has been fully assessed by an internal role assignment. No public emergency response SLA is promised.
 
-**Unresolved before real-data pilot:** test both contact routes, set actual acknowledgement and failover expectations, arrange an external qualified incident responder, document decision authority and after-hours monitoring, and receive security/privacy counsel review.
+**Unresolved before real-data pilot:** the primary contact has provided a direct phone number for confidential operational use (number intentionally omitted here); the backup's independently reachable contact method is still unverified because an earlier number was described as shared. Test both contact routes, set actual acknowledgement and failover expectations, arrange an external qualified incident responder, document decision authority and after-hours monitoring, and receive security/privacy counsel review.
 
 ### Temporary shared-business support channel proposal — no forwarding
 
