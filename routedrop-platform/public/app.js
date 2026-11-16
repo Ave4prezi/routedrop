@@ -7,7 +7,8 @@ const pilot=window.RouteDropPilotUI;
  const opportunities=window.RouteDropOpportunities;
  const unified=window.RouteDropUnified;
  const trust=window.RouteDropTrustUI;
-const state={config:null,me:null,listings:[],bookings:[],mine:[],tab:'explore',demo:false,demoRequests:[],demoCounter:0,demoListingId:null,demoSlot:'afternoon',demoArea:{center:'decatur',radiusMiles:20},pilotRequests:[],pilotListingId:null,jobs:[],jobSearch:'',serviceProfiles:[],myServiceProfiles:{profiles:[],rules:[]},jobInterests:null,compareIds:[],profileSort:'default',profileCategory:''};
+ const safetyUi=window.RouteDropSafetyUI;
+const state={config:null,me:null,listings:[],bookings:[],mine:[],tab:'explore',demo:false,demoRequests:[],demoCounter:0,demoListingId:null,demoSlot:'afternoon',demoArea:{center:'decatur',radiusMiles:20},pilotRequests:[],pilotListingId:null,jobs:[],jobSearch:'',serviceProfiles:[],myServiceProfiles:{profiles:[],rules:[]},jobInterests:null,compareIds:[],profileSort:'default',profileCategory:'',moderatorKey:null,safetyStatus:null,myReviews:[]};
 const esc=v=>String(v===null||v===undefined?'':v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const money=cents=>new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(Number(cents||0)/100);
 const when=iso=>new Intl.DateTimeFormat('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}).format(new Date(iso));
@@ -53,6 +54,22 @@ function nav(){
  const u=state.me?.user;
  $('nav-account').innerHTML=u?'<span class="muted">'+esc(u.full_name)+'</span>'+(state.config?.email_enabled&&!u.email_verified?'<button data-action="verify-email">Verify email</button>':'')+'<button data-action="change-password">Change password</button><button data-action="logout">Log out</button>':'<button data-action="login">Log in</button><button data-action="register">Sign up</button>';
 }
+async function renderSafety(){
+ const target=$('safety-body');if(!target)return;
+ if(!state.config?.safety_pilot){target.innerHTML=safetyUi.overview(null,null,state.config);return;}
+ const [screening,own]=await Promise.all([
+  state.me?.business?api('/api/pilot/safety/provider'):Promise.resolve({screening:null}),
+  state.me?.user?api('/api/pilot/safety/my-reviews'):Promise.resolve({reviews:[]})
+ ]);
+ state.safetyStatus=screening;state.myReviews=own.reviews;
+ target.innerHTML=safetyUi.overview(state.me,screening,state.config,own.reviews);
+ if(state.moderatorKey){
+  try{
+   const data=await api('/api/pilot/safety/moderation',{headers:{'x-routedrop-moderator-key':state.moderatorKey}});
+   target.innerHTML+=safetyUi.queue(data);
+  }catch(e){state.moderatorKey=null;message('Moderator session no longer authorized: '+e.message,true);}
+ }
+}
 function catalogItems(){return !state.config?.unified_pilot?trust.demoProfiles:state.serviceProfiles;}
  function renderCatalog(){const target=$('profile-cards');if(target)target.innerHTML=unified.profiles(state.serviceProfiles,state.config,{selected:state.compareIds,sort:state.profileSort,category:state.profileCategory});}
  function switchTab(tab){
@@ -69,7 +86,7 @@ async function refresh(){
  if(!state.config)return;
  if(!state.config.database){
   state.demo=true;state.listings=premium.DEMO;renderOffers();
-  $('my-bookings').innerHTML=premium.bookings(state.demoRequests);$('studio-body').innerHTML=unified.entry()+unified.previewStudio()+premium.studio(serviceCoveragePanel({service_center_code:state.demoArea.center,service_radius_miles:state.demoArea.radiusMiles},true),state.demoRequests);state.jobs=opportunities.sampleJobs;$('job-board').innerHTML=unified.entry()+unified.seekerPanel(null,null)+opportunities.jobs(state.jobs,true,state.jobSearch);renderCatalog();nav();return;
+  $('my-bookings').innerHTML=premium.bookings(state.demoRequests);$('studio-body').innerHTML=unified.entry()+unified.previewStudio()+premium.studio(serviceCoveragePanel({service_center_code:state.demoArea.center,service_radius_miles:state.demoArea.radiusMiles},true),state.demoRequests);state.jobs=opportunities.sampleJobs;$('job-board').innerHTML=unified.entry()+unified.seekerPanel(null,null)+opportunities.jobs(state.jobs,true,state.jobSearch);renderCatalog();$('safety-body').innerHTML=safetyUi.overview(null,null,state.config);nav();return;
  }
  try{
   const who=await api('/api/me');state.me=who;nav();
@@ -85,6 +102,7 @@ async function refresh(){
    const r=await api('/api/bookings');state.bookings=r.bookings;renderBookings();
   }else if(state.tab==='business') await studio();
    else if(state.tab==='jobs') await loadJobs();
+   else if(state.tab==='safety') await renderSafety();
  }catch(e){message(e.message,true);}
 }
 async function loadJobs(){
@@ -224,6 +242,12 @@ async function act(e){
   if(!state.me?.user){showLogin();message('A private test account is required to report a review.');return;}
   if(state.config?.unified_pilot)overlay(trust.reportForm(Number(el.dataset.reportReviewId)));return;
  }
+ if(el.dataset.safetyAppealKind&&state.config?.safety_pilot){
+  overlay(safetyUi.appealForm(el.dataset.safetyAppealKind,Number(el.dataset.safetyAppealId)));return;
+ }
+ if(el.dataset.safetyDecisionKind&&state.moderatorKey){
+  overlay(safetyUi.decisionForm(el.dataset.safetyDecisionKind,Number(el.dataset.safetyDecisionId),el.dataset.safetyDecisionAction));return;
+ }
  if(el.dataset.jobDetail){const x=state.jobs.find(j=>Number(j.id)===Number(el.dataset.jobDetail));if(x)overlay(opportunities.details(x));return;}
  if(el.dataset.jobStatusId&&state.config?.opportunity_pilot){
   const id=Number(el.dataset.jobStatusId),status=el.dataset.jobStatus;
@@ -348,6 +372,9 @@ async function act(e){
   if(action==='register')showRegistration();else showLogin();
   return;
  }
+ if(action==='safety-start-screening'&&state.config?.safety_pilot){overlay(safetyUi.screeningForm());return;}
+ if(action==='moderator-connect'&&state.config?.moderation_available){overlay(safetyUi.moderatorForm());return;}
+ if(action==='moderator-disconnect'){state.moderatorKey=null;message('Moderator key cleared from this page.');await renderSafety();return;}
  if(action==='start-provider'){
   if(state.demo&&!state.config?.database){overlay('<h2 id="modal-title">One-account service preview</h2><p>This password-protected visual tour uses fictional data and does not register accounts. In the functional test branch, the same account can set up a provider profile, manage weekly openings and explore jobs.</p>');return;}
   if(!state.me?.user){showRegistration();return;}
@@ -373,7 +400,7 @@ async function act(e){
  if(action==='change-password'){showChangePassword();return;}
  if(action==='forgot-password'){showForgotPassword();return;}
  if(action==='verify-email'){try{const r=await api('/api/auth/request-verification',{method:'POST'});message(r.message);}catch(e){message(e.message,true);}return;}
- if(action==='logout'){try{await api('/api/logout',{method:'POST'});state.me=null;message('Signed out.');refresh();}catch(err){message(err.message,true);}return;}
+ if(action==='logout'){try{await api('/api/logout',{method:'POST'});state.moderatorKey=null;state.me=null;message('Signed out.');refresh();}catch(err){message(err.message,true);}return;}
  if(action==='subscribe'||action==='manage-subscription'){try{const url=action==='subscribe'?'/api/business/subscribe':'/api/business/subscription/portal';const r=await api(url,{method:'POST'});location.assign(r.url);}catch(err){message(err.message,true);}return;}
  if(action==='connect-stripe'){try{const r=await api('/api/stripe/connect',{method:'POST'});location.assign(r.url);}catch(err){message(err.message,true);}return;}
  if(el.dataset.book){
@@ -390,7 +417,7 @@ async function act(e){
  if(el.dataset.complete){try{await api('/api/bookings/'+Number(el.dataset.complete)+'/complete',{method:'POST'});message('Job marked completed.');refresh();}catch(err){message(err.message,true);}return;}
 }
 async function submit(e){
- if(!['register-form','login-form','listing-form','forgot-form','reset-form','change-password-form','job-form','provider-setup-form','service-profile-form','weekly-form','job-interests-form','service-review-form','review-report-form'].includes(e.target.id))return;
+ if(!['register-form','login-form','listing-form','forgot-form','reset-form','change-password-form','job-form','provider-setup-form','service-profile-form','weekly-form','job-interests-form','service-review-form','review-report-form','safety-screening-form','safety-appeal-form','safety-mod-login-form','safety-moderation-form'].includes(e.target.id))return;
  e.preventDefault();
  const form=e.target,d=Object.fromEntries(new FormData(form).entries());
  const err=$('form-error');err.textContent='';
@@ -401,6 +428,25 @@ async function submit(e){
   if(form.id==='change-password-form'){const r=await api('/api/auth/change-password',{method:'POST',body:JSON.stringify({currentPassword:d.currentPassword,newPassword:d.newPassword})});state.me=null;message(r.message);}
   if(form.id==='forgot-form'){const r=await api('/api/auth/forgot-password',{method:'POST',body:JSON.stringify({email:d.email})});message(r.message);}
   if(form.id==='reset-form'){const r=await api('/api/auth/reset-password',{method:'POST',body:JSON.stringify({token:d.token,password:d.password})});history.replaceState(null,'',location.pathname);message(r.message);}
+  if(form.id==='safety-screening-form'){
+   const result=await api('/api/pilot/safety/provider/request',{method:'POST',body:JSON.stringify({serviceCategory:d.serviceCategory,serviceDescription:d.serviceDescription,acknowledgeTestOnly:d.acknowledgeTestOnly==='yes'})});
+   message(result.message);
+  }
+  if(form.id==='safety-appeal-form'){
+   const result=await api('/api/pilot/safety/appeals',{method:'POST',body:JSON.stringify({subjectKind:d.subjectKind,subjectId:Number(d.subjectId),reason:d.reason})});
+   message(result.message);
+  }
+  if(form.id==='safety-mod-login-form'){
+   const result=await api('/api/pilot/safety/moderation',{headers:{'x-routedrop-moderator-key':d.key}});
+   state.moderatorKey=d.key;
+   message('Restricted moderation queue accessible. No ID documents or actual customers.');
+  }
+  if(form.id==='safety-moderation-form'){
+   if(!state.moderatorKey)throw Error('Connect an authorized moderator account first.');
+   const kind=d.kind,url=kind==='review'?'reviews':kind==='provider'?'providers':'appeals';
+   const result=await api('/api/pilot/safety/moderation/'+url+'/'+Number(d.id),{method:'POST',headers:{'x-routedrop-moderator-key':state.moderatorKey},body:JSON.stringify({action:d.action,note:d.note})});
+   message(result.message);
+  }
   if(form.id==='service-review-form'){
    await api('/api/pilot/reviews',{method:'POST',body:JSON.stringify({requestId:Number(d.requestId),rating:Number(d.rating),headline:d.headline,comment:d.comment})});
    message('Test review submitted. This is not a real customer reputation score.');
