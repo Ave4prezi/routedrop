@@ -17,7 +17,7 @@ async function api(url,options={}){
  return data;
 }
 function message(txt,bad=false){const el=$('status');el.textContent=txt||'';el.classList.toggle('bad',!!bad);}
-function noSetup(){return '<div class="empty"><h3>The working premium beta is being connected</h3><p>Registration and live test listings will become available after the dedicated database is connected. Payments are disabled, and no personal details are being collected yet.</p></div>';}
+function noSetup(){return '<div class="empty"><h3>Private preview setup is still underway</h3><p>The isolated test database is not connected yet. Sign-up, listings and bookings are unavailable. Do not submit real customer or business information.</p><button type="button" class="btn secondary" data-action="demo-onboarding">See the fictional provider walkthrough</button></div>';}
 function overlay(content){$('modal-body').innerHTML=content;$('modal').classList.remove('hidden');}
 function dismiss(){$('modal').classList.add('hidden');$('modal-body').innerHTML='';}
 function nav(){
@@ -33,7 +33,9 @@ function switchTab(tab){
 async function refresh(){
  if(!state.config)return;
  if(!state.config.database){
-   $('offers').innerHTML=noSetup();$('offer-count').textContent='0 live listings';
+   $('offers').innerHTML=noSetup();$('offer-count').textContent='0 test listings';
+   $('filter-summary').textContent='Test listings are unavailable until the isolated database is connected.';
+   $('clear-filters').classList.add('hidden');
    $('my-bookings').innerHTML=noSetup();$('studio-body').innerHTML=noSetup();
   nav();return;
  }
@@ -42,17 +44,26 @@ async function refresh(){
   if(state.tab==='explore'){
    const r=await api('/api/listings');state.listings=r.listings;renderOffers();
   }else if(state.tab==='bookings'){
-   if(!state.me.user){$('my-bookings').innerHTML='<div class="empty">Please log in to see your bookings.</div>';return;}
+   if(!state.me.user){$('my-bookings').innerHTML='<div class="empty"><h3>View your test bookings</h3><p>Sign in with a fictional test account to see simulated appointments. Real bookings and payments are disabled.</p><button class="btn" type="button" data-action="login">Log in</button></div>';return;}
    const r=await api('/api/bookings');state.bookings=r.bookings;state.deferred=state.config.deferred_booking?(await api('/api/deferred-bookings')).bookings:[];state.refunds=state.config.deferred_booking?(await api('/api/deferred-refunds')).requests:[];renderBookings();
   }else if(state.tab==='business') await studio();
  }catch(e){message(e.message,true);}
 }
+function clearFilters(){
+ $('search').value='';$('category').value='';
+ if(state.config?.database)renderOffers();
+ else {$('filter-summary').textContent='Test listings are unavailable until the isolated database is connected.';$('clear-filters').classList.add('hidden');}
+ $('search').focus();
+}
 function renderOffers(){
  const search=$('search').value.trim().toLowerCase(),cat=$('category').value;
  const items=state.listings.filter(x=>(!cat||x.category===cat)&&(!search||[x.title,x.neighborhood,x.business_name,x.city].join(' ').toLowerCase().includes(search)));
- $('offer-count').textContent=items.length+' open slots';
+ $('offer-count').textContent=items.length+' of '+state.listings.length+' test openings';
+ const filtered=Boolean(cat||search);
+ $('filter-summary').textContent=filtered?'Showing '+items.length+' matching fictional opening'+(items.length===1?'':'s')+'.':'Showing all fictional test openings.';
+ $('clear-filters').classList.toggle('hidden',!filtered);
  $('offers').innerHTML=items.length?items.map(x=>
-  '<article class="card"><div class="cardbanner"><span>'+esc(x.category)+'</span><span>Available window</span></div><div class="cardbody"><div class="muted">'+esc(x.business_name)+'</div><h3>'+esc(x.title)+'</h3><div class="detail">⌖ '+esc(x.neighborhood)+', '+esc(x.city)+'</div><div class="detail">◷ '+when(x.slot_start)+' · '+esc(x.duration_minutes)+' min</div><div class="cardfoot"><span class="price">'+money(x.price_cents)+'</span><button class="btn dark" '+(state.config.payments?'data-book="'+x.id+'"':'disabled aria-label="Bookings disabled during private beta"')+'>'+(state.config.payments?(state.config.deferred_booking?'Book free · save card':'Book this slot'):'Booking opens later')+'</button></div></div></article>').join(''):'<div class="empty"><h3>No openings are listed yet.</h3><p>Local businesses can publish available slots from Business Studio after registration is enabled.</p></div>';
+  '<article class="card"><div class="cardbanner"><span>'+esc(x.category)+'</span><span>Available window</span></div><div class="cardbody"><div class="muted">'+esc(x.business_name)+'</div><h3>'+esc(x.title)+'</h3><div class="detail">⌖ '+esc(x.neighborhood)+', '+esc(x.city)+'</div><div class="detail">◷ '+when(x.slot_start)+' · '+esc(x.duration_minutes)+' min</div><div class="cardfoot"><span class="price">'+money(x.price_cents)+'</span><button class="btn dark" '+(state.config.payments?'data-book="'+x.id+'"':'disabled aria-label="Bookings disabled during private beta"')+'>'+(state.config.payments?(state.config.deferred_booking?'Book free · save card':'Book this slot'):'Booking opens later')+'</button></div></div></article>').join(''):(filtered?'<div class="empty"><h3>No matching test openings</h3><p>Try another service or location, or reset your search.</p><button type="button" class="btn secondary" data-action="clear-filters">Clear filters</button></div>':'<div class="empty"><h3>No test openings available</h3><p>Businesses can explore the private beta in Business Studio. Real jobs and bookings are not active.</p><button type="button" class="btn secondary" data-action="business-tab">Explore Business Studio</button></div>');
 }
 function deferredMarkup(bookings,role){
  if(!bookings.length)return '<div class="panel"><h3>Pay-after-service bookings</h3><p class="muted">No deferred bookings yet.</p></div>';
@@ -89,8 +100,8 @@ function renderBookings(){
 }
 async function studio(){
  const u=state.me?.user;
- if(!u){$('studio-body').innerHTML='<div class="empty"><h3>Business account required</h3><p>Create a business account to list open route slots.</p><button class="btn" data-action="register">Register a business</button></div>';return;}
- if(u.role!=='business'){$('studio-body').innerHTML='<div class="empty">You are signed in as a customer. Use a separate business account to publish routes.</div>';return;}
+ if(!u){$('studio-body').innerHTML='<div class="empty"><h3>Explore Business Studio</h3><p>Use only fictional test business details. No real jobs or payments are enabled.</p><button class="btn" type="button" data-action="register-business">Preview business signup</button><button class="btn secondary" type="button" data-action="demo-onboarding">View onboarding steps</button></div>';return;}
+ if(u.role!=='business'){$('studio-body').innerHTML='<div class="empty"><h3>Customer account</h3><p>Business Studio requires a separate fictional business account. You can see the process without changing your account.</p><button class="btn secondary" type="button" data-action="demo-onboarding">Preview provider onboarding</button></div>';return;}
  const b=state.me.business,r=await Promise.all([api('/api/my-listings'),api('/api/bookings')]);
  state.mine=r[0].listings;state.bookings=r[1].bookings;state.deferred=state.config.deferred_booking?(await api('/api/deferred-bookings')).bookings:[];state.refunds=state.config.deferred_booking?(await api('/api/deferred-refunds')).requests:[];
  const verificationData=state.config.provider_verification?(await api('/api/provider-verification/me')).verification:null;
@@ -188,6 +199,8 @@ async function act(e){
  if(el.dataset.tab){switchTab(el.dataset.tab);return;}
  const action=el.dataset.action;
  if(action==='register'){showRegistration();return;}
+ if(action==='clear-filters'){clearFilters();return;}
+ if(action==='business-tab'){switchTab('business');return;}
  if(action==='register-business'){showRegistration();const selector=$('register-role');selector.value='business';selector.dispatchEvent(new Event('change',{bubbles:true}));return;}
  if(action==='demo-onboarding'){
   overlay('<h2 id="modal-title">RouteDrop founding partner preview</h2><p class="muted">Fictional example only. Interactive registration opens when the isolated preview database is connected.</p>'+
@@ -331,6 +344,7 @@ async function init(){
  $('close-modal').addEventListener('click',dismiss);
  $('modal').addEventListener('click',e=>{if(e.target.id==='modal')dismiss();});
  $('search').addEventListener('input',renderOffers);
+ $('clear-filters').addEventListener('click',clearFilters);
  $('category').innerHTML='<option value="">All services</option>'+categoryOptions();
  $('category').addEventListener('change',renderOffers);
  try {
