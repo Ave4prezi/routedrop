@@ -77,7 +77,7 @@ function registerSafetyRoutes(app,{pool,safe,requireDb,requireUser,requireProvid
   const q=await pool.query("SELECT rv.id,rv.headline,rv.status,rv.created_at,b.name AS provider_name FROM pilot_service_reviews rv JOIN businesses b ON b.id=rv.business_id WHERE rv.customer_id=$1 ORDER BY rv.created_at DESC LIMIT 50",[req.user.id]);
   res.set('Cache-Control','no-store').json({reviews:q.rows});
  }));
- app.get('/api/pilot/safety/moderation',requireDb,requireUser(),requireModerator,moderationLimiter,safe(async(req,res)=>{
+ app.get('/api/pilot/safety/moderation',requireDb,requireUser(),moderationLimiter,requireModerator,safe(async(req,res)=>{
   const [cases,reviews,appeals,providers]=await Promise.all([
    pool.query("SELECT c.id,c.business_id,b.name AS provider_name,c.service_category,c.service_description,c.created_at FROM pilot_screening_cases c JOIN businesses b ON b.id=c.business_id WHERE c.status='pending' ORDER BY c.created_at LIMIT 50"),
    pool.query("SELECT rv.id,rv.business_id,b.name AS provider_name,rv.rating,rv.headline,rv.comment,rv.status,rv.created_at,COUNT(DISTINCT rr.id) FILTER(WHERE rr.resolution='open')::int AS open_reports,COALESCE(string_agg(DISTINCT rr.reason,', ') FILTER(WHERE rr.resolution='open'),'') AS report_reasons FROM pilot_service_reviews rv JOIN businesses b ON b.id=rv.business_id LEFT JOIN pilot_review_reports rr ON rr.review_id=rv.id WHERE rv.status='flagged' OR rr.resolution='open' GROUP BY rv.id,b.id ORDER BY rv.created_at DESC LIMIT 50"),
@@ -86,11 +86,11 @@ function registerSafetyRoutes(app,{pool,safe,requireDb,requireUser,requireProvid
   ]);
   res.set('Cache-Control','no-store').json({cases:cases.rows,reviews:reviews.rows,appeals:appeals.rows,providers:providers.rows,not_identity_verified:true});
  }));
- app.get('/api/pilot/safety/moderation/audit',requireDb,requireUser(),requireModerator,moderationLimiter,safe(async(req,res)=>{
+ app.get('/api/pilot/safety/moderation/audit',requireDb,requireUser(),moderationLimiter,requireModerator,safe(async(req,res)=>{
   const q=await pool.query("SELECT id,actor_id,subject_kind,subject_id,action,note,created_at FROM pilot_safety_audit ORDER BY id DESC LIMIT 100");
   res.set('Cache-Control','no-store').json({events:q.rows});
  }));
- app.post('/api/pilot/safety/moderation/reviews/:id',requireDb,requireUser(),requireModerator,moderationLimiter,safe(async(req,res)=>{
+ app.post('/api/pilot/safety/moderation/reviews/:id',requireDb,requireUser(),moderationLimiter,requireModerator,safe(async(req,res)=>{
   const id=Number(req.params.id),action=req.body?.action,note=validNote(req.body?.note);
   if(!isId(id)||!moderationActions.includes(action)||!note)return forbidden(res,'Choose a permitted review decision and a documented rationale (12–500 characters).',400);
   const client=await pool.connect();
@@ -108,7 +108,7 @@ function registerSafetyRoutes(app,{pool,safe,requireDb,requireUser,requireProvid
    res.json({id,status,action,message:'Pilot moderation decision recorded with an audit event.'});
   }catch(e){await client.query('ROLLBACK').catch(()=>{});throw e;}finally{client.release();}
  }));
- app.post('/api/pilot/safety/moderation/providers/:id',requireDb,requireUser(),requireModerator,moderationLimiter,safe(async(req,res)=>{
+ app.post('/api/pilot/safety/moderation/providers/:id',requireDb,requireUser(),moderationLimiter,requireModerator,safe(async(req,res)=>{
   const id=Number(req.params.id),action=req.body?.action,note=validNote(req.body?.note);
   if(!isId(id)||!screeningActions.includes(action)||!note)return forbidden(res,'Choose a provider screening decision and a documented rationale.',400);
   const state={review_test_submission:'test_reviewed',request_changes:'needs_changes',suspend:'suspended',reinstate:'needs_changes'}[action];
@@ -142,7 +142,7 @@ function registerSafetyRoutes(app,{pool,safe,requireDb,requireUser,requireProvid
   if(!result.rowCount)return forbidden(res,'An appeal is already open.',409);
   res.status(201).json({appeal:result.rows[0],message:'Appeal saved for manual review. No automated reversal.'});
  }));
- app.post('/api/pilot/safety/moderation/appeals/:id',requireDb,requireUser(),requireModerator,moderationLimiter,safe(async(req,res)=>{
+ app.post('/api/pilot/safety/moderation/appeals/:id',requireDb,requireUser(),moderationLimiter,requireModerator,safe(async(req,res)=>{
   const id=Number(req.params.id),action=req.body?.action,note=validNote(req.body?.note);
   if(!isId(id)||!appealActions.includes(action)||!note)return forbidden(res,'Provide an appeal decision and a rationale.',400);
   const client=await pool.connect();
