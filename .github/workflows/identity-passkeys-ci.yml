@@ -39,6 +39,7 @@ jobs:
           node --check routedrop-platform/identity-pilot.js
           node --check routedrop-platform/moderator-passkeys.js
           node --check routedrop-platform/public/passkey-client.js
+          node --check routedrop-platform/public/provider-readiness.js
           node --check routedrop-platform/public/app.js
           node --check routedrop-platform/public/pilot-ui.js
           node --check routedrop-platform/public/opportunity-ui.js
