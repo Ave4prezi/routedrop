@@ -26,7 +26,7 @@ try{
   assert.match(await page.locator('#trust').innerText(),/REQUIRES LAUNCH APPROVAL/);
   const sprite=await page.locator('.hero-photo-main').evaluate(async el=>{
     const bg=getComputedStyle(el).backgroundImage;
-    const src=bg.match(/data:image\\/webp;base64,[A-Za-z0-9+/=]+/)?.[0];
+    const src=bg.match(new RegExp('data:image/webp;base64,[A-Za-z0-9+/=]+'))?.[0];
     if(!src)return {ok:false};
     const img=new Image();img.src=src;await img.decode();return {ok:img.naturalWidth>0&&img.naturalHeight>0};
   });
