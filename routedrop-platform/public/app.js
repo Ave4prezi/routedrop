@@ -194,6 +194,14 @@ async function act(e){
  const el=e.target.closest('button');if(!el)return;
  if(el.dataset.tab){if(!$('modal').classList.contains('hidden'))dismiss();switchTab(el.dataset.tab);return;}
  if(el.dataset.profileListing){const x=state.listings.find(item=>Number(item.id)===Number(el.dataset.profileListing));if(x)overlay(premium.profile(x,coverage,state.config));return;}
+ if(el.dataset.jobDetail){const x=state.jobs.find(j=>Number(j.id)===Number(el.dataset.jobDetail));if(x)overlay(opportunities.details(x));return;}
+ if(el.dataset.jobStatusId&&state.config?.opportunity_pilot){
+  const id=Number(el.dataset.jobStatusId),status=el.dataset.jobStatus;
+  if(!Number.isSafeInteger(id)||!['active','paused'].includes(status))return;
+  el.disabled=true;
+  try{await api('/api/pilot/jobs/'+id+'/status',{method:'PATCH',body:JSON.stringify({status})});message('Test employment post '+status+'.');await studio();}catch(err){message(err.message,true);}finally{if(el.isConnected)el.disabled=false;}
+  return;
+ }
  if(el.dataset.pilotRequest&&state.config?.workflow_pilot){
   const x=state.listings.find(item=>Number(item.id)===Number(el.dataset.pilotRequest));
   if(!x)return;
@@ -310,6 +318,12 @@ async function act(e){
   if(action==='register')showRegistration();else showLogin();
   return;
  }
+ if(action==='register-individual'){
+  if(state.me?.user){message('A separate test account is currently required to switch between customer and provider. Multi-role profiles are planned.',true);return;}
+  if(state.demo&&!state.config?.database){overlay('<h2 id="modal-title">Independent-provider preview</h2><p>This database-free design preview does not accept accounts. Try individual-provider registration in the isolated test pilot.</p>');return;}
+  showRegistration('individual');return;
+ }
+ if(action==='post-job'){if(state.config?.opportunity_pilot)overlay(opportunities.form());else message('Real job posting is disabled in this preview.',true);return;}
  if(action==='create-listing'){showListing();return;}
  if(action==='change-password'){showChangePassword();return;}
  if(action==='forgot-password'){showForgotPassword();return;}
@@ -331,7 +345,7 @@ async function act(e){
  if(el.dataset.complete){try{await api('/api/bookings/'+Number(el.dataset.complete)+'/complete',{method:'POST'});message('Job marked completed.');refresh();}catch(err){message(err.message,true);}return;}
 }
 async function submit(e){
- if(!['register-form','login-form','listing-form','forgot-form','reset-form','change-password-form'].includes(e.target.id))return;
+ if(!['register-form','login-form','listing-form','forgot-form','reset-form','change-password-form','job-form'].includes(e.target.id))return;
  e.preventDefault();
  const form=e.target,d=Object.fromEntries(new FormData(form).entries());
  const err=$('form-error');err.textContent='';
@@ -342,6 +356,10 @@ async function submit(e){
   if(form.id==='change-password-form'){const r=await api('/api/auth/change-password',{method:'POST',body:JSON.stringify({currentPassword:d.currentPassword,newPassword:d.newPassword})});state.me=null;message(r.message);}
   if(form.id==='forgot-form'){const r=await api('/api/auth/forgot-password',{method:'POST',body:JSON.stringify({email:d.email})});message(r.message);}
   if(form.id==='reset-form'){const r=await api('/api/auth/reset-password',{method:'POST',body:JSON.stringify({token:d.token,password:d.password})});history.replaceState(null,'',location.pathname);message(r.message);}
+  if(form.id==='job-form'){
+   await api('/api/pilot/jobs',{method:'POST',body:JSON.stringify(d)});
+   message('Fictional job posting saved. No applications are enabled.');
+  }
   if(form.id==='listing-form'){
    const amount=Math.round(Number(d.price)*100),date=new Date(d.slotStart);
    if(!Number.isSafeInteger(amount)||!Number.isFinite(date.getTime()))throw Error('Invalid price or date.');
@@ -361,6 +379,13 @@ async function init(){
  $('close-modal').addEventListener('click',dismiss);
  $('modal').addEventListener('click',e=>{if(e.target.id==='modal')dismiss();});
  $('search').addEventListener('input',renderOffers);
+ document.addEventListener('input',e=>{
+  if(e.target.id!=='job-search')return;
+  state.jobSearch=e.target.value;
+  const q=state.jobSearch.trim().toLowerCase();let shown=0;
+  document.querySelectorAll('.opportunity-card').forEach(card=>{const match=!q||card.textContent.toLowerCase().includes(q);card.hidden=!match;if(match)shown++;});
+  const count=$('job-visible-count');if(count)count.textContent=shown+' matching '+(state.demo?'fictional examples':'test postings');
+ });
  $('category').addEventListener('change',renderOffers);
  document.querySelectorAll('[data-category-choice]').forEach(el=>el.addEventListener('click',()=>{$('category').value=el.dataset.categoryChoice;renderOffers();}));
  document.addEventListener('input',e=>{if(e.target.id==='area-radius')updateCoveragePreview();});
