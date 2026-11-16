@@ -21,7 +21,7 @@ async function forBusiness(db,businessId,now=new Date()){
  const r=await db.query(
   "SELECT kind,expires_at FROM provider_verifications WHERE business_id=$1 AND status='approved'"+
   " AND expires_at IS NOT NULL AND expires_at <= $2::timestamptz + interval '30 days'"+
-  " AND expires_at >= $2::timestamptz - interval '30 days' ORDER BY expires_at ASC",
+  " ORDER BY expires_at ASC",
   [businessId,now]
  );
  return r.rows.map(row=>describe(row,now));
@@ -31,7 +31,7 @@ async function reviewQueue(db,reviewerId,now=new Date()){
   "SELECT v.business_id,b.name AS business_name,v.kind,v.expires_at FROM provider_verifications v"+
   " JOIN businesses b ON b.id=v.business_id WHERE v.status='approved' AND v.expires_at IS NOT NULL"+
   " AND v.expires_at <= $1::timestamptz + interval '30 days'"+
-  " AND v.expires_at >= $1::timestamptz - interval '30 days' AND b.owner_id<>$2"+
+  " AND b.owner_id<>$2"+
   " ORDER BY v.expires_at ASC LIMIT 100",
   [now,reviewerId]
  );
