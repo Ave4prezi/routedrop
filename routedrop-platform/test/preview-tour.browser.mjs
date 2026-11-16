@@ -44,7 +44,7 @@ try{
   assert.equal(await page.locator('.tour-photo').count(),3,'all three photo cards should be visible');
   const photoAsset=await page.evaluate(async()=>{
     const css=getComputedStyle(document.querySelector('.tour-photo'),'::before').backgroundImage;
-    const src=css.match(/data:image\\/webp;base64,[A-Za-z0-9+/=]+/)?.[0];
+    const src=css.match(new RegExp('data:image/webp;base64,[A-Za-z0-9+/=]+'))?.[0];
     if(!src)return {loaded:false,reason:'photo CSS not applied'};
     const im=new Image();im.src=src;
     try{await im.decode();return {loaded:true,width:im.naturalWidth,height:im.naturalHeight};}
