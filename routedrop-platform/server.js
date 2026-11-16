@@ -12,6 +12,8 @@ const opportunityPilot = require('./opportunity-pilot');
 const unifiedPilot = require('./unified-pilot');
 const trustPilot = require('./trust-pilot');
 const safetyPilot = require('./safety-pilot');
+const identityPilot = require('./identity-pilot');
+const moderatorPasskeys = require('./moderator-passkeys');
 const Stripe = require('stripe');
 const { normalizeSubscriptionEvent, invoiceEvent, selectSubscription, canStartSubscription, subscriptionView, securityPolicy } = require('./subscription-security');
 const { providerReady, emailLink, isActionToken, notification, deliverEmail } = require('./mail');
@@ -31,6 +33,9 @@ if (pilotRequested && (!previewAccessPassword || stripeKey || stripeWebhookSecre
  throw Error('Booking pilot requires private preview authentication, no Stripe keys and no live-payment approval.');
 }
 const workflowPilot = pilotRequested;
+const identityEnabled=workflowPilot && identityPilot.identityConfigured();
+const identityClient=identityEnabled?identityPilot.stripeIdentityClient():null;
+const passkeyOptions=workflowPilot?moderatorPasskeys.config():null;
 const stripe = stripeKey ? new Stripe(stripeKey) : null;
 const liveKey = /^(sk|rk)_live_/.test(stripeKey);
 const paymentsApproved = livePaymentsAllowed(stripeKey,process.env.ROUTEDROP_LIVE_APPROVED);
@@ -54,6 +59,7 @@ app.use(helmet({
 const previewPass=previewAccessPassword;
 if(previewPass){
  app.use((req,res,next)=>{
+  if(identityEnabled && req.path==='/api/pilot/identity/webhook')return next(); // Stripe's signature, NOT Basic auth, protects this raw webhook.
   const auth=req.get('authorization')||'';
   let pair='';
   if(auth.startsWith('Basic ')){
@@ -75,6 +81,7 @@ app.use('/api', rateLimit({ windowMs:15*60*1000, limit:process.env.NODE_ENV==='t
 const authLimiter = rateLimit({ windowMs:15*60*1000, limit:12, standardHeaders:'draft-7', legacyHeaders:false });
 const checkoutLimiter = rateLimit({windowMs:15*60*1000, limit:15, standardHeaders:'draft-7', legacyHeaders:false});
 const moderationLimiter=rateLimit({windowMs:15*60*1000,limit:process.env.NODE_ENV==='test'?300:30,standardHeaders:'draft-7',legacyHeaders:false});
+const identityLimiter=rateLimit({windowMs:60*60*1000,limit:process.env.NODE_ENV==='test'?100:5,standardHeaders:'draft-7',legacyHeaders:false});
 
 const schema = String.raw; // no dynamic SQL interpolation in schema below
 const ddl = [
@@ -113,7 +120,7 @@ const ddl = [
  "CREATE TABLE IF NOT EXISTS notification_outbox (id BIGSERIAL PRIMARY KEY, event_key TEXT UNIQUE NOT NULL, recipient TEXT NOT NULL, subject TEXT NOT NULL, body TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','sending','sent','failed')), attempts INTEGER NOT NULL DEFAULT 0, available_at TIMESTAMPTZ NOT NULL DEFAULT now(), sent_at TIMESTAMPTZ, last_error TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())",
  "CREATE INDEX IF NOT EXISTS notification_outbox_due ON notification_outbox(status,available_at)"
 ];
-if(workflowPilot)ddl.push(...bookingPilot.ddl,...opportunityPilot.ddl,...unifiedPilot.ddl,...trustPilot.ddl,...safetyPilot.ddl);
+if(workflowPilot)ddl.push(...bookingPilot.ddl,...opportunityPilot.ddl,...unifiedPilot.ddl,...trustPilot.ddl,...safetyPilot.ddl,...identityPilot.ddl,...moderatorPasskeys.ddl);
 async function startDatabase() {
  if (!pool) return;
  try {
@@ -147,10 +154,10 @@ const requireProvider=(req,res,next)=>{
  if(!workflowPilot)return requireUser('business')(req,res,next);
  pool.query('SELECT id FROM businesses WHERE owner_id=$1',[req.user.id]).then(q=>q.rowCount?next():forbidden(res,'Create a test service provider profile first.',403)).catch(next);
 };
-const requireModerator=(req,res,next)=>{
+const requireModeratorBootstrap=(req,res,next)=>{
  // Moderator authority requires both an authenticated, email-verified allowlisted
  // test account AND a separate 32+ character environment secret. No bypass token.
- if(!workflowPilot||!safetyPilot.moderatorConfigured())return forbidden(res,'Moderator access is not configured for this pilot.',403);
+ if(!workflowPilot||!passkeyOptions||!safetyPilot.moderatorConfigured())return forbidden(res,'Passkey-protected moderator access is not configured for this pilot.',403);
  if(!req.user||!req.user.email_verified)return forbidden(res,'Moderator access requires a verified session.',403);
  const emails=String(process.env.ROUTEDROP_MODERATOR_EMAILS||'').split(',').map(x=>x.trim().toLowerCase());
  if(!emails.includes(String(req.user.email||'').toLowerCase()))return forbidden(res,'Access denied.',403);
@@ -159,6 +166,9 @@ const requireModerator=(req,res,next)=>{
  if(supplied.length!==expected.length||!crypto.timingSafeEqual(supplied,expected))return forbidden(res,'Access denied.',403);
  next();
 };
+const requireModerator=(req,res,next)=>requireModeratorBootstrap(req,res,()=>{
+ moderatorPasskeys.isFresh(pool,req).then(ok=>ok?next():forbidden(res,'Passkey step-up required. Authenticate with your registered security key.',403)).catch(next);
+});
 async function createSession(userId,res) {
  const token=random();
  await pool.query("INSERT INTO sessions(token_hash,user_id,expires_at) VALUES ($1,$2,now() + interval '7 days')",[hash(token),userId]);
@@ -175,6 +185,18 @@ function checkMutation(req,res,next) {
  next();
 }
 app.get('/health', (req,res)=>res.status(200).json({service:'RouteDrop platform beta',server:'up',database:ready?'ready':'not configured',payments:paymentsReady?'configured':'not configured',mode:liveKey?(paymentsApproved?'live':'live_locked'):'beta'}));
+// Stripe Identity has its own restricted TEST key and webhook signature.
+ // Register before JSON parsing/CSRF. No payment routes can be called with this key.
+app.post('/api/pilot/identity/webhook',express.raw({type:'application/json'}),safe(async(req,res)=>{
+ if(!identityEnabled||!identityClient)return forbidden(res,'Identity verification disabled.',404);
+ const signature=req.get('stripe-signature')||'';
+ let event;
+ try{event=identityClient.webhooks.constructEvent(req.body,signature,process.env.ROUTEDROP_STRIPE_IDENTITY_WEBHOOK_SECRET);}
+ catch{return forbidden(res,'Invalid Stripe Identity signature.',400);}
+ if(!event.type.startsWith('identity.verification_session.'))return res.json({received:true,ignored:true});
+ const result=await identityPilot.applyIdentityEvent(pool,event);
+ res.json({received:true,processed:!!result.processed});
+}));
 app.post('/api/stripe/webhook', express.raw({type:'application/json'}),safe(async(req,res)=>{
  if (!paymentsReady) return forbidden(res,'Payments not configured',503);
  let event;
@@ -247,7 +269,7 @@ app.get('/api/config',(req,res)=>{
  if(!req.cookies.routedrop_csrf || !/^[a-f0-9]{64}$/.test(req.cookies.routedrop_csrf)){
   res.cookie('routedrop_csrf',random(),{secure:process.env.NODE_ENV==='production',httpOnly:false,sameSite:'lax',path:'/',maxAge:7*24*60*60*1000});
  }
- res.json({database:ready,payments:paymentsReady,workflow_pilot:workflowPilot&&ready,opportunity_pilot:workflowPilot&&ready,unified_pilot:workflowPilot&&ready,safety_pilot:workflowPilot&&ready,moderation_available:workflowPilot&&ready&&safetyPilot.moderatorConfigured(),status:ready?'beta':'setup_required',email_enabled:emailReady,payments_mode:liveKey?(paymentsApproved?'live':'live_locked'):'test',public_url:baseUrl});
+ res.json({database:ready,payments:paymentsReady,workflow_pilot:workflowPilot&&ready,opportunity_pilot:workflowPilot&&ready,unified_pilot:workflowPilot&&ready,safety_pilot:workflowPilot&&ready,identity_test_available:identityEnabled&&ready,moderation_available:workflowPilot&&ready&&!!passkeyOptions&&safetyPilot.moderatorConfigured(),moderator_passkeys_required:true,status:ready?'beta':'setup_required',email_enabled:emailReady,payments_mode:liveKey?(paymentsApproved?'live':'live_locked'):'test',public_url:baseUrl});
 });
 async function issueEmailAction(userId,email,purpose) {
  if(!emailReady||!baseUrl)return false;
@@ -419,6 +441,8 @@ if(workflowPilot && pool){
  unifiedPilot.registerUnifiedRoutes(app,{pool,safe,requireDb,requireUser,requireProvider,forbidden});
  trustPilot.registerTrustRoutes(app,{pool,safe,requireDb,requireUser,forbidden,safetyPilot});
  safetyPilot.registerSafetyRoutes(app,{pool,safe,requireDb,requireUser,requireProvider,forbidden,requireModerator,moderationLimiter});
+ identityPilot.registerIdentityRoutes(app,{pool,safe,requireDb,requireProvider,forbidden,identityClient,identityLimiter,baseUrl,enabled:identityEnabled});
+ moderatorPasskeys.registerPasskeyRoutes(app,{pool,safe,requireDb,bootstrap:requireModeratorBootstrap,limiter:moderationLimiter,forbidden,options:passkeyOptions});
 }
 app.get('/api/listings',requireDb,safe(async(req,res)=>{
  if(workflowPilot)await unifiedPilot.syncOpenings(pool);
