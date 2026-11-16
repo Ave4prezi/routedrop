@@ -3,6 +3,7 @@
 // insurance documents are stored by this module. Reviewer approval is mandatory.
 const evidence=require('./provider-evidence');
 const launchApproval=require('./provider-launch-approval');
+const operatorAccess=require('./operator-access');
 const groups={
  'Home & property':['Cleaning','Lawn care','Landscaping','Painting','Handyman','Pressure washing','Home repairs'],
  'Automotive':['Car detailing','Mobile car detailing','Car washing','Mobile mechanic','Tire service'],
@@ -68,8 +69,8 @@ function install(app,{pool,enabled,launchApprovalEnabled=false,requireDb,require
  const business=[gate,requireDb,requireUser('business')];
  const reviewer=[gate,requireDb,requireUser(),(req,res,next)=>{
   Promise.resolve().then(async()=>{
-   const isReviewer=await pool.query('SELECT 1 FROM provider_document_reviewers WHERE user_id=$1',[req.user.id]);
-   if(!isReviewer.rowCount)return forbidden(res,'Reviewer permission required.',403);
+   const isReviewer=launchApprovalEnabled?await operatorAccess.allowed(pool,req.user.id,'credential_reviewer'):(await pool.query('SELECT 1 FROM provider_document_reviewers WHERE user_id=$1',[req.user.id])).rowCount>0;
+   if(!isReviewer)return forbidden(res,'Reviewer permission required.',403);
    next();
   }).catch(next);
  }];
