@@ -383,6 +383,8 @@ async function init(){
  $('category').addEventListener('change',renderOffers);
  try {
   state.config=await api('/api/config');
+  // The dedicated, database-free UX preview opens with its fictional service photos visible.
+  state.tour=!state.config.database && (location.hostname==='routedrop-ux-tour-private-av.onrender.com'||new URLSearchParams(location.search).get('tour')==='1');
   const actionParams=new URLSearchParams(location.search);
   if(actionParams.has('reset')){const token=actionParams.get('reset');history.replaceState(null,'',location.pathname);showResetPassword(token);}
   else if(actionParams.has('verify')){const token=actionParams.get('verify');history.replaceState(null,'',location.pathname);await verifyEmailToken(token);}
