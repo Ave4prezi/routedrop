@@ -66,7 +66,7 @@ async function refresh(){
  if(!state.config)return;
  if(!state.config.database){
   state.demo=true;state.listings=premium.DEMO;renderOffers();
-  $('my-bookings').innerHTML=premium.bookings(state.demoRequests);$('studio-body').innerHTML=premium.studio(serviceCoveragePanel({service_center_code:state.demoArea.center,service_radius_miles:state.demoArea.radiusMiles},true),state.demoRequests);state.jobs=opportunities.sampleJobs;$('job-board').innerHTML=opportunities.jobs(state.jobs,true,state.jobSearch)+unified.seekerPanel(null,null);$('profile-cards').innerHTML=unified.profiles([],null);nav();return;
+  $('my-bookings').innerHTML=premium.bookings(state.demoRequests);$('studio-body').innerHTML=unified.entry()+unified.previewStudio()+premium.studio(serviceCoveragePanel({service_center_code:state.demoArea.center,service_radius_miles:state.demoArea.radiusMiles},true),state.demoRequests);state.jobs=opportunities.sampleJobs;$('job-board').innerHTML=unified.entry()+unified.seekerPanel(null,null)+opportunities.jobs(state.jobs,true,state.jobSearch);$('profile-cards').innerHTML=unified.profiles([],null);nav();return;
  }
  try{
   const who=await api('/api/me');state.me=who;nav();
