@@ -7,6 +7,7 @@ const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const { Pool } = require('pg');
 const serviceArea = require('./public/service-area');
+const bookingPilot = require('./booking-pilot');
 const Stripe = require('stripe');
 const { normalizeSubscriptionEvent, invoiceEvent, selectSubscription, canStartSubscription, subscriptionView, securityPolicy } = require('./subscription-security');
 const { providerReady, emailLink, isActionToken, notification, deliverEmail } = require('./mail');
@@ -20,11 +21,17 @@ const baseUrl = (process.env.PUBLIC_URL || '').replace(/\/+$/, '');
 const databaseUrl = process.env.DATABASE_URL || '';
 const stripeKey = process.env.STRIPE_SECRET_KEY || '';
 const stripeWebhookSecret = process.env.STRIPE_WEBHOOK_SECRET || '';
+const previewAccessPassword = process.env.ROUTEDROP_PREVIEW_ACCESS_PASSWORD || '';
+const pilotRequested = process.env.ROUTEDROP_WORKFLOW_PILOT === 'true';
+if (pilotRequested && (!previewAccessPassword || stripeKey || stripeWebhookSecret || process.env.ROUTEDROP_LIVE_APPROVED === 'true')) {
+ throw Error('Booking pilot requires private preview authentication, no Stripe keys and no live-payment approval.');
+}
+const workflowPilot = pilotRequested;
 const stripe = stripeKey ? new Stripe(stripeKey) : null;
 const liveKey = /^(sk|rk)_live_/.test(stripeKey);
 const paymentsApproved = livePaymentsAllowed(stripeKey,process.env.ROUTEDROP_LIVE_APPROVED);
 const emailReady = providerReady(process.env);
-const paymentsReady = !!(stripe && stripeWebhookSecret && paymentsApproved);
+const paymentsReady = !workflowPilot && !!(stripe && stripeWebhookSecret && paymentsApproved);
 const pool = databaseUrl ? new Pool({ connectionString: databaseUrl, max: 5, idleTimeoutMillis: 30000, connectionTimeoutMillis: 10000, ssl: databaseUrl.includes('localhost') ? false : { rejectUnauthorized: false } }) : null;
 const safe = fn => (req, res, next) => Promise.resolve(fn(req, res)).catch(next);
 const hash = value => crypto.createHash('sha256').update(value).digest('hex');
@@ -40,7 +47,7 @@ app.use(helmet({
  referrerPolicy: { policy:'no-referrer' }
 }));
 // Optional password gate for an isolated, database-free UX walkthrough only.
-const previewPass=process.env.ROUTEDROP_PREVIEW_ACCESS_PASSWORD || '';
+const previewPass=previewAccessPassword;
 if(previewPass){
  app.use((req,res,next)=>{
   const auth=req.get('authorization')||'';
@@ -101,6 +108,7 @@ const ddl = [
  "CREATE TABLE IF NOT EXISTS notification_outbox (id BIGSERIAL PRIMARY KEY, event_key TEXT UNIQUE NOT NULL, recipient TEXT NOT NULL, subject TEXT NOT NULL, body TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','sending','sent','failed')), attempts INTEGER NOT NULL DEFAULT 0, available_at TIMESTAMPTZ NOT NULL DEFAULT now(), sent_at TIMESTAMPTZ, last_error TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())",
  "CREATE INDEX IF NOT EXISTS notification_outbox_due ON notification_outbox(status,available_at)"
 ];
+if(workflowPilot)ddl.push(...bookingPilot.ddl);
 async function startDatabase() {
  if (!pool) return;
  try {
@@ -215,7 +223,7 @@ app.get('/api/config',(req,res)=>{
  if(!req.cookies.routedrop_csrf || !/^[a-f0-9]{64}$/.test(req.cookies.routedrop_csrf)){
   res.cookie('routedrop_csrf',random(),{secure:process.env.NODE_ENV==='production',httpOnly:false,sameSite:'lax',path:'/',maxAge:7*24*60*60*1000});
  }
- res.json({database:ready,payments:paymentsReady,status:ready?'beta':'setup_required',email_enabled:emailReady,payments_mode:liveKey?(paymentsApproved?'live':'live_locked'):'test',public_url:baseUrl});
+ res.json({database:ready,payments:paymentsReady,workflow_pilot:workflowPilot&&ready,status:ready?'beta':'setup_required',email_enabled:emailReady,payments_mode:liveKey?(paymentsApproved?'live':'live_locked'):'test',public_url:baseUrl});
 });
 async function issueEmailAction(userId,email,purpose) {
  if(!emailReady||!baseUrl)return false;
@@ -376,8 +384,10 @@ app.put('/api/business/service-area',requireDb,requireUser('business'),safe(asyn
  if(!changed.rowCount)return forbidden(res,'Business account not found.',404);
  res.json({ok:true,serviceArea:changed.rows[0]});
 }));
+if(workflowPilot && pool)bookingPilot.registerPilotRoutes(app,{pool,safe,requireDb,requireUser,forbidden});
 app.get('/api/listings',requireDb,safe(async(req,res)=>{
- const data=await pool.query("SELECT l.id,l.title,l.category,l.neighborhood,l.price_cents,l.slot_start,l.duration_minutes,b.name AS business_name,b.city,b.service_center_code,b.service_radius_miles FROM listings l JOIN businesses b ON b.id=l.business_id WHERE l.status='active' AND l.slot_start>now() AND NOT EXISTS(SELECT 1 FROM bookings k WHERE k.listing_id=l.id AND k.status IN ('awaiting_payment','paid','completed')) ORDER BY l.slot_start ASC LIMIT 100");
+ const pilotExclusion=workflowPilot?" AND NOT EXISTS(SELECT 1 FROM service_requests r WHERE r.listing_id=l.id AND r.status IN ('requested','accepted','completed','confirmed','issue_reported'))":"";
+ const data=await pool.query("SELECT l.id,l.title,l.category,l.neighborhood,l.price_cents,l.slot_start,l.duration_minutes,b.name AS business_name,b.city,b.service_center_code,b.service_radius_miles FROM listings l JOIN businesses b ON b.id=l.business_id WHERE l.status='active' AND l.slot_start>now() AND NOT EXISTS(SELECT 1 FROM bookings k WHERE k.listing_id=l.id AND k.status IN ('awaiting_payment','paid','completed'))"+pilotExclusion+" ORDER BY l.slot_start ASC LIMIT 100");
  res.json({listings:data.rows});
 }));
 app.post('/api/listings',requireDb,requireUser('business'),safe(async(req,res)=>{
