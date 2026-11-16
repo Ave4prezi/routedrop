@@ -128,10 +128,10 @@ try{
  assert.equal(reviewsForBusiness.data.reviews[0].headline,reviewDetails.headline);
  assert.ok(!JSON.stringify(reviewsForBusiness.data).includes('@example.test'),'no email exposed in reviews');
  assert.equal((await call(customer,'/api/pilot/requests?view=customer')).data.requests.find(x=>Number(x.id)===id).review_id,String(reviewId));
- assert.equal((await call(otherCustomer,'/api/pilot/reviews/'+reviewId+'/report','POST',{reason:'Spam or promotion'})).code,201,'test report hides review for safety');
+ assert.equal((await call(otherCustomer,'/api/pilot/reviews/'+reviewId+'/report','POST',{reason:'Spam or promotion'})).code,201,'test report is recorded');
  const flagged=await call(customer,'/api/pilot/reviews?businessId='+reviewsForBusiness.data.provider.id);
- assert.equal(flagged.data.rating.review_count,0,'reported review is not counted while hidden');
- assert.equal(flagged.data.reviews.length,0);
+ assert.equal(flagged.data.rating.review_count,1,'unreviewed reports must not let providers erase criticism');
+ assert.equal(flagged.data.reviews.length,1,'review stays visible until a moderation decision');
  assert.equal((await call(customer,'/api/pilot/reviews/'+reviewId+'/report','POST',{reason:'Spam or promotion'})).code,409,'duplicate reports unavailable');
  assert.equal((await call(customer,'/api/pilot/requests/'+id+'/action','POST',{action:'confirm'})).code,409,'terminal state immutable');
  const ownerHistory=await call(business,'/api/pilot/requests');
