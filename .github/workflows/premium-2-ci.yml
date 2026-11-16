@@ -1,0 +1,41 @@
+name: RouteDrop Premium 2.0 desktop and mobile UX verification
+on:
+  push:
+    branches:
+      - ux/premium-2-actual-platform-20261115
+permissions:
+  contents: read
+jobs:
+  premium-2:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 16
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Validate JavaScript syntax
+        run: |
+          node --check routedrop-platform/public/app.js
+          node --check routedrop-platform/public/service-area.js
+          node --check routedrop-platform/public/premium-2-experience.js
+          node --check routedrop-platform/server.js
+          node --check routedrop-platform/test/premium-2-browser.mjs
+      - name: Test service-radius utility and owner-only endpoint
+        run: node --test routedrop-platform/test/service-area.test.js
+      - name: Install app and Chromium without install hooks
+        working-directory: routedrop-platform
+        run: |
+          npm install --ignore-scripts --no-audit --no-fund
+          npm install --ignore-scripts --no-save --no-audit --no-fund playwright@1.56.1
+          npx playwright install --with-deps chromium
+      - name: Browser test on isolated database-free payment-free server
+        run: node routedrop-platform/test/premium-2-browser.mjs
+      - name: Preserve review screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: premium-2-desktop-mobile
+          path: premium-2-*.png
+          if-no-files-found: ignore
+          retention-days: 7

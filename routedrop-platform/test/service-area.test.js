@@ -5,6 +5,7 @@ const fs=require('node:fs');
 const path=require('node:path');
 const area=require('../public/service-area');
 const app=fs.readFileSync(path.join(__dirname,'../public/app.js'),'utf8');
+const premium=fs.readFileSync(path.join(__dirname,'../public/premium-2-experience.js'),'utf8');
 const server=fs.readFileSync(path.join(__dirname,'../server.js'),'utf8');
 const html=fs.readFileSync(path.join(__dirname,'../public/index.html'),'utf8');
 
@@ -42,7 +43,7 @@ test('business coverage is an owner-only write with strict validation, not a cus
  assert.doesNotMatch(app,/navigator\.geolocation/);
  assert.doesNotMatch(app,/getCurrentPosition/);
  assert.match(app,/data-action="save-coverage"/);
- assert.match(app,/data-coverage-listing/);
+ assert.match(premium,/data-coverage-listing/);
  assert.match(html,/>Route<span>Drop<\/span>/);
  assert.match(html,/class="brand-pin"/);
  assert.match(html,/service-area\.js/);

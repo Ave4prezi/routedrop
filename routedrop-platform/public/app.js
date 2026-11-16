@@ -2,7 +2,8 @@
 (function(){
 const $=id=>document.getElementById(id);
 const coverage=window.RouteDropServiceArea;
-const state={config:null,me:null,listings:[],bookings:[],mine:[],tab:'explore'};
+const premium=window.RouteDropPremium2;
+const state={config:null,me:null,listings:[],bookings:[],mine:[],tab:'explore',demo:false,demoRequests:[],demoCounter:0,demoListingId:null,demoSlot:'afternoon',demoArea:{center:'decatur',radiusMiles:20}};
 const esc=v=>String(v===null||v===undefined?'':v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const money=cents=>new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(Number(cents||0)/100);
 const when=iso=>new Intl.DateTimeFormat('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}).format(new Date(iso));
@@ -17,9 +18,34 @@ async function api(url,options={}){
 }
 function message(txt,bad=false){const el=$('status');el.textContent=txt||'';el.classList.toggle('bad',!!bad);}
 function noSetup(){return '<div class="empty"><h3>Private beta setup is not finished</h3><p>Registration and persistent bookings will be available once the isolated RouteDrop database is connected. We are not collecting customer details or accepting payments yet.</p></div>';}
-function overlay(content){$('modal-body').innerHTML=content;$('modal').classList.remove('hidden');}
-function dismiss(){$('modal').classList.add('hidden');$('modal-body').innerHTML='';}
+let dialogReturnFocus=null;
+function overlay(content){
+ dialogReturnFocus=document.activeElement;
+ $('modal-body').innerHTML=content;
+ $('modal').classList.remove('hidden');
+ $('close-modal').focus();
+}
+function dismiss(){
+ if($('modal').classList.contains('hidden'))return;
+ $('modal').classList.add('hidden');$('modal-body').innerHTML='';
+ if(dialogReturnFocus?.isConnected)dialogReturnFocus.focus();
+ dialogReturnFocus=null;
+}
+function dialogKeys(event){
+ if($('modal').classList.contains('hidden'))return;
+ if(event.key==='Escape'){event.preventDefault();dismiss();return;}
+ if(event.key!=='Tab')return;
+ const controls=Array.from($('modal').querySelectorAll('button:not([disabled]),a[href],input:not([disabled]),select:not([disabled]),textarea:not([disabled])')).filter(el=>el.getClientRects().length);
+ if(!controls.length)return;
+ const first=controls[0],last=controls[controls.length-1];
+ if(event.shiftKey&&document.activeElement===first){event.preventDefault();last.focus();}
+ else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first.focus();}
+}
 function nav(){
+ if(state.demo&&!state.config?.database){
+  $('nav-account').innerHTML='<button type="button" data-tab="bookings" aria-label="Explore fictional customer experience">Customer tour</button><button type="button" data-tab="business" aria-label="Explore fictional provider experience">Provider tour</button>';
+  return;
+ }
  const u=state.me?.user;
  $('nav-account').innerHTML=u?'<span class="muted">'+esc(u.full_name)+'</span>'+(state.config?.email_enabled&&!u.email_verified?'<button data-action="verify-email">Verify email</button>':'')+'<button data-action="change-password">Change password</button><button data-action="logout">Log out</button>':'<button data-action="login">Log in</button><button data-action="register">Sign up</button>';
 }
@@ -27,13 +53,17 @@ function switchTab(tab){
  state.tab=tab;
  document.querySelectorAll('.page').forEach(el=>el.classList.toggle('hidden',el.id!==tab));
  document.querySelectorAll('[data-tab]').forEach(el=>el.classList.toggle('active',el.dataset.tab===tab));
+ document.querySelectorAll('nav.tabs [data-tab]').forEach(el=>{
+  if(el.dataset.tab===tab)el.setAttribute('aria-current','page');
+  else el.removeAttribute('aria-current');
+ });
  refresh();
 }
 async function refresh(){
  if(!state.config)return;
  if(!state.config.database){
-  $('offers').innerHTML=noSetup();$('offer-count').textContent='0 live listings';
-  $('my-bookings').innerHTML=noSetup();$('studio-body').innerHTML=noSetup()+serviceCoveragePanel({service_center_code:'decatur',service_radius_miles:20},true);nav();return;
+  state.demo=true;state.listings=premium.DEMO;renderOffers();
+  $('my-bookings').innerHTML=premium.bookings(state.demoRequests);$('studio-body').innerHTML=premium.studio(serviceCoveragePanel({service_center_code:state.demoArea.center,service_radius_miles:state.demoArea.radiusMiles},true),state.demoRequests);nav();return;
  }
  try{
   const who=await api('/api/me');state.me=who;nav();
@@ -51,7 +81,9 @@ function serviceCoveragePanel(b,readonly=false){
  const choices='<option value="">Choose your approximate city center</option>'+city;
  return '<div class="panel service-area-panel"><div class="row"><div><h3>'+(readonly?'Sample service radius — interactive preview':'Service coverage radius')+'</h3><p class="muted">Choose where your business works and how many miles you travel. This uses an approximate city-center point, never your home address or phone GPS.</p></div><span class="pill">'+(readonly?'Fictional demo':v?'Area configured':'Not configured')+'</span></div>'+
  '<label for="area-city">Service-area center</label><select id="area-city">'+choices+'</select>'+
- '<label for="area-radius">Travel radius: <strong id="area-radius-value">'+(v?v.radiusMiles:15)+' miles</strong></label><input id="area-radius" type="range" min="5" max="50" step="5" value="'+(v?v.radiusMiles:15)+'" aria-describedby="area-help">'+
+ '<label for="area-radius">Travel radius: <strong id="area-radius-value">'+(v?v.radiusMiles:15)+' miles</strong></label><input id="area-radius" type="range" min="5" max="50" step="5" value="'+(v?v.radiusMiles:15)+'" aria-describedby="area-help area-live-summary" aria-valuetext="'+(v?v.radiusMiles:15)+' miles">'+
+ '<div class="radius-presets" aria-label="Quick radius selections">'+[5,10,20,30,40,50].map(m=>'<button type="button" class="radius-preset" data-radius-preset="'+m+'" aria-pressed="'+(m===(v?v.radiusMiles:15))+'">'+m+' mi</button>').join('')+'</div>'+
+ '<p id="area-live-summary" class="radius-summary" role="status" aria-live="polite">'+(v?esc(coverage.summary(v.center,v.radiusMiles)):'Choose a city to preview coverage.')+'</p>'+
  '<div class="coverage-map-wrap" id="business-area-map" aria-live="polite">'+(v?coverage.mapSvg(v.center,v.radiusMiles):'<p class="muted">Select a city to preview your coverage area.</p>')+'</div>'+
  '<p class="muted" id="area-help">The ring shows straight-line miles, not drive time, road access, or confirmed eligibility for a specific address. Routes and service eligibility must be confirmed before booking.</p>'+
  (readonly?'<p class="muted">Preview only: no service area is saved until the database is enabled and a verified business owner signs in.</p>':'<div class="buttonrow"><button type="button" class="btn" data-action="save-coverage">Save service radius</button></div>')+'</div>';
@@ -59,8 +91,12 @@ function serviceCoveragePanel(b,readonly=false){
 function updateCoveragePreview(){
  const city=$('area-city'),range=$('area-radius'),label=$('area-radius-value'),map=$('business-area-map');
  if(!city||!range||!map)return;
- label.textContent=range.value+' miles';
- map.innerHTML=coverage.validate(city.value,range.value)?coverage.mapSvg(city.value,range.value):'<p class="muted">Select a city to preview your coverage area.</p>';
+ label.textContent=range.value+' miles';range.setAttribute('aria-valuetext',range.value+' miles');
+ const v=coverage.validate(city.value,range.value);
+ if(state.demo&&!state.config?.database&&v)state.demoArea={center:v.center,radiusMiles:v.radiusMiles};
+ map.innerHTML=v?coverage.mapSvg(v.center,v.radiusMiles):'<p class="muted">Select a city to preview your coverage area.</p>';
+ const summary=$('area-live-summary');if(summary)summary.textContent=v?coverage.summary(v.center,v.radiusMiles):'Choose a city to preview coverage.';
+ document.querySelectorAll('[data-radius-preset]').forEach(b=>b.setAttribute('aria-pressed',String(Number(b.dataset.radiusPreset)===Number(range.value))));
 }
 function showCoverageFor(x){
  const v=coverage.validate(x.service_center_code,x.service_radius_miles);
@@ -71,10 +107,16 @@ function showCoverageFor(x){
 function renderOffers(){
  const search=$('search').value.trim().toLowerCase(),cat=$('category').value;
  const items=state.listings.filter(x=>(!cat||x.category===cat)&&(!search||[x.title,x.neighborhood,x.business_name,x.city].join(' ').toLowerCase().includes(search)));
- $('offer-count').textContent=items.length+' open slots';
- $('offers').innerHTML=items.length?items.map(x=>
-  '<article class="card"><div class="cardbanner"><span>'+esc(x.category)+'</span><span>Available window</span></div><div class="cardbody"><div class="muted">'+esc(x.business_name)+'</div>'+(coverage.validate(x.service_center_code,x.service_radius_miles)?'<button type="button" class="coverage-open" data-coverage-listing="'+Number(x.id)+'">⌖ '+esc(coverage.summary(x.service_center_code,x.service_radius_miles))+' · View map</button>':'<p class="muted">Service radius not listed</p>')+'<h3>'+esc(x.title)+'</h3><div class="detail">⌖ '+esc(x.neighborhood)+', '+esc(x.city)+'</div><div class="detail">◷ '+when(x.slot_start)+' · '+esc(x.duration_minutes)+' min</div><div class="cardfoot"><span class="price">'+money(x.price_cents)+'</span><button class="btn dark" data-book="'+x.id+'">Book this slot</button></div></div></article>').join(''):'<div class="empty"><h3>No openings are listed yet.</h3><p>Local businesses can publish available slots from Business Studio after registration is enabled.</p></div>';
+ $('offer-count').textContent=items.length+' '+(state.demo?'example':'available')+' service'+(items.length===1?'':'s');
+ $('filter-summary').textContent=items.length?(state.demo?'Fictional businesses for design review — booking is disabled.':'Explore available listings and their declared service areas.'):'No matching services. Reset filters or try another search.';
+ document.querySelectorAll('[data-category-choice]').forEach(el=>{
+  const chosen=el.dataset.categoryChoice===cat;
+  el.classList.toggle('selected',chosen);
+  el.setAttribute('aria-pressed',String(chosen));
+ });
+ $('offers').innerHTML=items.length?premium.cards(items,state.config,coverage):'<div class="empty"><h3>No matches in this category</h3><p>Try all services or another search term.</p><button type="button" class="btn" data-action="clear-filters">Reset filters</button></div>';
 }
+
 function renderBookings(){
  const list=state.bookings||[];
  $('my-bookings').innerHTML=list.length?list.map(b=>
@@ -94,8 +136,8 @@ async function studio(){
  '<div class="panel"><div class="row"><div><h3>'+esc(b.name)+'</h3><div class="muted">'+esc(b.city)+' · '+esc(b.category)+'</div></div><span class="pill">'+(b.stripe_connected?'Stripe account started':'Payouts not connected')+'</span></div>'+
  '<div class="buttonrow"><button class="btn" data-action="create-listing">+ Post available slot</button><button class="btn secondary" data-action="connect-stripe">'+(b.stripe_connected?'Continue Stripe onboarding':'Connect payouts')+'</button></div><p class="muted">Payment availability requires your Stripe onboarding to be completed and the RouteDrop platform to activate payments.</p></div>'+
  serviceCoveragePanel(b)+
- '<div class="panel"><h3>Business membership · $79/month</h3><p class="muted">Subscription status: '+esc(subscription.status)+(subscription.current_period_end?' · Next period: '+new Date(subscription.current_period_end*1000).toLocaleDateString('en-US'):'')+(subscription.last_invoice_status==='payment_failed'?' · Payment failed: update billing details':'')+(subscription.cancel_at_period_end?' (cancels at period end)':'')+'</p><div class="buttonrow"><button class="btn" data-action="subscribe">Subscribe · $79/month</button><button class="btn secondary" data-action="manage-subscription">Manage billing</button></div><p class="muted">Stripe sandbox only. Membership is not yet required to accept bookings.</p></div>'+
- '<div class="panel"><h3>Cancellation and refund requests</h3><p class="muted">Full refunds are guaranteed for eligible cancellations requested 24+ hours before service. Late requests are discretionary. Approvals issue a real Stripe refund in the configured payment mode.</p>'+(cancellations.requests.length?cancellations.requests.map(x=>'<div class="record"><div><strong>'+esc(x.title)+'</strong><p>'+when(x.slot_start)+' · '+esc(x.reason)+'</p><p class="muted">Booking #'+x.booking_id+' · '+esc(x.status)+' · '+(x.eligible_full_refund?'24-hour full-refund policy':'Late / discretionary')+'</p>'+(x.refund_amount_cents?'<p>Refund amount: '+money(x.refund_amount_cents)+'</p>':'')+'</div><div>'+(x.status==='pending'?'<button class="btn" data-request-id="'+x.id+'" data-decision="approve">Approve full refund</button>'+(x.eligible_full_refund?'':'<button class="btn secondary" data-request-id="'+x.id+'" data-decision="decline">Decline</button>'):'<strong>'+esc(x.status)+'</strong>')+'</div></div>').join(''):'<p class="muted">No cancellation requests.</p>')+'</div>'+
+ '<div class="panel"><h3>Business tools and payment readiness</h3><p class="muted">Founding early access proposes no mandatory monthly membership and an 8% fee on successfully collected service payments. No live payment permissions are enabled by this redesign.</p></div>'+
+ '<div class="panel"><h3>Cancellation and refund requests</h3><p class="muted">Draft cancellation and refund terms require legal review before use with real customers. This private preview cannot process payments or refunds.</p>'+(cancellations.requests.length?cancellations.requests.map(x=>'<div class="record"><div><strong>'+esc(x.title)+'</strong><p>'+when(x.slot_start)+' · '+esc(x.reason)+'</p><p class="muted">Booking #'+x.booking_id+' · '+esc(x.status)+' · '+(x.eligible_full_refund?'24-hour full-refund policy':'Late / discretionary')+'</p>'+(x.refund_amount_cents?'<p>Refund amount: '+money(x.refund_amount_cents)+'</p>':'')+'</div><div>'+(x.status==='pending'?'<button class="btn" data-request-id="'+x.id+'" data-decision="approve">Approve full refund</button>'+(x.eligible_full_refund?'':'<button class="btn secondary" data-request-id="'+x.id+'" data-decision="decline">Decline</button>'):'<strong>'+esc(x.status)+'</strong>')+'</div></div>').join(''):'<p class="muted">No cancellation requests.</p>')+'</div>'+
  '<div class="panel"><h3>Revenue snapshot</h3><div class="row"><div><small>Completed bookings</small><h2>'+completed.length+'</h2></div><div><small>Gross value</small><h2>'+money(gross)+'</h2></div><div><small>Platform fees (8%)</small><h2>'+money(fee)+'</h2></div></div></div>'+
  '<div class="panel"><h3>My route openings</h3>'+(state.mine.length?state.mine.map(x=>'<div class="record"><div><strong>'+esc(x.title)+'</strong><p>'+esc(x.neighborhood)+' · '+when(x.slot_start)+'</p></div><strong>'+money(x.price_cents)+'</strong></div>').join(''):'<p class="muted">No openings published yet.</p>')+'</div>'+
  '<div class="panel"><h3>Recent bookings</h3>'+(state.bookings.length?state.bookings.map(x=>'<div class="record"><div><strong>'+esc(x.title)+'</strong><p>'+when(x.slot_start)+' · '+esc(x.status)+'</p></div>'+(x.status==='paid'&&!['pending','processing','needs_review'].includes(x.cancellation_request_status)?'<button class="btn" data-complete="'+x.id+'">Complete</button>':'<strong>'+money(x.price_cents)+'</strong>')+'</div>').join(''):'<p class="muted">No bookings recorded.</p>')+'</div>';
@@ -124,13 +166,73 @@ function showListing(){
 }
 async function act(e){
  const el=e.target.closest('button');if(!el)return;
- if(el.dataset.tab){switchTab(el.dataset.tab);return;}
+ if(el.dataset.tab){if(!$('modal').classList.contains('hidden'))dismiss();switchTab(el.dataset.tab);return;}
+ if(el.dataset.profileListing){const x=state.listings.find(item=>Number(item.id)===Number(el.dataset.profileListing));if(x)overlay(premium.profile(x,coverage));return;}
+ if(el.dataset.demoBook&&state.demo&&!state.config?.database){
+  const x=premium.DEMO.find(item=>item.id===Number(el.dataset.demoBook));
+  if(!x)return;
+  state.demoListingId=x.id;state.demoSlot='afternoon';
+  overlay(premium.demoBookingModal(x,state.demoSlot));
+  return;
+ }
+ if(el.dataset.demoSlot&&state.demo&&!state.config?.database){
+  const slot=el.dataset.demoSlot;
+  if(!Object.hasOwn(premium.WINDOWS,slot))return;
+  state.demoSlot=slot;
+  document.querySelectorAll('[data-demo-slot]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.demoSlot===slot)));
+  return;
+ }
+ if(el.dataset.demoAction&&state.demo&&!state.config?.database){
+  const action=el.dataset.demoAction;
+  const req=state.demoRequests.find(x=>x.id===el.dataset.demoId);
+  if(!req)return;
+  const next={
+   requested:{accept:'accepted',decline:'declined',cancel:'canceled'},
+   accepted:{finish:'completed',cancel:'canceled'},
+   completed:{approve:'confirmed',report:'review'}
+  }[req.status]?.[action];
+  if(!next)return;
+  req.status=next;
+  await refresh();
+  message('Fictional workflow updated: '+premium.STATUSES[next]+'. No booking, charge, dispute, or provider action occurred.');
+  return;
+ }
  if(el.dataset.coverageListing){
    const x=state.listings.find(item=>Number(item.id)===Number(el.dataset.coverageListing));
    if(x)showCoverageFor(x);
    return;
  }
  const action=el.dataset.action;
+ if(action==='search-services'){document.getElementById('available-openings')?.scrollIntoView({behavior:'smooth'});renderOffers();return;}
+ if(action==='demo-back-to-profile'&&state.demo&&!state.config?.database){
+  const x=premium.DEMO.find(item=>item.id===state.demoListingId);
+  if(x)overlay(premium.profile(x,coverage));
+  return;
+ }
+ if(action==='demo-confirm-request'&&state.demo&&!state.config?.database){
+  const x=premium.DEMO.find(item=>item.id===state.demoListingId);
+  if(!x||!Object.hasOwn(premium.WINDOWS,state.demoSlot))return;
+  if(state.demoRequests.some(req=>req.listingId===x.id&&['requested','accepted','completed'].includes(req.status))){
+   message('You already have an active fictional request for this service. See My bookings.',true);
+   dismiss();switchTab('bookings');return;
+  }
+  if(state.demoRequests.length>=8){message('Reset the demo before adding more examples.',true);return;}
+  state.demoRequests.unshift({id:'sample-'+(++state.demoCounter),listingId:x.id,slot:state.demoSlot,status:'requested'});
+  dismiss();switchTab('bookings');
+  message('Example request created in this page only. No actual appointment, account or charge was made.');
+  return;
+ }
+ if(action==='demo-reset'&&state.demo&&!state.config?.database){
+  state.demoRequests=[];state.demoCounter=0;await refresh();
+  message('Fictional requests cleared from this page. Nothing was stored or changed in RouteDrop.');
+  return;
+ }
+ if(action==='clear-filters'){$('search').value='';$('category').value='';renderOffers();return;}
+ if(el.dataset.radiusPreset){
+  const range=$('area-radius');
+  if(range){range.value=el.dataset.radiusPreset;updateCoveragePreview();}
+  return;
+ }
  if(action==='save-coverage'){
   const city=$('area-city')?.value,radius=Number($('area-radius')?.value);
   if(!coverage.validate(city,radius))return message('Choose a listed city and a radius between 5 and 50 miles.',true);
@@ -142,8 +244,14 @@ async function act(e){
   }catch(err){message(err.message,true);}finally{el.disabled=false;}
   return;
  }
- if(action==='register'){showRegistration();return;}
- if(action==='login'){showLogin();return;}
+ if(action==='register'||action==='login'){
+  if(state.demo&&!state.config?.database){
+   overlay('<h2 id="modal-title">Explore RouteDrop safely</h2><p>This is an isolated design preview. Account registration and sign-in are intentionally unavailable; please do not submit personal information.</p><div class="buttonrow"><button type="button" class="btn" data-tab="explore">Explore services</button><button type="button" class="btn secondary" data-tab="business">Tour Business Studio</button></div>');
+   return;
+  }
+  if(action==='register')showRegistration();else showLogin();
+  return;
+ }
  if(action==='create-listing'){showListing();return;}
  if(action==='change-password'){showChangePassword();return;}
  if(action==='forgot-password'){showForgotPassword();return;}
@@ -187,12 +295,16 @@ async function submit(e){
 async function init(){
  document.addEventListener('click',act);
  document.addEventListener('submit',submit);
+ document.addEventListener('keydown',dialogKeys);
+ $('search').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();document.getElementById('available-openings')?.scrollIntoView({behavior:'smooth'});}});
+
  $('register-role')?.addEventListener('change',()=>{});
  $('modal').addEventListener('change',e=>{if(e.target.id==='register-role')$('business-fields').classList.toggle('hidden',e.target.value!=='business');});
  $('close-modal').addEventListener('click',dismiss);
  $('modal').addEventListener('click',e=>{if(e.target.id==='modal')dismiss();});
  $('search').addEventListener('input',renderOffers);
  $('category').addEventListener('change',renderOffers);
+ document.querySelectorAll('[data-category-choice]').forEach(el=>el.addEventListener('click',()=>{$('category').value=el.dataset.categoryChoice;renderOffers();}));
  document.addEventListener('input',e=>{if(e.target.id==='area-radius')updateCoveragePreview();});
  document.addEventListener('change',e=>{if(e.target.id==='area-city')updateCoveragePreview();});
  try {
