@@ -12,6 +12,7 @@ Status: **SYNTHETIC TEST PREVIEW ONLY**. This is a working checklist for a futur
 - **Code-only, not deployed:** a separate fictional launch approval is required after credential review; decisions can be revoked and expire after credential changes.
 - **Code-only, not deployed:** time-limited, auditable operator permissions with offline DBA-controlled grants/revokes and separate credential/launch approvers.
 - **Code-only, not deployed:** provider and restricted-reviewer in-app credential expiry reminders, with best-effort idempotent reminder records (no live outbound email).
+- **Code-only, not deployed:** a private support triage queue accepts fixed fictional issue categories with role-based audit and no attachments or real customer requests. See `SYNTHETIC_SUPPORT_TRIAGE_RUNBOOK.md`.
 - **Drafts, not approved policies:** `OPERATOR_ACCESS_RUNBOOK.md`, `CREDENTIAL_EXPIRY_RUNBOOK.md`, `PROVIDER_PRIVACY_NOTICE_DRAFT.md`, and `PILOT_SUPPORT_PLAYBOOK_DRAFT.md`.
 - No live Stripe keys, no real charges, and no guarantee of paid jobs.
 
