@@ -35,6 +35,21 @@ function sessionCookie(resp){
  return '__Host-rd_session='+m[1];
 }
 async function register(role,tag){
+ // Private staging must reject unauthenticated requests, including health and JS.
+ const privateHome=await fetch(base+'/');
+ assert.equal(privateHome.status,401,'private preview homepage is not public');
+ assert.match(privateHome.headers.get('www-authenticate')||'',/Basic/i);
+ const privateHealth=await fetch(base+'/health');
+ assert.equal(privateHealth.status,401,'private staging health metadata requires private access');
+ const privateCode=await fetch(base+'/pilot-ui.js');
+ assert.equal(privateCode.status,401,'the isolated client bundle cannot be scraped without preview authentication');
+ const securedHealth=await call(null,'/health');
+ assert.match(securedHealth.response.headers.get('content-security-policy')||'',/default-src 'self'/);
+ assert.match(securedHealth.response.headers.get('x-frame-options')||'',/DENY/);
+ assert.match(securedHealth.response.headers.get('referrer-policy')||'',/no-referrer/);
+ const gatedWebhook=await fetch(base+'/api/pilot/identity/webhook',{method:'POST',
+  headers:{authorization:auth,'content-type':'application/json'},body:JSON.stringify({id:'evt_not_real'})});
+ assert.equal(gatedWebhook.status,404,'Stripe Identity webhook is disabled without dedicated TEST credentials');
  const config=await call(null,'/api/config');
  assert.equal(config.code,200);
  const cookie=(config.response.headers.get('set-cookie')||'').match(/routedrop_csrf=([a-f0-9]{64})/);
