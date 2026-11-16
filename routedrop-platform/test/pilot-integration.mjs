@@ -45,7 +45,8 @@ async function register(role,tag){
  assert.equal(privateCode.status,401,'the isolated client bundle cannot be scraped without preview authentication');
  const securedHealth=await call(null,'/health');
  assert.match(securedHealth.response.headers.get('content-security-policy')||'',/default-src 'self'/);
- assert.match(securedHealth.response.headers.get('x-frame-options')||'',/DENY/);
+ assert.match(securedHealth.response.headers.get('x-frame-options')||'',/^(DENY|SAMEORIGIN)$/);
+ assert.match(securedHealth.response.headers.get('content-security-policy')||'',/frame-ancestors 'none'/);
  assert.match(securedHealth.response.headers.get('referrer-policy')||'',/no-referrer/);
  const gatedWebhook=await fetch(base+'/api/pilot/identity/webhook',{method:'POST',
   headers:{authorization:auth,'content-type':'application/json'},body:JSON.stringify({id:'evt_not_real'})});
