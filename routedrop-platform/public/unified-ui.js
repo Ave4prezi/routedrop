@@ -55,6 +55,11 @@
      '<div class="unified-rule-list">'+(own.length?own.map(r=>'<div><span>'+DAYS[Number(r.day_of_week)]+' · '+h(r.local_time)+' Central · '+(r.active?'Repeats weekly':'Paused')+'</span><button type="button" class="btn secondary" data-weekly-status-id="'+Number(r.id)+'" data-weekly-active="'+(!r.active)+'">'+(r.active?'Pause':'Resume')+'</button></div>').join(''):'<p class="muted">No recurring openings yet. Add a weekday/time to make this service bookable.</p>')+'</div></article>';
    }).join(''):'<p class="muted">No permanent service profiles yet. Your current single-time listings remain available.</p>')+'</div>';
  }
+ function previewStudio(){
+  const example={profiles:[{id:501,title:'Weekend Lawn Refresh',category:'Lawn care',neighborhood:'Decatur area',description:'Fictional example: residential mowing, edging and cleanup, with weekly availability.',price_cents:4500,active:true}],rules:[{id:601,profile_id:501,day_of_week:6,local_time:'09:00',active:true}]};
+  return '<div class="panel"><span class="pilot-eyebrow">DESIGN WALKTHROUGH · NO DATABASE</span><h3>One account, a permanent service, weekly availability</h3><p class="muted">These are fictional examples for layout review. The controls below are disabled in this visual preview.</p></div>'+
+   studio(example,'individual').replace(/<button\b/g,'<button disabled');
+ }
  function seekerPanel(me,interests){
   return '<div class="panel unified-interests"><div class="row"><div><span class="pilot-eyebrow">YOUR JOB-SEEKER VIEW</span><h3>Find work with the same account</h3>'+
    '<p class="muted">Keep fictional job-search interests without submitting applications or résumés.</p></div>'+
@@ -68,5 +73,5 @@
     '<label>Industry</label><select name="category">'+choices.map(x=>'<option'+(interests?.category===x?' selected':'')+'>'+h(x)+'</option>').join('')+'</select>'+
     '<p id="form-error" class="error"></p><button class="btn" type="submit">Save fictional interests</button></form>';
  }
- root.RouteDropUnified=Object.freeze({entry,providerForm,profileForm,weeklyForm,profiles,studio,seekerPanel,interestsForm});
+ root.RouteDropUnified=Object.freeze({entry,providerForm,profileForm,weeklyForm,profiles,studio,previewStudio,seekerPanel,interestsForm});
 })(window);
