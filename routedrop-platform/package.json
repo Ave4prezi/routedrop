@@ -19,6 +19,7 @@
     "express-rate-limit": "^7.5.0",
     "helmet": "^8.1.0",
     "pg": "^8.13.3",
-    "stripe": "^17.7.0"
+    "stripe": "^17.7.0",
+    "@simplewebauthn/server": "^13.3.0"
   }
 }
