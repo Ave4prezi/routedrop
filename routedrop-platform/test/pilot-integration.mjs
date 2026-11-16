@@ -226,6 +226,55 @@ try{
  assert.equal((await call(business,'/api/pilot/listings/'+second+'/status','PATCH',{status:'paused'})).code,200);
  assert.ok(!(await call(customer,'/api/listings')).data.listings.some(x=>Number(x.id)===second),'paused opening hidden');
  assert.equal((await call(business,'/api/pilot/listings/'+second+'/status','PATCH',{status:'active'})).code,200);
+ // Concurrent request race: preserve one active booking and prevent duplicate provider action.
+ const concurrentSlot=await listing(business,'Concurrent request race');
+ const attempts=await Promise.all([
+  call(customer,'/api/pilot/requests','POST',{listingId:concurrentSlot}),
+  call(otherCustomer,'/api/pilot/requests','POST',{listingId:concurrentSlot})
+ ]);
+ assert.deepEqual(attempts.map(x=>x.code).sort((a,b)=>a-b),[201,409],
+  'simultaneous customers cannot both reserve one opening');
+ const winning=attempts.find(x=>x.code===201),winningUser=attempts[0].code===201?customer:otherCustomer;
+ const winningId=Number(winning.data.request.id);
+ const activeSlots=await pool.query("SELECT count(*)::int AS n FROM service_requests WHERE listing_id=$1 AND status IN ('requested','accepted','completed','confirmed','issue_reported')",[concurrentSlot]);
+ assert.equal(activeSlots.rows[0].n,1,'database must have exactly one active reservation after race');
+ const providerRace=await Promise.all([
+  call(business,'/api/pilot/requests/'+winningId+'/action','POST',{action:'accept'}),
+  call(business,'/api/pilot/requests/'+winningId+'/action','POST',{action:'accept'})
+ ]);
+ assert.deepEqual(providerRace.map(x=>x.code).sort((a,b)=>a-b),[200,409],
+  'a provider cannot accept a booking twice under concurrency');
+ assert.equal((await call(winningUser,'/api/pilot/requests/'+winningId+'/action','POST',{action:'cancel'})).code,200,
+  'customer cancel after acceptance reopens fictional slot without a payment');
+ assert.ok((await call(otherCustomer,'/api/listings')).data.listings.some(x=>Number(x.id)===concurrentSlot),
+  'slot returns to test discovery after cancellation');
+ // Invalid Origin/CSRF must block changes even from an otherwise valid session.
+ const invalidCsrf=await fetch(base+'/api/pilot/requests',{
+  method:'POST',headers:{authorization:auth,origin:base,'content-type':'application/json',cookie:winningUser.cookie},
+  body:JSON.stringify({listingId:concurrentSlot})
+ });
+ assert.equal(invalidCsrf.status,403,'authenticated POST without CSRF token must be rejected');
+ const invalidOrigin=await fetch(base+'/api/pilot/requests',{
+  method:'POST',headers:{authorization:auth,origin:'https://not-routedrop.example.test',
+  'content-type':'application/json',cookie:winningUser.cookie,'x-csrf-token':winningUser.csrf},
+  body:JSON.stringify({listingId:concurrentSlot})
+ });
+ assert.equal(invalidOrigin.status,403,'cross-origin mutation must be rejected even with CSRF token');
+ const oneMore=await call(otherCustomer,'/api/pilot/requests','POST',{listingId:concurrentSlot});
+ assert.equal(oneMore.code,201,'invalid attacks did not reserve or alter the slot');
+ assert.equal((await call(business,'/api/pilot/requests/'+oneMore.data.request.id+'/action','POST',{action:'decline'})).code,200);
+ // A signed-out account must immediately lose its server-side session, including privileges.
+ const transientUser=await register('customer','session-revocation');
+ const beforeLogout=await call(transientUser,'/api/me');
+ assert.equal(beforeLogout.code,200);
+ assert.ok(beforeLogout.data.user,'fictional user signed in before logout');
+ assert.match(beforeLogout.response.headers.get('cache-control')||'',/no-store/);
+ const loggedOut=await call(transientUser,'/api/logout','POST',{});
+ assert.equal(loggedOut.code,200);
+ const afterLogout=await call(transientUser,'/api/me');
+ assert.equal(afterLogout.data.user,null,'expired session cookie cannot restore server-side authorization');
+ assert.equal((await call(transientUser,'/api/pilot/requests')).code,401,
+  'old session token cannot retrieve any booking information after logout');
  // A single customer account can add a provider identity, keep separate customer/provider requests,
  // maintain permanent service pages and publish repeated Central-time availability.
  const unified=await register('customer','unified-acc');
