@@ -63,6 +63,7 @@ if(previewPass){
  const username='routedrop-preview';
  const loginPath='/preview-sign-in';
  const sessionCookie='__Host-rd_preview';
+ const formCookie='__Host-rd_preview_form';
  const sessionDuration=8*60*60*1000;
  const signingKey=crypto.randomBytes(32);
  const cookieOptions={secure:true,httpOnly:true,sameSite:'strict',path:'/'};
@@ -78,13 +79,16 @@ if(previewPass){
  }
 
  function signInPage(res,error=false){
-  return res.set('Cache-Control','no-store').status(error?401:200).type('html').send(`<!doctype html>
+  const formToken=random();
+  res.cookie(formCookie,formToken,{...cookieOptions,maxAge:15*60*1000});
+  return res.set({'Cache-Control':'no-store','Referrer-Policy':'same-origin'}).status(error?401:200).type('html').send(`<!doctype html>
 <html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>RouteDrop Private Staging</title>
 <main><h1>RouteDrop Private Staging</h1>
 <p>Sign in with your preview credentials.</p>
 ${error?'<p role="alert">The username or password was incorrect.</p>':''}
 <form method="post" action="/preview-sign-in">
+<input type="hidden" name="formToken" value="${formToken}">
 <p><label for="preview-username">Username</label><br><input id="preview-username" name="username" type="text" autocomplete="username" required></p>
 <p><label for="preview-password">Password</label><br><input id="preview-password" name="password" type="password" autocomplete="current-password" required></p>
 <button type="submit">Sign in</button></form></main></html>`);
@@ -93,13 +97,15 @@ ${error?'<p role="alert">The username or password was incorrect.</p>':''}
  if(workflowPilot){
   const loginLimiter=rateLimit({windowMs:15*60*1000,limit:12,skipSuccessfulRequests:true,standardHeaders:'draft-7',legacyHeaders:false});
   app.get(loginPath,(req,res)=>signInPage(res));
-  app.post(loginPath,loginLimiter,express.urlencoded({extended:false,limit:'4kb',parameterLimit:2}),(req,res)=>{
+  app.post(loginPath,loginLimiter,express.urlencoded({extended:false,limit:'4kb',parameterLimit:3}),(req,res)=>{
    const origin=req.get('origin');
    const siteOrigin=baseUrl ? new URL(baseUrl).origin : 'https://'+req.get('host');
-   if(!req.secure||origin!==siteOrigin)return res.set('Cache-Control','no-store').sendStatus(403);
-   const {username:enteredUsername,password}=req.body||{};
+   const {username:enteredUsername,password,formToken}=req.body||{};
+   const cookieToken=req.cookies[formCookie];
+   if((origin&&origin!=='null'&&origin!==siteOrigin)||typeof formToken!=='string'||typeof cookieToken!=='string'||!same(formToken,cookieToken))return res.set('Cache-Control','no-store').sendStatus(403);
    if(typeof enteredUsername!=='string'||typeof password!=='string'||!same(enteredUsername+':'+password,expected))return signInPage(res,true);
    const session=String(Date.now()+sessionDuration)+'.'+random();
+   res.clearCookie(formCookie,cookieOptions);
    res.cookie(sessionCookie,session+'.'+signature(session),{...cookieOptions,maxAge:sessionDuration});
    return res.set('Cache-Control','no-store').redirect(303,'/');
   });
