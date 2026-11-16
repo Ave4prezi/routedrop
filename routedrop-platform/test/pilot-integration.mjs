@@ -132,7 +132,8 @@ try{
  const flagged=await call(customer,'/api/pilot/reviews?businessId='+reviewsForBusiness.data.provider.id);
  assert.equal(flagged.data.rating.review_count,1,'unreviewed reports must not let providers erase criticism');
  assert.equal(flagged.data.reviews.length,1,'review stays visible until a moderation decision');
- assert.equal((await call(customer,'/api/pilot/reviews/'+reviewId+'/report','POST',{reason:'Spam or promotion'})).code,409,'duplicate reports unavailable');
+ assert.equal((await call(otherCustomer,'/api/pilot/reviews/'+reviewId+'/report','POST',{reason:'Spam or promotion'})).code,409,'same reporter cannot file twice');
+ assert.equal((await call(customer,'/api/pilot/reviews/'+reviewId+'/report','POST',{reason:'Personal information'})).code,201,'independent reports are recorded without auto-censorship');
  assert.equal((await call(customer,'/api/pilot/requests/'+id+'/action','POST',{action:'confirm'})).code,409,'terminal state immutable');
  const ownerHistory=await call(business,'/api/pilot/requests');
  assert.equal(ownerHistory.data.requests[0].status,'confirmed');
