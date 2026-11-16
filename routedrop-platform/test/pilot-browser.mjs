@@ -126,7 +126,7 @@ try{
   await review.locator('button[type="submit"]').click();
   await customer.locator('#modal').waitFor({state:'hidden'});
   await customer.locator('#my-bookings .trust-unrated').getByText('Test review submitted').first().waitFor();
-  await business.getByRole('button',{name:'Explore services'}).click();
+  await business.getByRole('button',{name:'Explore services',exact:true}).click();
   const businessProfile=business.locator('#profile-cards .unified-profile').filter({hasText:'Full Yard Service '+variant.name});
   await businessProfile.getByText('5.0').first().waitFor();
   await businessProfile.locator('[data-view-reviews]').click();
@@ -151,7 +151,7 @@ try{
   await independentForm.locator('[name="durationMinutes"]').fill('60');
   await independentForm.locator('button[type="submit"]').click();
   await individual.locator('#modal').waitFor({state:'hidden'});
-  await customer.getByRole('button',{name:'Explore services'}).click();
+  await customer.getByRole('button',{name:'Explore services',exact:true}).click();
   await customer.locator('.card').filter({hasText:'Solo Mowing '+variant.name}).getByText('Individual provider · unverified').waitFor();
   await individual.screenshot({path:'pilot-individual-'+variant.name+'.png',fullPage:true});
   // Same account that booked earlier now becomes an independent service provider and job seeker.
@@ -193,7 +193,7 @@ try{
   await seekerForm.locator('button[type="submit"]').click();
   await customer.locator('#modal').waitFor({state:'hidden'});
   await customer.getByText('Saved test interests: Warehousing · Decatur, AL').waitFor();
-  await customer.getByRole('button',{name:'Explore services'}).click();
+  await customer.getByRole('button',{name:'Explore services',exact:true}).click();
   await customer.locator('#profile-cards .unified-profile').filter({hasText:'Recurring Lawn Service '+variant.name}).waitFor();
   await customer.screenshot({path:'pilot-unified-explore-'+variant.name+'.png',fullPage:true});
   const soloCard=customer.locator('#profile-cards .unified-profile').filter({hasText:'Recurring Lawn Service '+variant.name});
@@ -208,7 +208,7 @@ try{
   await customer.screenshot({path:'pilot-price-compare-'+variant.name+'.png',fullPage:true});
   await customer.locator('#close-modal').click();
   // A separate established business account is also a customer of the independent provider.
-  await business.getByRole('button',{name:'Explore services'}).click();
+  await business.getByRole('button',{name:'Explore services',exact:true}).click();
   await business.locator('#profile-cards .unified-profile').filter({hasText:'Recurring Lawn Service '+variant.name}).locator('[data-pilot-request]').click();
   await business.getByRole('heading',{name:'Request this opening'}).waitFor();
   await business.locator('[data-action="pilot-confirm-request"]').click();
