@@ -33,7 +33,7 @@ async function refresh(){
  if(!state.config)return;
  if(!state.config.database){
   $('offers').innerHTML=noSetup();$('offer-count').textContent='0 live listings';
-  $('my-bookings').innerHTML=noSetup();$('studio-body').innerHTML=noSetup();nav();return;
+  $('my-bookings').innerHTML=noSetup();$('studio-body').innerHTML=noSetup()+serviceCoveragePanel({service_center_code:'decatur',service_radius_miles:20},true);nav();return;
  }
  try{
   const who=await api('/api/me');state.me=who;nav();
@@ -45,16 +45,16 @@ async function refresh(){
   }else if(state.tab==='business') await studio();
  }catch(e){message(e.message,true);}
 }
-function serviceCoveragePanel(b){
+function serviceCoveragePanel(b,readonly=false){
  const v=coverage.validate(b?.service_center_code,b?.service_radius_miles);
  const city=Object.entries(coverage.CITIES).map(([key,p])=>'<option value="'+key+'"'+(v?.center===key?' selected':'')+'>'+esc(p.name)+', AL</option>').join('');
  const choices='<option value="">Choose your approximate city center</option>'+city;
- return '<div class="panel service-area-panel"><div class="row"><div><h3>Service coverage radius</h3><p class="muted">Choose where your business works and how many miles you travel. This uses an approximate city-center point, never your home address or phone GPS.</p></div><span class="pill">'+(v?'Area configured':'Not configured')+'</span></div>'+
+ return '<div class="panel service-area-panel"><div class="row"><div><h3>'+(readonly?'Sample service radius — interactive preview':'Service coverage radius')+'</h3><p class="muted">Choose where your business works and how many miles you travel. This uses an approximate city-center point, never your home address or phone GPS.</p></div><span class="pill">'+(readonly?'Fictional demo':v?'Area configured':'Not configured')+'</span></div>'+
  '<label for="area-city">Service-area center</label><select id="area-city">'+choices+'</select>'+
  '<label for="area-radius">Travel radius: <strong id="area-radius-value">'+(v?v.radiusMiles:15)+' miles</strong></label><input id="area-radius" type="range" min="5" max="50" step="5" value="'+(v?v.radiusMiles:15)+'" aria-describedby="area-help">'+
  '<div class="coverage-map-wrap" id="business-area-map" aria-live="polite">'+(v?coverage.mapSvg(v.center,v.radiusMiles):'<p class="muted">Select a city to preview your coverage area.</p>')+'</div>'+
  '<p class="muted" id="area-help">The ring shows straight-line miles, not drive time, road access, or confirmed eligibility for a specific address. Routes and service eligibility must be confirmed before booking.</p>'+
- '<div class="buttonrow"><button type="button" class="btn" data-action="save-coverage">Save service radius</button></div></div>';
+ (readonly?'<p class="muted">Preview only: no service area is saved until the database is enabled and a verified business owner signs in.</p>':'<div class="buttonrow"><button type="button" class="btn" data-action="save-coverage">Save service radius</button></div>')+'</div>';
 }
 function updateCoveragePreview(){
  const city=$('area-city'),range=$('area-radius'),label=$('area-radius-value'),map=$('business-area-map');
