@@ -13,6 +13,7 @@ const { providerReady, emailLink, isActionToken, notification, deliverEmail } = 
 const { livePaymentsAllowed, checkoutOutcome, refundableAmount, disputeState, cancellationEligibility, refundStatus, refundOperation } = require('./payment-safeguards');
 const postService = require('./post-service');
 const verification = require('./provider-verification');
+const previewAck = require('./preview-acknowledgement');
 const {createStagingGate} = require('./staging-access');
 
 const app = express();
@@ -98,6 +99,7 @@ const ddl = [
 ]; 
 if (deferredEnabled || previewOnly) ddl.push(...postService.sql);
 if (verificationEnabled) ddl.push(...verification.schema);
+if (previewOnly && verificationEnabled) ddl.push(...previewAck.schema);
 async function startDatabase() {
  if (!pool) return;
  try {
@@ -213,7 +215,7 @@ app.get('/api/config',(req,res)=>{
  if(!req.cookies.routedrop_csrf || !/^[a-f0-9]{64}$/.test(req.cookies.routedrop_csrf)){
   res.cookie('routedrop_csrf',random(),{secure:process.env.NODE_ENV==='production',httpOnly:false,sameSite:'lax',path:'/',maxAge:7*24*60*60*1000});
  }
- res.json({database:ready,payments:paymentsReady,status:ready?'beta':'setup_required',email_enabled:emailReady,payments_mode:liveKey?(paymentsApproved?'live':'live_locked'):'test',deferred_booking:deferredEnabled,provider_verification:verificationEnabled,private_preview:previewOnly,public_url:baseUrl});
+ res.json({database:ready,payments:paymentsReady,status:ready?'beta':'setup_required',email_enabled:emailReady,payments_mode:liveKey?(paymentsApproved?'live':'live_locked'):'test',deferred_booking:deferredEnabled,provider_verification:verificationEnabled,private_preview:previewOnly,preview_agreement:previewOnly&&verificationEnabled?previewAck.publicTerms():null,public_url:baseUrl});
 });
 async function issueEmailAction(userId,email,purpose) {
  if(!emailReady||!baseUrl)return false;
@@ -328,13 +330,17 @@ app.post('/api/register',requireDb,authLimiter,safe(async(req,res)=>{
  if(!name||!isEmail(email)||password.length<12||password.length>128||!['customer','business'].includes(role))return forbidden(res,'Provide name, email, role, and a password of 12–128 characters.');
  if(role==='business' && (!businessName||!city||!category))return forbidden(res,'Complete the business details.');
  if(role==='business' && verificationEnabled && req.body.pilotConsent!==true)return forbidden(res,'Confirm the founding partner early-access terms before registering.',400);
+ if(role==='business' && previewOnly && verificationEnabled && !previewAck.valid(req.body))return forbidden(res,'Accept the current fictional-data-only preview terms before registering.',400);
  if(previewOnly && !/@(?:example\.test|example\.invalid|ci\.invalid)$/i.test(email))return forbidden(res,'Private preview accepts fictional example.test or example.invalid accounts only.',400);
  const pw=await bcrypt.hash(password,12);
  const client=await pool.connect();
  try {
   await client.query('BEGIN');
   const u=await client.query('INSERT INTO users(email,full_name,password_hash,role) VALUES($1,$2,$3,$4) RETURNING id',[email,name,pw,role]);
-  if(role==='business')await client.query('INSERT INTO businesses(owner_id,name,city,category) VALUES($1,$2,$3,$4)',[u.rows[0].id,businessName,city,category]);
+  if(role==='business'){
+   const b=await client.query('INSERT INTO businesses(owner_id,name,city,category) VALUES($1,$2,$3,$4) RETURNING id',[u.rows[0].id,businessName,city,category]);
+   if(previewOnly && verificationEnabled)await previewAck.record(client,u.rows[0].id,b.rows[0].id);
+  }
   await client.query('COMMIT');
   await createSession(u.rows[0].id,res);
   res.status(201).json({ok:true});
