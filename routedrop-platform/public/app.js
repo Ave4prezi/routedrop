@@ -2,7 +2,8 @@
 (function(){
 const $=id=>document.getElementById(id);
 const coverage=window.RouteDropServiceArea;
-const state={config:null,me:null,listings:[],bookings:[],mine:[],tab:'explore'};
+const premium=window.RouteDropPremium2;
+const state={config:null,me:null,listings:[],bookings:[],mine:[],tab:'explore',demo:false};
 const esc=v=>String(v===null||v===undefined?'':v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const money=cents=>new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(Number(cents||0)/100);
 const when=iso=>new Intl.DateTimeFormat('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}).format(new Date(iso));
@@ -32,8 +33,8 @@ function switchTab(tab){
 async function refresh(){
  if(!state.config)return;
  if(!state.config.database){
-  $('offers').innerHTML=noSetup();$('offer-count').textContent='0 live listings';
-  $('my-bookings').innerHTML=noSetup();$('studio-body').innerHTML=noSetup()+serviceCoveragePanel({service_center_code:'decatur',service_radius_miles:20},true);nav();return;
+  state.demo=true;state.listings=premium.DEMO;renderOffers();
+  $('my-bookings').innerHTML=premium.bookings();$('studio-body').innerHTML=premium.studio(serviceCoveragePanel({service_center_code:'decatur',service_radius_miles:20},true));nav();return;
  }
  try{
   const who=await api('/api/me');state.me=who;nav();
@@ -71,10 +72,12 @@ function showCoverageFor(x){
 function renderOffers(){
  const search=$('search').value.trim().toLowerCase(),cat=$('category').value;
  const items=state.listings.filter(x=>(!cat||x.category===cat)&&(!search||[x.title,x.neighborhood,x.business_name,x.city].join(' ').toLowerCase().includes(search)));
- $('offer-count').textContent=items.length+' open slots';
- $('offers').innerHTML=items.length?items.map(x=>
-  '<article class="card"><div class="cardbanner"><span>'+esc(x.category)+'</span><span>Available window</span></div><div class="cardbody"><div class="muted">'+esc(x.business_name)+'</div>'+(coverage.validate(x.service_center_code,x.service_radius_miles)?'<button type="button" class="coverage-open" data-coverage-listing="'+Number(x.id)+'">⌖ '+esc(coverage.summary(x.service_center_code,x.service_radius_miles))+' · View map</button>':'<p class="muted">Service radius not listed</p>')+'<h3>'+esc(x.title)+'</h3><div class="detail">⌖ '+esc(x.neighborhood)+', '+esc(x.city)+'</div><div class="detail">◷ '+when(x.slot_start)+' · '+esc(x.duration_minutes)+' min</div><div class="cardfoot"><span class="price">'+money(x.price_cents)+'</span><button class="btn dark" data-book="'+x.id+'">Book this slot</button></div></div></article>').join(''):'<div class="empty"><h3>No openings are listed yet.</h3><p>Local businesses can publish available slots from Business Studio after registration is enabled.</p></div>';
+ $('offer-count').textContent=items.length+' '+(state.demo?'example':'available')+' service'+(items.length===1?'':'s');
+ $('filter-summary').textContent=items.length?(state.demo?'Fictional businesses for design review — booking is disabled.':'Explore available listings and their declared service areas.'):'No matching services. Reset filters or try another search.';
+ document.querySelectorAll('[data-category-choice]').forEach(el=>el.classList.toggle('selected',el.dataset.categoryChoice===cat));
+ $('offers').innerHTML=items.length?premium.cards(items,state.config,coverage):'<div class="empty"><h3>No matches in this category</h3><p>Try all services or another search term.</p><button type="button" class="btn" data-action="clear-filters">Reset filters</button></div>';
 }
+
 function renderBookings(){
  const list=state.bookings||[];
  $('my-bookings').innerHTML=list.length?list.map(b=>
@@ -94,8 +97,8 @@ async function studio(){
  '<div class="panel"><div class="row"><div><h3>'+esc(b.name)+'</h3><div class="muted">'+esc(b.city)+' · '+esc(b.category)+'</div></div><span class="pill">'+(b.stripe_connected?'Stripe account started':'Payouts not connected')+'</span></div>'+
  '<div class="buttonrow"><button class="btn" data-action="create-listing">+ Post available slot</button><button class="btn secondary" data-action="connect-stripe">'+(b.stripe_connected?'Continue Stripe onboarding':'Connect payouts')+'</button></div><p class="muted">Payment availability requires your Stripe onboarding to be completed and the RouteDrop platform to activate payments.</p></div>'+
  serviceCoveragePanel(b)+
- '<div class="panel"><h3>Business membership · $79/month</h3><p class="muted">Subscription status: '+esc(subscription.status)+(subscription.current_period_end?' · Next period: '+new Date(subscription.current_period_end*1000).toLocaleDateString('en-US'):'')+(subscription.last_invoice_status==='payment_failed'?' · Payment failed: update billing details':'')+(subscription.cancel_at_period_end?' (cancels at period end)':'')+'</p><div class="buttonrow"><button class="btn" data-action="subscribe">Subscribe · $79/month</button><button class="btn secondary" data-action="manage-subscription">Manage billing</button></div><p class="muted">Stripe sandbox only. Membership is not yet required to accept bookings.</p></div>'+
- '<div class="panel"><h3>Cancellation and refund requests</h3><p class="muted">Full refunds are guaranteed for eligible cancellations requested 24+ hours before service. Late requests are discretionary. Approvals issue a real Stripe refund in the configured payment mode.</p>'+(cancellations.requests.length?cancellations.requests.map(x=>'<div class="record"><div><strong>'+esc(x.title)+'</strong><p>'+when(x.slot_start)+' · '+esc(x.reason)+'</p><p class="muted">Booking #'+x.booking_id+' · '+esc(x.status)+' · '+(x.eligible_full_refund?'24-hour full-refund policy':'Late / discretionary')+'</p>'+(x.refund_amount_cents?'<p>Refund amount: '+money(x.refund_amount_cents)+'</p>':'')+'</div><div>'+(x.status==='pending'?'<button class="btn" data-request-id="'+x.id+'" data-decision="approve">Approve full refund</button>'+(x.eligible_full_refund?'':'<button class="btn secondary" data-request-id="'+x.id+'" data-decision="decline">Decline</button>'):'<strong>'+esc(x.status)+'</strong>')+'</div></div>').join(''):'<p class="muted">No cancellation requests.</p>')+'</div>'+
+ '<div class="panel"><h3>Business tools and payment readiness</h3><p class="muted">Founding early access proposes no mandatory monthly membership and an 8% fee on successfully collected service payments. No live payment permissions are enabled by this redesign.</p></div>'+
+ '<div class="panel"><h3>Cancellation and refund requests</h3><p class="muted">Draft cancellation and refund terms require legal review before use with real customers. This private preview cannot process payments or refunds.</p>'+(cancellations.requests.length?cancellations.requests.map(x=>'<div class="record"><div><strong>'+esc(x.title)+'</strong><p>'+when(x.slot_start)+' · '+esc(x.reason)+'</p><p class="muted">Booking #'+x.booking_id+' · '+esc(x.status)+' · '+(x.eligible_full_refund?'24-hour full-refund policy':'Late / discretionary')+'</p>'+(x.refund_amount_cents?'<p>Refund amount: '+money(x.refund_amount_cents)+'</p>':'')+'</div><div>'+(x.status==='pending'?'<button class="btn" data-request-id="'+x.id+'" data-decision="approve">Approve full refund</button>'+(x.eligible_full_refund?'':'<button class="btn secondary" data-request-id="'+x.id+'" data-decision="decline">Decline</button>'):'<strong>'+esc(x.status)+'</strong>')+'</div></div>').join(''):'<p class="muted">No cancellation requests.</p>')+'</div>'+
  '<div class="panel"><h3>Revenue snapshot</h3><div class="row"><div><small>Completed bookings</small><h2>'+completed.length+'</h2></div><div><small>Gross value</small><h2>'+money(gross)+'</h2></div><div><small>Platform fees (8%)</small><h2>'+money(fee)+'</h2></div></div></div>'+
  '<div class="panel"><h3>My route openings</h3>'+(state.mine.length?state.mine.map(x=>'<div class="record"><div><strong>'+esc(x.title)+'</strong><p>'+esc(x.neighborhood)+' · '+when(x.slot_start)+'</p></div><strong>'+money(x.price_cents)+'</strong></div>').join(''):'<p class="muted">No openings published yet.</p>')+'</div>'+
  '<div class="panel"><h3>Recent bookings</h3>'+(state.bookings.length?state.bookings.map(x=>'<div class="record"><div><strong>'+esc(x.title)+'</strong><p>'+when(x.slot_start)+' · '+esc(x.status)+'</p></div>'+(x.status==='paid'&&!['pending','processing','needs_review'].includes(x.cancellation_request_status)?'<button class="btn" data-complete="'+x.id+'">Complete</button>':'<strong>'+money(x.price_cents)+'</strong>')+'</div>').join(''):'<p class="muted">No bookings recorded.</p>')+'</div>';
@@ -125,12 +128,15 @@ function showListing(){
 async function act(e){
  const el=e.target.closest('button');if(!el)return;
  if(el.dataset.tab){switchTab(el.dataset.tab);return;}
+ if(el.dataset.profileListing){const x=state.listings.find(item=>Number(item.id)===Number(el.dataset.profileListing));if(x)overlay(premium.profile(x,coverage));return;}
  if(el.dataset.coverageListing){
    const x=state.listings.find(item=>Number(item.id)===Number(el.dataset.coverageListing));
    if(x)showCoverageFor(x);
    return;
  }
  const action=el.dataset.action;
+ if(action==='search-services'){document.getElementById('available-openings')?.scrollIntoView({behavior:'smooth'});renderOffers();return;}
+ if(action==='clear-filters'){$('search').value='';$('category').value='';renderOffers();return;}
  if(action==='save-coverage'){
   const city=$('area-city')?.value,radius=Number($('area-radius')?.value);
   if(!coverage.validate(city,radius))return message('Choose a listed city and a radius between 5 and 50 miles.',true);
@@ -193,6 +199,7 @@ async function init(){
  $('modal').addEventListener('click',e=>{if(e.target.id==='modal')dismiss();});
  $('search').addEventListener('input',renderOffers);
  $('category').addEventListener('change',renderOffers);
+ document.querySelectorAll('[data-category-choice]').forEach(el=>el.addEventListener('click',()=>{$('category').value=el.dataset.categoryChoice;renderOffers();}));
  document.addEventListener('input',e=>{if(e.target.id==='area-radius')updateCoveragePreview();});
  document.addEventListener('change',e=>{if(e.target.id==='area-city')updateCoveragePreview();});
  try {
