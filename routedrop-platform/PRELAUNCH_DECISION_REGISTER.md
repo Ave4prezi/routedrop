@@ -20,8 +20,8 @@
 
 - Legal entity: NOT CONFIRMED
 - Operator/contract signer: NOT NAMED
-- Primary support contact + hours: **PRIMARY DESIGNATED AND SELF-ACCEPTED (identity kept off public GitHub)**; business contact channel, availability and coverage hours UNCONFIRMED.
-- Backup support contact: **BACKUP NOMINATED (identity kept off public GitHub)**; acceptance, availability, secure handoff and alternate contact method UNCONFIRMED.
+- Primary support contact + hours: **PRIMARY DESIGNATED AND SELF-ACCEPTED (identity kept off public GitHub)**; shared temporary business mailbox proposed but not yet delivery-tested; availability and coverage hours UNCONFIRMED.
+- Backup support contact: **BACKUP ACCEPTED VERBALLY IN PERSON, AS REPORTED BY PRIMARY CONTACT (identity kept off public GitHub)** on November 15, 2026; written acknowledgment recommended; availability, secure handoff and alternate contact method UNCONFIRMED.
 - Privacy contact: NOT ASSIGNED
 - Security incident lead + backup: NOT ASSIGNED
 - Independent assessor: NOT ENGAGED/CONFIRMED
@@ -45,7 +45,7 @@ Public contact emails were verified against the firms' websites. No statements f
 
 - **Business/operator accountable owner:** an authorized RouteDrop representative must approve vendor selection, budget, legal entity and release decisions. **UNCONFIRMED.**
 - **Primary support lead:** designated by the project operator, who has personally accepted responsibility. **INTERNAL ROLE ASSIGNED; operating hours, verified public support channel, training and escalation handoff still PENDING.** Keep identity in a separate access-controlled contact roster, not this public repository.
-- **Backup support/continuity contact:** a distinct backup has been nominated by the project operator. **NOMINATED; direct acceptance, hours, reliable contact route and handoff test still PENDING.** Keep identity in a private roster, not this public repository.
+- **Backup support/continuity contact:** a distinct backup verbally accepted the role in person, as reported by the primary contact on November 15, 2026. **ACCEPTANCE REPORTED; written role acknowledgment recommended; hours, reliable contact route, escalation handoff and inbox test PENDING.** Keep identity in a private roster, not this public repository.
 - **Security incident commander:** a qualified named primary (internal or contracted) must accept incident triage, vendor coordination, containment and counsel escalation. **UNASSIGNED.**
 - **Incident backup:** a second independent contact and tested out-of-band communications are required. **UNASSIGNED.**
 - **Privacy/data-rights contact:** an actual owner/inbox must be established and reviewed by counsel before publishing contact details. **UNASSIGNED.**
@@ -53,9 +53,15 @@ Public contact emails were verified against the firms' websites. No statements f
 
 Next decision: after quotes arrive, record proposed scope, costs, independence, and written engagement approval before granting temporary read-only synthetic preview access. Do not send credentials or real documents through introductory email.
 
+### Temporary shared-business support channel proposal — not activated
+
+The project operator proposed temporarily using an existing mailbox belonging to a separate affiliated organization for RouteDrop business/customer support. **This public repo intentionally does not name that mailbox or publish personal contact identities.** The mailbox has **not** been verified for RouteDrop send/receive, shared access, routing, or contractual/privacy permission.
+
+Before any real messages are invited: obtain the mailbox owner's consent, test email in both directions, determine separate access/labels or forwarding for RouteDrop conversations, assign primary/backup coverage and hours, prepare a RouteDrop-identifying signature and privacy notice, and approve retention/access terms for information from two separate organizations. Prefer a dedicated RouteDrop-domain mailbox before a public pilot. No real-data support channel is approved solely by this entry.
+
 ## Safe next actions
 
-1. Confirm legal entity, owner/operator authority, support business channels and actual coverage hours; obtain backup's direct acceptance; appoint security/incident and privacy contacts; confirm budget.
+1. Confirm legal entity, owner/operator authority, support business mailbox authorization and bidirectional delivery, actual coverage hours and written backup acknowledgment; appoint security/incident and privacy contacts; confirm budget.
 2. Give counsel the contract, refund, privacy, retention and service-category packet for legal review.
 3. Give external independent assessor a **redacted** technical diagram and a temporary, least-privilege synthetic-only test environment. Never email private keys/credentials or real IDs.
 4. Record test scope, findings, fixes and signature evidence. Keep real document intake and live payments disabled until all blocking gates are signed and retested.
