@@ -17,7 +17,7 @@ test('premium beta clearly discloses fictional data and disabled payments in bot
  assert.match(js,/Payments disabled in preview/);
  assert.match(js,/Stripe onboarding unavailable in this paymentless preview/);
  assert.match(js,/This beta uses fictional service openings/);
- assert.match(js,/this private beta does not accept real jobs/i);
+ assert.match(js,/No real jobs or payments are enabled/i);
  assert.doesNotMatch(html,/<script[^>]+src=["']https?:/i);
 });
 
