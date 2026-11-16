@@ -43,7 +43,9 @@ test('browser sign-in protects the preview and leaves health and raw webhooks re
 
  assert.equal((await request('/')).headers.get('location'),'/preview-sign-in');
  const page=await request('/preview-sign-in');
- const cookie=page.headers.get('set-cookie').split(';')[0];
+ const formCookie=page.headers.get('set-cookie');
+ assert.ok(formCookie.split('; ').includes('SameSite=Strict'));
+ const cookie=formCookie.split(';')[0];
  const token=(await page.text()).match(/name="formToken" value="([^"]+)/)[1];
  const login=(site,secret=password)=>request('/preview-sign-in',{
   method:'POST',headers:{cookie,'sec-fetch-site':site},
@@ -54,7 +56,7 @@ test('browser sign-in protects the preview and leaves health and raw webhooks re
  const accepted=await login('same-origin');
  assert.equal(accepted.status,303);
  const session=accepted.headers.getSetCookie().find(value=>value.startsWith('__Host-rd_preview='));
- for(const flag of ['Secure','HttpOnly','SameSite=Strict'])assert.ok(session.split('; ').includes(flag));
+ for(const flag of ['Secure','HttpOnly','SameSite=Lax'])assert.ok(session.split('; ').includes(flag));
  assert.equal(await (await request('/',{headers:{cookie:session.split(';')[0]}})).text(),'authenticated preview');
  assert.equal(await (await request('/health')).text(),'ready');
  const payload='{"test":true}';

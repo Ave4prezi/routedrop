@@ -84,7 +84,8 @@ ${error?'<p role="alert">'+error+'</p>':''}
    if(typeof enteredUsername!=='string'||typeof password!=='string'||!secureEqual(enteredUsername+':'+password,expected))return signInPage(req,res,'The username or password was incorrect.',401);
    const session=String(Date.now()+sessionDuration)+'.'+random();
    res.clearCookie(formCookie,cookieOptions);
-   res.cookie(sessionCookie,session+'.'+signature(session),{...cookieOptions,maxAge:sessionDuration});
+   // Stripe returns by top-level GET. The form cookie remains Strict.
+   res.cookie(sessionCookie,session+'.'+signature(session),{...cookieOptions,sameSite:'lax',maxAge:sessionDuration});
    return res.set('Cache-Control','no-store').redirect(303,'/');
   });
  }
