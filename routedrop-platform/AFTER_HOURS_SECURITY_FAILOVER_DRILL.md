@@ -9,7 +9,7 @@ Fictional test only. No actual customer identities, financial records, credentia
 - The project operator reports that a direct call and return call worked on November 15, 2026.
 - Routine support hours selected: Monday–Friday, 9:00 AM–5:00 PM America/Chicago.
 - A temporary shared support email passed a harmless two-way message test, but email is **not** a monitored after-hours emergency paging service.
-- **The primary-unavailable failover case is NOT TESTED YET.** No qualified third-party incident responder has been engaged and no real threat monitoring capability is confirmed.
+- **Primary-unavailable failover: PASS REPORTED BY OPERATOR on November 15, 2026.** The operator confirms the backup took ownership while the primary was unavailable. This was not independently observed; call timestamps, escalation time, and a private signed drill record were not provided. Backup-unreachable and both-unreachable cases remain untested. No qualified third-party incident responder has been engaged and no real threat monitoring capability is confirmed.
 
 ## Decision and escalation ladder — proposal requiring owner approval
 
