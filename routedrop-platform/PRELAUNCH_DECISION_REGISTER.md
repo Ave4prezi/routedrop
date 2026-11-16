@@ -53,11 +53,13 @@ Public contact emails were verified against the firms' websites. No statements f
 
 Next decision: after quotes arrive, record proposed scope, costs, independence, and written engagement approval before granting temporary read-only synthetic preview access. Do not send credentials or real documents through introductory email.
 
-### Temporary shared-business support channel proposal — not activated
+### Temporary shared-business support channel proposal — no forwarding
+
+The operator selected direct use of the existing shared business mailbox for RouteDrop support. **Do not configure automatic forwarding to a personal inbox.** Both support contacts will access the original mailbox directly. This decision does not itself verify mail delivery, route-specific handling, or policy approval.
 
 The project operator proposed temporarily using an existing mailbox belonging to a separate affiliated organization for RouteDrop business/customer support. **This public repo intentionally does not name that mailbox or publish personal contact identities.** Both primary and backup contacts report that they can access the mailbox. **RouteDrop-specific send/receive, routing, mailbox owner authorization, and contractual/privacy permission are still not independently verified.**
 
-Before any real messages are invited: verify organizational authorization to use the shared mailbox, test email in both directions with each authorized operator, set separate labels or forwarding for RouteDrop conversations, confirm primary/backup staffing and handoff for the selected Monday–Friday 9 AM–5 PM Central window, prepare a RouteDrop-identifying signature and privacy notice, and approve retention/access terms for information from two separate organizations. Prefer a dedicated RouteDrop-domain mailbox before a public pilot. No real-data support channel is approved solely by this entry.
+Before any real messages are invited: verify organizational authorization to use the shared mailbox, test email in both directions with each authorized operator, set a separate RouteDrop label/folder in the original mailbox (no forwarding; operators will read and reply directly from the shared mailbox), confirm primary/backup staffing and handoff for the selected Monday–Friday 9 AM–5 PM Central window, prepare a RouteDrop-identifying signature and privacy notice, and approve retention/access terms for information from two separate organizations. Prefer a dedicated RouteDrop-domain mailbox before a public pilot. No real-data support channel is approved solely by this entry.
 
 ## Safe next actions
 
