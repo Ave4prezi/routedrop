@@ -6,7 +6,8 @@ const premium=window.RouteDropPremium2;
 const pilot=window.RouteDropPilotUI;
  const opportunities=window.RouteDropOpportunities;
  const unified=window.RouteDropUnified;
-const state={config:null,me:null,listings:[],bookings:[],mine:[],tab:'explore',demo:false,demoRequests:[],demoCounter:0,demoListingId:null,demoSlot:'afternoon',demoArea:{center:'decatur',radiusMiles:20},pilotRequests:[],pilotListingId:null,jobs:[],jobSearch:'',serviceProfiles:[],myServiceProfiles:{profiles:[],rules:[]},jobInterests:null};
+ const trust=window.RouteDropTrustUI;
+const state={config:null,me:null,listings:[],bookings:[],mine:[],tab:'explore',demo:false,demoRequests:[],demoCounter:0,demoListingId:null,demoSlot:'afternoon',demoArea:{center:'decatur',radiusMiles:20},pilotRequests:[],pilotListingId:null,jobs:[],jobSearch:'',serviceProfiles:[],myServiceProfiles:{profiles:[],rules:[]},jobInterests:null,compareIds:[],profileSort:'default',profileCategory:''};
 const esc=v=>String(v===null||v===undefined?'':v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const money=cents=>new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(Number(cents||0)/100);
 const when=iso=>new Intl.DateTimeFormat('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}).format(new Date(iso));
@@ -52,7 +53,9 @@ function nav(){
  const u=state.me?.user;
  $('nav-account').innerHTML=u?'<span class="muted">'+esc(u.full_name)+'</span>'+(state.config?.email_enabled&&!u.email_verified?'<button data-action="verify-email">Verify email</button>':'')+'<button data-action="change-password">Change password</button><button data-action="logout">Log out</button>':'<button data-action="login">Log in</button><button data-action="register">Sign up</button>';
 }
-function switchTab(tab){
+function catalogItems(){return !state.config?.unified_pilot?trust.demoProfiles:state.serviceProfiles;}
+ function renderCatalog(){const target=$('profile-cards');if(target)target.innerHTML=unified.profiles(state.serviceProfiles,state.config,{selected:state.compareIds,sort:state.profileSort,category:state.profileCategory});}
+ function switchTab(tab){
  state.tab=tab;
  document.querySelectorAll('.page').forEach(el=>el.classList.toggle('hidden',el.id!==tab));
  document.querySelectorAll('[data-tab]').forEach(el=>el.classList.toggle('active',el.dataset.tab===tab));
@@ -66,12 +69,12 @@ async function refresh(){
  if(!state.config)return;
  if(!state.config.database){
   state.demo=true;state.listings=premium.DEMO;renderOffers();
-  $('my-bookings').innerHTML=premium.bookings(state.demoRequests);$('studio-body').innerHTML=unified.entry()+unified.previewStudio()+premium.studio(serviceCoveragePanel({service_center_code:state.demoArea.center,service_radius_miles:state.demoArea.radiusMiles},true),state.demoRequests);state.jobs=opportunities.sampleJobs;$('job-board').innerHTML=unified.entry()+unified.seekerPanel(null,null)+opportunities.jobs(state.jobs,true,state.jobSearch);$('profile-cards').innerHTML=unified.profiles([],null);nav();return;
+  $('my-bookings').innerHTML=premium.bookings(state.demoRequests);$('studio-body').innerHTML=unified.entry()+unified.previewStudio()+premium.studio(serviceCoveragePanel({service_center_code:state.demoArea.center,service_radius_miles:state.demoArea.radiusMiles},true),state.demoRequests);state.jobs=opportunities.sampleJobs;$('job-board').innerHTML=unified.entry()+unified.seekerPanel(null,null)+opportunities.jobs(state.jobs,true,state.jobSearch);renderCatalog();nav();return;
  }
  try{
   const who=await api('/api/me');state.me=who;nav();
   if(state.tab==='explore'){
-   const [r,p]=await Promise.all([api('/api/listings'),state.config.unified_pilot?api('/api/pilot/service-profiles'):Promise.resolve({profiles:[]})]);state.listings=r.listings;state.serviceProfiles=p.profiles;renderOffers();$('profile-cards').innerHTML=unified.profiles(state.serviceProfiles,state.config);
+   const [r,p]=await Promise.all([api('/api/listings'),state.config.unified_pilot?api('/api/pilot/service-profiles'):Promise.resolve({profiles:[]})]);state.listings=r.listings;state.serviceProfiles=p.profiles;renderOffers();renderCatalog();
   }else if(state.tab==='bookings'){
    if(state.config.workflow_pilot){
     if(!state.me.user){$('my-bookings').innerHTML='<div class="empty"><h3>Test account required</h3><p>Create a customer test account or sign in to see requests.</p><button type="button" class="btn" data-action="register">Create test account</button></div>';return;}
@@ -206,6 +209,21 @@ async function act(e){
   const id=Number(el.dataset.weeklyStatusId),active=el.dataset.weeklyActive==='true';
   el.disabled=true;try{await api('/api/pilot/weekly-rules/'+id+'/status',{method:'PATCH',body:JSON.stringify({active})});message('Weekly schedule '+(active?'resumed':'paused')+'.');await studio();}catch(err){message(err.message,true);}finally{if(el.isConnected)el.disabled=false;}return;
  }
+ if(el.dataset.reviewRequestId&&state.config?.unified_pilot){
+  const request=state.pilotRequests.find(x=>Number(x.id)===Number(el.dataset.reviewRequestId));
+  if(request&&request.status==='confirmed'&&!request.review_id)overlay(trust.reviewForm(request));
+  return;
+ }
+ if(el.dataset.viewReviews){
+  const id=Number(el.dataset.viewReviews);
+  if(!state.config?.unified_pilot){overlay(trust.reviewsModal(null,true));return;}
+  try{const result=await api('/api/pilot/reviews?businessId='+id);overlay(trust.reviewsModal(result));}
+  catch(err){message(err.message,true);}return;
+ }
+ if(el.dataset.reportReviewId){
+  if(!state.me?.user){showLogin();message('A private test account is required to report a review.');return;}
+  if(state.config?.unified_pilot)overlay(trust.reportForm(Number(el.dataset.reportReviewId)));return;
+ }
  if(el.dataset.jobDetail){const x=state.jobs.find(j=>Number(j.id)===Number(el.dataset.jobDetail));if(x)overlay(opportunities.details(x));return;}
  if(el.dataset.jobStatusId&&state.config?.opportunity_pilot){
   const id=Number(el.dataset.jobStatusId),status=el.dataset.jobStatus;
@@ -337,6 +355,12 @@ async function act(e){
   if(state.config?.unified_pilot)overlay(unified.providerForm());else message('Provider setup requires the private unified pilot.',true);
   return;
  }
+ if(action==='compare-profiles'){
+   const selected=state.compareIds;
+   if(selected.length>=2)overlay(trust.compareModal(state.serviceProfiles,selected,state.config));
+   else message('Select two or three services from the same category to compare.',true);
+   return;
+ }
  if(action==='new-service-profile'&&state.config?.unified_pilot){overlay(unified.profileForm());return;}
  if(action==='job-interests'&&state.config?.unified_pilot){overlay(unified.interestsForm(state.jobInterests));return;}
  if(action==='register-individual'){
@@ -366,7 +390,7 @@ async function act(e){
  if(el.dataset.complete){try{await api('/api/bookings/'+Number(el.dataset.complete)+'/complete',{method:'POST'});message('Job marked completed.');refresh();}catch(err){message(err.message,true);}return;}
 }
 async function submit(e){
- if(!['register-form','login-form','listing-form','forgot-form','reset-form','change-password-form','job-form','provider-setup-form','service-profile-form','weekly-form','job-interests-form'].includes(e.target.id))return;
+ if(!['register-form','login-form','listing-form','forgot-form','reset-form','change-password-form','job-form','provider-setup-form','service-profile-form','weekly-form','job-interests-form','service-review-form','review-report-form'].includes(e.target.id))return;
  e.preventDefault();
  const form=e.target,d=Object.fromEntries(new FormData(form).entries());
  const err=$('form-error');err.textContent='';
@@ -377,6 +401,14 @@ async function submit(e){
   if(form.id==='change-password-form'){const r=await api('/api/auth/change-password',{method:'POST',body:JSON.stringify({currentPassword:d.currentPassword,newPassword:d.newPassword})});state.me=null;message(r.message);}
   if(form.id==='forgot-form'){const r=await api('/api/auth/forgot-password',{method:'POST',body:JSON.stringify({email:d.email})});message(r.message);}
   if(form.id==='reset-form'){const r=await api('/api/auth/reset-password',{method:'POST',body:JSON.stringify({token:d.token,password:d.password})});history.replaceState(null,'',location.pathname);message(r.message);}
+  if(form.id==='service-review-form'){
+   await api('/api/pilot/reviews',{method:'POST',body:JSON.stringify({requestId:Number(d.requestId),rating:Number(d.rating),headline:d.headline,comment:d.comment})});
+   message('Test review submitted. This is not a real customer reputation score.');
+  }
+  if(form.id==='review-report-form'){
+   await api('/api/pilot/reviews/'+Number(d.reviewId)+'/report',{method:'POST',body:JSON.stringify({reason:d.reason})});
+   message('Review flagged and hidden in this private test. No live support ticket was sent.');
+  }
   if(form.id==='provider-setup-form'){
    await api('/api/pilot/provider-profile',{method:'POST',body:JSON.stringify(d)});
    message('Provider tools activated for your existing test account. You can still book and find jobs.');
@@ -415,6 +447,26 @@ async function init(){
 
  $('register-role')?.addEventListener('change',()=>{});
  $('modal').addEventListener('change',e=>{if(e.target.id==='register-role')syncSignupFields();});
+ document.addEventListener('change',e=>{
+  const target=e.target;
+  if(target.id==='profiles-category'){state.profileCategory=target.value;state.compareIds=[];renderCatalog();return;}
+  if(target.id==='profiles-sort'){state.profileSort=target.value;renderCatalog();return;}
+  if(target.matches('[data-compare-id]')){
+   const id=Number(target.dataset.compareId);
+   const item=catalogItems().find(p=>Number(p.id)===id);
+   if(!item)return;
+   const selected=state.compareIds.slice();
+   if(target.checked){
+    const first=catalogItems().find(p=>Number(p.id)===selected[0]);
+    if(first&&first.category!==item.category){target.checked=false;message('Compare services in the same category for meaningful prices.',true);return;}
+    if(selected.length>=3){target.checked=false;message('Select up to three providers.',true);return;}
+    if(!selected.includes(id))selected.push(id);
+   }else{
+    const idx=selected.indexOf(id);if(idx>=0)selected.splice(idx,1);
+   }
+   state.compareIds=selected;renderCatalog();
+  }
+ });
  $('close-modal').addEventListener('click',dismiss);
  $('modal').addEventListener('click',e=>{if(e.target.id==='modal')dismiss();});
  $('search').addEventListener('input',renderOffers);
