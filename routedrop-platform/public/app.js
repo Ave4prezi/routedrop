@@ -201,7 +201,7 @@ async function act(e){
  if(action==='register'){if(state.config&&!state.config.database){message('The private beta database is not connected. Explore the fictional onboarding walkthrough instead.');return;}showRegistration();return;}
  if(action==='clear-filters'){clearFilters();return;}
  if(action==='business-tab'){switchTab('business');return;}
- if(action==='register-business'){if(state.config&&!state.config.database){message('Fictional business signup is unavailable until the isolated test database is ready.');el.dataset.action='demo-onboarding';try{el.click();}finally{el.dataset.action='register-business';}return;}showRegistration();const selector=$('register-role');selector.value='business';selector.dispatchEvent(new Event('change',{bubbles:true}));return;}
+ if(action==='register-business'){if(state.config&&!state.config.database){message('Fictional business signup is unavailable until the isolated test database is ready. See the walkthrough in Business Studio.');switchTab('business');return;}showRegistration();const selector=$('register-role');selector.value='business';selector.dispatchEvent(new Event('change',{bubbles:true}));return;}
  if(action==='demo-onboarding'){
   overlay('<h2 id="modal-title">RouteDrop founding partner preview</h2><p class="muted">Fictional example only. Interactive registration opens when the isolated preview database is connected.</p>'+
    '<div class="record"><strong>1. Register a business</strong><p>Invented: Pine Ridge Cleaning · Decatur, AL · Cleaning</p></div>'+
