@@ -22,7 +22,7 @@ function overlay(content){$('modal-body').innerHTML=content;$('modal').classList
 function dismiss(){$('modal').classList.add('hidden');$('modal-body').innerHTML='';}
 function nav(){
  const u=state.me?.user;
- $('nav-account').innerHTML=u?'<span class="muted">'+esc(u.full_name)+'</span>'+(state.config?.email_enabled&&!u.email_verified?'<button data-action="verify-email">Verify email</button>':'')+(state.me?.support_agent?'<button data-action="support-reviews">Support reviews</button>':'')+(state.config?.provider_verification&&state.me?.document_reviewer?'<button data-action="verification-reviews">Provider reviews</button>':'')+'<button data-action="change-password">Change password</button><button data-action="logout">Log out</button>':'<button data-action="login">Log in</button><button data-action="register">Sign up</button>';
+ $('nav-account').innerHTML=u?'<span class="muted">'+esc(u.full_name)+'</span>'+(state.config?.email_enabled&&!u.email_verified?'<button data-action="verify-email">Verify email</button>':'')+(state.me?.support_agent?'<button data-action="support-reviews">Support reviews</button>':'')+(state.config?.provider_verification&&state.me?.document_reviewer?'<button data-action="verification-reviews">Provider reviews</button>':'')+(state.config?.provider_launch_gate&&state.me?.launch_approver?'<button data-action="launch-reviews">Launch reviews</button>':'')+'<button data-action="change-password">Change password</button><button data-action="logout">Log out</button>':'<button data-action="login">Log in</button><button data-action="register">Sign up</button>';
 }
 function switchTab(tab){
  state.tab=tab;
@@ -114,7 +114,7 @@ async function studio(){
  '<div class="record"><div><strong>2. Review service credentials</strong><p class="muted">'+(state.config.provider_verification?(verificationData.eligible?'Required checks reviewed':'Verification pending. Use synthetic documents only during testing.'):'Verification will open for approved pilot partners.')+'</p></div></div>'+
  '<div class="record"><div><strong>3. Set up Stripe payouts</strong><p class="muted">'+(b.stripe_connected?'Stripe account linked (payout readiness requires separate verification).':'Payout onboarding not completed.')+'</p></div></div>'+
  '<div class="record"><div><strong>4. Publish an available service</strong><p class="muted">'+(state.mine.length?'Listing drafted; eligible services appear after verification.':'Create a service listing with a clear price, location and opening.')+'</p></div></div>'+
- '<div class="record"><div><strong>5. RouteDrop launch approval</strong><p class="muted">Pending. Real bookings and payments are unavailable until activation.</p></div></div>'+
+ '<div class="record"><div><strong>5. RouteDrop launch approval</strong><p class="muted">'+(state.config.provider_launch_gate?(verificationData.launch?.active?'Fictional preview approval recorded. This is NOT approval for real bookings or payments.':'Separate operator sign-off pending or credentials changed. Test listings stay hidden until approved.'):'Pending. Real bookings and payments are unavailable until activation.')+'</p></div></div>'+
  '<p class="muted">For services requiring driving or regulated work, RouteDrop may request additional insurance or licensing before approval.</p>'+
  '<div class="buttonrow"><button class="btn secondary" data-action="upload-credential" '+(state.config.provider_verification?'':'disabled')+'>View document requirements</button></div></div>'+
  '<div class="panel"><h3>Cancellation and refund requests</h3><p class="muted">Full refunds are guaranteed for eligible cancellations requested 24+ hours before service. Late requests are discretionary. Approvals issue a real Stripe refund in the configured payment mode.</p>'+(cancellations.requests.length?cancellations.requests.map(x=>'<div class="record"><div><strong>'+esc(x.title)+'</strong><p>'+when(x.slot_start)+' · '+esc(x.reason)+'</p><p class="muted">Booking #'+x.booking_id+' · '+esc(x.status)+' · '+(x.eligible_full_refund?'24-hour full-refund policy':'Late / discretionary')+'</p>'+(x.refund_amount_cents?'<p>Refund amount: '+money(x.refund_amount_cents)+'</p>':'')+'</div><div>'+(x.status==='pending'?'<button class="btn" data-request-id="'+x.id+'" data-decision="approve">Approve full refund</button>'+(x.eligible_full_refund?'':'<button class="btn secondary" data-request-id="'+x.id+'" data-decision="decline">Decline</button>'):'<strong>'+esc(x.status)+'</strong>')+'</div></div>').join(''):'<p class="muted">No cancellation requests.</p>')+'</div>'+
@@ -127,7 +127,7 @@ async function studio(){
 
 function verificationPanel(v){
  const existing=Object.fromEntries((v.documents||[]).map(x=>[x.kind,x]));
- return '<div class="panel"><h3>Provider compliance · '+(v.eligible?'Reviewed requirements complete':'Review needed')+'</h3>'+
+ return '<div class="panel"><h3>Provider compliance · '+(v.eligible?'Fictional listing eligibility complete':'Review needed')+'</h3>'+
  '<p class="muted">Required for your primary category: '+esc(v.requirements.join(', '))+'. Other listing categories may have additional requirements. Do not upload ID numbers in text fields.</p>'+
  v.requirements.map(kind=>{
   const d=existing[kind],status=d?.status||'missing',expiry=d?.expires_at?' · expires '+new Date(d.expires_at).toLocaleDateString():'';
@@ -152,6 +152,19 @@ async function showVerificationQueue(){
  (d.has_document?'<a href="/api/provider-verification/review-document/'+encodeURIComponent(d.business_id)+'/'+encodeURIComponent(d.kind)+'">Download evidence for review (private)</a>':'<p class="muted">No document uploaded'+(d.evidence_reference?' · business info reference: '+esc(d.evidence_reference):'')+'</p>')+'</div>'+
  '<div class="buttonrow"><button class="btn" data-verification-review="approved" data-review-kind="'+esc(d.kind)+'" data-review-business="'+esc(d.business_id)+'">Approve</button>'+
  '<button class="btn secondary" data-verification-review="rejected" data-review-kind="'+esc(d.kind)+'" data-review-business="'+esc(d.business_id)+'">Reject</button></div></div>').join(''):'<p class="muted">No pending document reviews.</p>'));
+}
+
+async function showLaunchQueue(){
+ const r=await api('/api/provider-launch/queue');
+ overlay('<h2 id="modal-title">Fictional provider launch review</h2><p class="muted">TEST ONLY: separate sign-off is required after synthetic credential checks. Approval here never enables real payments, document collection or public launch.</p>'+
+  (r.businesses.length?r.businesses.map(b=>
+   '<div class="record"><div><strong>'+esc(b.businessName)+'</strong><p class="muted">Business #'+esc(b.businessId)+' · '+esc(b.category)+
+   '</p><p class="muted">Credential checks: '+(b.credentialsEligible?'Reviewed':'Incomplete')+
+   ' · Launch: '+esc(b.launch.state)+(b.launch.reason==='credentials_changed'?' (stale after credential changes)':'')+
+   '</p></div><div class="buttonrow">'+
+   (b.credentialsEligible?'<button class="btn" data-launch-decision="approved" data-launch-business="'+esc(b.businessId)+'" data-launch-category="'+esc(b.category)+'">Approve fictional listing</button>':'')+
+   '<button class="btn secondary" data-launch-decision="revoked" data-launch-business="'+esc(b.businessId)+'" data-launch-category="'+esc(b.category)+'">Revoke</button></div></div>'
+  ).join(''):'<p class="muted">No fictional providers awaiting launch review.</p>'));
 }
 
 async function showSupportReviews(){
@@ -212,6 +225,7 @@ async function act(e){
  if(action==='create-listing'){showListing();return;}
  if(action==='support-reviews'){try{await showSupportReviews();}catch(err){message(err.message,true);}return;}
  if(action==='verification-reviews'){try{await showVerificationQueue();}catch(err){message(err.message,true);}return;}
+  if(action==='launch-reviews'){try{await showLaunchQueue();}catch(err){message(err.message,true);}return;}
  if(action==='upload-credential'){try{await showVerificationUpload();}catch(err){message(err.message,true);}return;}
  if(action==='change-password'){showChangePassword();return;}
  if(action==='forgot-password'){showForgotPassword();return;}
@@ -225,6 +239,21 @@ async function act(e){
   el.disabled=true;
   try{await api('/api/provider-verification/document/'+encodeURIComponent(kind),{method:'DELETE'});message('Credential removed; review is now pending.');await studio();}
   catch(err){message(err.message,true);el.disabled=false;}return;
+ }
+ if(el.dataset.launchDecision&&el.dataset.launchBusiness&&el.dataset.launchCategory){
+  const decision=el.dataset.launchDecision,businessId=Number(el.dataset.launchBusiness),category=el.dataset.launchCategory;
+  const note=prompt('Synthetic-only operator decision note (15–500 characters, no private data):');
+  if(note===null)return;
+  if(note.trim().length<15)return message('A note of at least 15 characters is required.',true);
+  if(!confirm(decision==='approved'?'Record fictional preview approval only? This does NOT activate real bookings or payments.':'Revoke the fictional preview launch approval?'))return;
+  el.disabled=true;
+  try{
+   await api('/api/provider-launch/decision',{method:'POST',body:JSON.stringify({businessId,category,decision,note})});
+   message('Fictional launch decision recorded.');
+   await showLaunchQueue();
+  }catch(err){message(err.message,true);}
+  finally{el.disabled=false;}
+  return;
  }
  if(el.dataset.verificationReview&&el.dataset.reviewBusiness&&el.dataset.reviewKind){
   const decision=el.dataset.verificationReview,kind=el.dataset.reviewKind,businessId=Number(el.dataset.reviewBusiness);
