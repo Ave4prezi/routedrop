@@ -3,6 +3,8 @@
 // insurance documents are stored by this module. Reviewer approval is mandatory.
 const evidence=require('./provider-evidence');
 const launchApproval=require('./provider-launch-approval');
+const operatorAccess=require('./operator-access');
+const providerExpiry=require('./provider-expiry');
 const groups={
  'Home & property':['Cleaning','Lawn care','Landscaping','Painting','Handyman','Pressure washing','Home repairs'],
  'Automotive':['Car detailing','Mobile car detailing','Car washing','Mobile mechanic','Tire service'],
@@ -68,8 +70,8 @@ function install(app,{pool,enabled,launchApprovalEnabled=false,requireDb,require
  const business=[gate,requireDb,requireUser('business')];
  const reviewer=[gate,requireDb,requireUser(),(req,res,next)=>{
   Promise.resolve().then(async()=>{
-   const isReviewer=await pool.query('SELECT 1 FROM provider_document_reviewers WHERE user_id=$1',[req.user.id]);
-   if(!isReviewer.rowCount)return forbidden(res,'Reviewer permission required.',403);
+   const isReviewer=launchApprovalEnabled?await operatorAccess.allowed(pool,req.user.id,'credential_reviewer'):(await pool.query('SELECT 1 FROM provider_document_reviewers WHERE user_id=$1',[req.user.id])).rowCount>0;
+   if(!isReviewer)return forbidden(res,'Reviewer permission required.',403);
    next();
   }).catch(next);
  }];
@@ -77,7 +79,10 @@ function install(app,{pool,enabled,launchApprovalEnabled=false,requireDb,require
  app.get('/api/provider-verification/me',...business,safe(async(req,res)=>{
   const q=await pool.query('SELECT id,category FROM businesses WHERE owner_id=$1',[req.user.id]);
   if(!q.rowCount)return forbidden(res,'Business not found.',404);
-  res.json({businessId:q.rows[0].id,category:q.rows[0].category,credentialKinds:TYPES,verification:await statusForBusiness(pool,q.rows[0].id,q.rows[0].category,launchApprovalEnabled)});
+  res.json({businessId:q.rows[0].id,category:q.rows[0].category,credentialKinds:TYPES,verification:await statusForBusiness(pool,q.rows[0].id,q.rows[0].category,launchApprovalEnabled),expiryReminders:launchApprovalEnabled?await providerExpiry.forBusiness(pool,q.rows[0].id):[]});
+ }));
+ app.get('/api/provider-operations/expirations',...reviewer,safe(async(req,res)=>{
+  res.json({expirations:await providerExpiry.reviewQueue(pool,req.user.id),note:'Fictional test-provider warnings only. No automated external email or live credential verification.'});
  }));
  app.post('/api/provider-verification/submit',...business,safe(async(req,res)=>{
   const kind=String(req.body.kind||'');

@@ -14,6 +14,8 @@ const { livePaymentsAllowed, checkoutOutcome, refundableAmount, disputeState, ca
 const postService = require('./post-service');
 const verification = require('./provider-verification');
 const launchApproval = require('./provider-launch-approval');
+const operatorAccess = require('./operator-access');
+const providerExpiry = require('./provider-expiry');
 const previewAck = require('./preview-acknowledgement');
 const {createStagingGate} = require('./staging-access');
 
@@ -102,13 +104,14 @@ const ddl = [
 ]; 
 if (deferredEnabled || previewOnly) ddl.push(...postService.sql);
 if (verificationEnabled) ddl.push(...verification.schema);
-if (launchApprovalEnabled) ddl.push(...launchApproval.schema);
+if (launchApprovalEnabled) ddl.push(...launchApproval.schema,...operatorAccess.schema,...providerExpiry.schema);
 if (previewOnly && verificationEnabled) ddl.push(...previewAck.schema);
 async function startDatabase() {
  if (!pool) return;
  try {
   for (const statement of ddl) await pool.query(statement);
   ready = true;
+  if(launchApprovalEnabled)await providerExpiry.collect(pool).catch(e=>console.error('Preview expiry scan failed',e.message));
   console.log('RouteDrop PostgreSQL ready');
  } catch(err) { ready=false; console.error('Database unavailable:',err.message); }
 }
@@ -390,9 +393,9 @@ app.get('/api/me',requireDb,safe(async(req,res)=>{
   const r=await pool.query('SELECT id,name,city,category, (stripe_account_id IS NOT NULL) AS stripe_connected FROM businesses WHERE owner_id=$1',[req.user.id]);
   business=r.rows[0]||null;
  }
- const support_agent=(deferredEnabled||previewOnly) && (await pool.query('SELECT 1 FROM deferred_support_agents WHERE user_id=$1',[req.user.id])).rowCount>0;
- const document_reviewer=verificationEnabled && (await pool.query('SELECT 1 FROM provider_document_reviewers WHERE user_id=$1',[req.user.id])).rowCount>0;
- const launch_approver=launchApprovalEnabled && (await pool.query('SELECT 1 FROM provider_launch_approvers WHERE user_id=$1',[req.user.id])).rowCount>0;
+ const support_agent=(deferredEnabled||previewOnly) && (launchApprovalEnabled?await operatorAccess.allowed(pool,req.user.id,'support_reviewer'):(await pool.query('SELECT 1 FROM deferred_support_agents WHERE user_id=$1',[req.user.id])).rowCount>0);
+ const document_reviewer=verificationEnabled && (launchApprovalEnabled?await operatorAccess.allowed(pool,req.user.id,'credential_reviewer'):(await pool.query('SELECT 1 FROM provider_document_reviewers WHERE user_id=$1',[req.user.id])).rowCount>0);
+ const launch_approver=launchApprovalEnabled && await operatorAccess.allowed(pool,req.user.id,'launch_approver');
  res.json({user:req.user,business,support_agent,document_reviewer,launch_approver});
 }));
 app.get('/api/listings',requireDb,safe(async(req,res)=>{
@@ -621,3 +624,5 @@ app.use(express.static('routedrop-platform/public',{fallthrough:false,maxAge:'15
 app.use((err,req,res,next)=>{console.error('RouteDrop request error',err.message);res.status(500).json({error:'Unexpected server error.'});});
 app.listen(port,'0.0.0.0',()=>console.log('RouteDrop beta listening on '+port));
 startDatabase();
+// Best-effort synthetic preview scan only; dashboard warnings are computed live even after idle.
+if(launchApprovalEnabled)setInterval(()=>{if(ready)providerExpiry.collect(pool).catch(e=>console.error('Preview expiry scan failed',e.message));},6*60*60*1000).unref();

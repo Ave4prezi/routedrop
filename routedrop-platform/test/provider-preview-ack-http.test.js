@@ -8,6 +8,8 @@ const {createServer}=require('node:net');
 const path=require('node:path');
 const crypto=require('node:crypto');
 const terms=require('../preview-acknowledgement');
+const operatorAccess=require('../operator-access');
+const providerExpiry=require('../provider-expiry');
 const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 
 async function freePort(){
@@ -95,6 +97,8 @@ test('synthetic preview enforces exact version, stores immutable-version audit a
    password:'OnlyFakeOperator123!',role:'customer'};
   assert.equal((await register(reviewAccount)).status,201);
   assert.equal((await register(launchAccount)).status,201);
+  const adminAccount={name:'Fictional Designated Admin',email:'fictional-admin@ci.invalid',password:'OnlyFakeAdmin123!',role:'customer'};
+  assert.equal((await register(adminAccount)).status,201);
   const login=async(email,password)=>{
    const r=await fetch(base+'/api/login',{method:'POST',headers:sharedHeaders,body:JSON.stringify({email,password})});
    assert.equal(r.status,200,'fictional account can login');
@@ -112,12 +116,33 @@ test('synthetic preview enforces exact version, stores immutable-version audit a
    return fetch(base+endpoint,{method,headers,body:body===null?undefined:binary?body:JSON.stringify(body)});
   };
   const ids=await admin.query(
-   'SELECT id,email FROM '+schema+'.users WHERE email=ANY($1)',[[sample.email,reviewAccount.email,launchAccount.email]]
+   'SELECT id,email FROM '+schema+'.users WHERE email=ANY($1)',[[sample.email,reviewAccount.email,launchAccount.email,adminAccount.email]]
   );
   const byEmail=Object.fromEntries(ids.rows.map(r=>[r.email,r.id]));
-  await admin.query('INSERT INTO '+schema+'.provider_document_reviewers(user_id) VALUES($1)',[byEmail[reviewAccount.email]]);
-  await admin.query('INSERT INTO '+schema+'.provider_launch_approvers(user_id) VALUES($1),($2)',
-   [byEmail[launchAccount.email],byEmail[sample.email]]);
+  // Initial admin designation is a controlled, fixture-only DBA operation.
+  await admin.query('INSERT INTO '+schema+'.provider_operator_admins(user_id,appointment_reason) VALUES($1,$2)',
+    [byEmail[adminAccount.email],'CI-only fictional administrator bootstrap']);
+  const scopedDb=new Pool({connectionString:dbUrl.toString(),ssl:false});
+  const grant=async(targetEmail,role,days=45)=>operatorAccess.change(scopedDb,{
+   action:'grant',actorEmail:adminAccount.email,targetEmail,role,
+   reason:'Approved fictional operator test assignment',expiresAt:new Date(Date.now()+days*86400000).toISOString()
+  });
+  await assert.rejects(()=>operatorAccess.change(scopedDb,{
+   action:'grant',actorEmail:reviewAccount.email,targetEmail:launchAccount.email,role:'launch_approver',
+   reason:'Unauthorized fictional operator role change',expiresAt:new Date(Date.now()+45*86400000).toISOString()
+  }),/admin/);
+  await grant(reviewAccount.email,'credential_reviewer');
+  await grant(launchAccount.email,'launch_approver');
+  await grant(sample.email,'launch_approver');
+  await assert.rejects(()=>grant(reviewAccount.email,'launch_approver'),/different accounts/);
+  await assert.rejects(()=>operatorAccess.change(scopedDb,{
+   action:'grant',actorEmail:adminAccount.email,targetEmail:adminAccount.email,role:'launch_approver',
+   reason:'Cannot grant to the same fictional administrator',expiresAt:new Date(Date.now()+45*86400000).toISOString()
+  }),/distinct/);
+  assert.equal(await operatorAccess.allowed(scopedDb,byEmail[reviewAccount.email],'credential_reviewer'),true);
+  const expired=await scopedDb.query('SELECT COUNT(*)::int AS count FROM provider_operator_grants WHERE revoked_at IS NULL');
+  assert.equal(expired.rows[0].count,3);
+
   const b=(await admin.query('SELECT id FROM '+schema+'.businesses WHERE owner_id=$1',
    [byEmail[sample.email]])).rows[0];
   const businessId=Number(b.id);
@@ -143,7 +168,7 @@ test('synthetic preview enforces exact version, stores immutable-version audit a
    response=await http(ownerSession,'/api/provider-verification/document','POST',pdf,kind);
    assert.equal(response.status,202,'fictional evidence submitted for '+kind);
   }
-  const expiry=new Date(Date.now()+60*86400000).toISOString();
+  const expiry=new Date(Date.now()+10*86400000).toISOString();
   for(const kind of ['identity','business_info','liability_insurance']){
    response=await http(reviewerSession,'/api/provider-verification/review','POST',{
     businessId,kind,decision:'approved',note:'Synthetic sample evidence reviewed for test only',
@@ -155,6 +180,20 @@ test('synthetic preview enforces exact version, stores immutable-version audit a
   assert.equal(verified.eligible,false,'credential approval alone cannot release listings');
   assert.ok(verified.missing.includes('launch_approval'),'missing approval must be visible');
   assert.equal(verified.launch?.state,'pending');
+  const providerAlerts=(await (await http(ownerSession,'/api/provider-verification/me')).json()).expiryReminders;
+  assert.equal(providerAlerts.length,1);
+  assert.equal(providerAlerts[0].kind,'liability_insurance');
+  assert.equal(providerAlerts[0].severity,'upcoming');
+  const alerts=await (await http(reviewerSession,'/api/provider-operations/expirations')).json();
+  assert.ok(alerts.expirations.some(x=>Number(x.businessId)===businessId&&x.kind==='liability_insurance'));
+  assert.equal((await http(operatorSession,'/api/provider-operations/expirations')).status,403,
+   'launch approver alone may not read credential reviewer expirations');
+  const firstExpiryScan=await providerExpiry.collect(scopedDb);
+  const secondExpiryScan=await providerExpiry.collect(scopedDb);
+  assert.equal(firstExpiryScan.newEvents,1,'initial threshold persists one reminder');
+  assert.equal(secondExpiryScan.newEvents,0,'repeat scan is idempotent');
+  const storedExpiry=await scopedDb.query('SELECT kind,window_days FROM provider_credential_reminder_events WHERE business_id=$1',[businessId]);
+  assert.deepEqual(storedExpiry.rows.map(x=>[x.kind,x.window_days]),[['liability_insurance',14]]);
   assert.deepEqual(await visible(),[],'completed credential reviews do not publish the listing');
   response=await http(ownerSession,'/api/provider-launch/decision','POST',{
    businessId,category:'Cleaning',decision:'approved',note:'I approve my own business for testing'
@@ -200,6 +239,27 @@ test('synthetic preview enforces exact version, stores immutable-version audit a
   const audits=await admin.query('SELECT action FROM '+schema+'.provider_launch_audit WHERE business_id=$1 ORDER BY id',
    [businessId]);
   assert.deepEqual(audits.rows.map(x=>x.action),['approved','revoked','approved','approved']);
+  await operatorAccess.change(scopedDb,{
+   action:'revoke',actorEmail:adminAccount.email,targetEmail:launchAccount.email,role:'launch_approver',
+   reason:'Fictional operator offboarding and immediate revocation'
+  });
+  assert.equal((await http(operatorSession,'/api/provider-launch/queue')).status,403,
+   'revoked launch approver is denied immediately');
+  const operatorAudit=await scopedDb.query('SELECT role,action,reason FROM provider_operator_audit ORDER BY id');
+  assert.deepEqual(operatorAudit.rows.map(x=>x.action),['grant','grant','grant','revoke']);
+  assert.equal(await operatorAccess.allowed(scopedDb,byEmail[launchAccount.email],'launch_approver'),false);
+  await scopedDb.query("UPDATE provider_operator_grants SET expires_at=now()-interval '1 second' WHERE user_id=$1 AND role='credential_reviewer'",[byEmail[reviewAccount.email]]);
+  assert.equal((await http(reviewerSession,'/api/provider-operations/expirations')).status,403,
+   'expired reviewer role is denied on every request');
+  await scopedDb.query(
+   "UPDATE provider_verifications SET expires_at=now()-interval '45 days',updated_at=now() WHERE business_id=$1 AND kind='liability_insurance'",
+   [businessId]
+  );
+  const overdue=(await (await http(ownerSession,'/api/provider-verification/me')).json()).expiryReminders;
+  assert.ok(overdue.some(x=>x.kind==='liability_insurance'&&x.severity==='expired'),
+   'expired approvals remain visible even after 30 days');
+  assert.deepEqual(await visible(),[],'an expired required credential hides the listing regardless of launch approval');
+  await scopedDb.end();
   assert.equal((await admin.query('SELECT COUNT(*)::int AS n FROM '+schema+'.bookings')).rows[0].n,0,
    'fictional release never makes a payment booking');
  } finally {
