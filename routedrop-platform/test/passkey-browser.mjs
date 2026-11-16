@@ -138,6 +138,25 @@ try{
  assert.equal(status.code,200);assert.equal(status.data.step_up_active,true);
  assert.equal((await getAs(page,'/api/pilot/safety/moderation',key)).code,200,
   'fresh signed passkey proof grants a time-limited moderator session');
+ assert.equal((await postAs(page,'/api/pilot/moderator/passkeys/register/verify',key,{id:'fabricated'})).code,409,
+  'registration challenges cannot be replayed after real registration');
+ assert.equal((await postAs(page,'/api/pilot/moderator/passkeys/authenticate/verify',key,{id:credentials.rows[0].credential_id})).code,409,
+  'authentication challenges are one-time and cannot be replayed');
+ // A second login to the same verified moderator account is a different session;
+ // it must not inherit first session's short-lived WebAuthn step-up.
+ const freshContext=await browser.newContext({ignoreHTTPSErrors:true,
+  httpCredentials:{username:'routedrop-preview',password:preview}});
+ const freshPage=await freshContext.newPage();
+ await freshPage.goto(origin+'/',{waitUntil:'networkidle'});
+ await freshPage.locator('#nav-account [data-action="login"]').click();
+ const loginForm=freshPage.locator('#login-form');
+ await loginForm.locator('[name=email]').fill(userEmail);
+ await loginForm.locator('[name=password]').fill('not-a-real-person-test-password-99');
+ await loginForm.locator('[type=submit]').first().click();
+ await freshPage.locator('#modal').waitFor({state:'hidden'});
+ assert.equal((await getAs(freshPage,'/api/pilot/safety/moderation',key)).code,403,
+  'fresh sign-in to the same moderator account cannot inherit a different session\'s passkey authorization');
+ await freshContext.close();
  assert.equal((await postAs(page,'/api/pilot/moderator/passkeys/lock',key)).code,200);
  assert.equal((await getAs(page,'/api/pilot/safety/moderation',key)).code,403,
   'explicit moderator lock immediately revokes access');
@@ -159,7 +178,7 @@ try{
  assert.equal((await getAs(outsider,'/api/pilot/safety/moderation',key)).code,403);
  assert.deepEqual(pageErrors,[],'no client-side errors during actual WebAuthn ceremonies');
  await context.close();await outsiderContext.close();
- console.log('PASS real WebAuthn virtual device: registration, signed login, lock, expiry, verified allowlist, cross-account deny; test-only and no Stripe');
+ console.log('PASS real WebAuthn virtual device: registration, signed login, challenge replay, session isolation, lock, expiry, verified allowlist, cross-account deny; test-only and no Stripe');
 }finally{
  if(browser)await browser.close().catch(()=>{});
  if(proxy)await new Promise(resolve=>proxy.close(resolve)).catch(()=>{});
