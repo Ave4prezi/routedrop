@@ -78,15 +78,16 @@ if(previewPass){
   return Number(expires)>Date.now()&&same(mac,signature(expires+'.'+nonce));
  }
 
- function signInPage(res,error=false){
-  const formToken=random();
+ function signInPage(req,res,error,status=200){
+  const previousToken=req.cookies[formCookie];
+  const formToken=typeof previousToken==='string'&&/^[a-f0-9]{64}$/.test(previousToken)?previousToken:random();
   res.cookie(formCookie,formToken,{...cookieOptions,maxAge:15*60*1000});
-  return res.set({'Cache-Control':'no-store','Referrer-Policy':'same-origin'}).status(error?401:200).type('html').send(`<!doctype html>
+  return res.set({'Cache-Control':'no-store','Referrer-Policy':'same-origin'}).status(status).type('html').send(`<!doctype html>
 <html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>RouteDrop Private Staging</title>
 <main><h1>RouteDrop Private Staging</h1>
 <p>Sign in with your preview credentials.</p>
-${error?'<p role="alert">The username or password was incorrect.</p>':''}
+${error?'<p role="alert">'+error+'</p>':''}
 <form method="post" action="/preview-sign-in">
 <input type="hidden" name="formToken" value="${formToken}">
 <p><label for="preview-username">Username</label><br><input id="preview-username" name="username" type="text" autocomplete="username" required></p>
@@ -96,14 +97,17 @@ ${error?'<p role="alert">The username or password was incorrect.</p>':''}
 
  if(workflowPilot){
   const loginLimiter=rateLimit({windowMs:15*60*1000,limit:12,skipSuccessfulRequests:true,standardHeaders:'draft-7',legacyHeaders:false});
-  app.get(loginPath,(req,res)=>signInPage(res));
+  app.get(loginPath,(req,res)=>signInPage(req,res));
   app.post(loginPath,loginLimiter,express.urlencoded({extended:false,limit:'4kb',parameterLimit:3}),(req,res)=>{
-   const origin=req.get('origin');
-   const siteOrigin=baseUrl ? new URL(baseUrl).origin : 'https://'+req.get('host');
    const {username:enteredUsername,password,formToken}=req.body||{};
    const cookieToken=req.cookies[formCookie];
-   if((origin&&origin!=='null'&&origin!==siteOrigin)||typeof formToken!=='string'||typeof cookieToken!=='string'||!same(formToken,cookieToken))return res.set('Cache-Control','no-store').sendStatus(403);
-   if(typeof enteredUsername!=='string'||typeof password!=='string'||!same(enteredUsername+':'+password,expected))return signInPage(res,true);
+   const crossSite=req.get('sec-fetch-site')==='cross-site';
+   const validToken=typeof formToken==='string'&&typeof cookieToken==='string'&&same(formToken,cookieToken);
+   if(crossSite||!validToken){
+    console.warn('RouteDrop preview sign-in rejected: '+(crossSite?'cross-site submission':!cookieToken?'form cookie missing':!formToken?'form token missing':'form token mismatch'));
+    return signInPage(req,res,'The sign-in form could not be verified. Reload this page and allow cookies for this site before trying again.',403);
+   }
+   if(typeof enteredUsername!=='string'||typeof password!=='string'||!same(enteredUsername+':'+password,expected))return signInPage(req,res,'The username or password was incorrect.',401);
    const session=String(Date.now()+sessionDuration)+'.'+random();
    res.clearCookie(formCookie,cookieOptions);
    res.cookie(sessionCookie,session+'.'+signature(session),{...cookieOptions,maxAge:sessionDuration});
