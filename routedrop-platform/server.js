@@ -9,6 +9,7 @@ const { Pool } = require('pg');
 const serviceArea = require('./public/service-area');
 const bookingPilot = require('./booking-pilot');
 const opportunityPilot = require('./opportunity-pilot');
+const unifiedPilot = require('./unified-pilot');
 const Stripe = require('stripe');
 const { normalizeSubscriptionEvent, invoiceEvent, selectSubscription, canStartSubscription, subscriptionView, securityPolicy } = require('./subscription-security');
 const { providerReady, emailLink, isActionToken, notification, deliverEmail } = require('./mail');
@@ -109,7 +110,7 @@ const ddl = [
  "CREATE TABLE IF NOT EXISTS notification_outbox (id BIGSERIAL PRIMARY KEY, event_key TEXT UNIQUE NOT NULL, recipient TEXT NOT NULL, subject TEXT NOT NULL, body TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','sending','sent','failed')), attempts INTEGER NOT NULL DEFAULT 0, available_at TIMESTAMPTZ NOT NULL DEFAULT now(), sent_at TIMESTAMPTZ, last_error TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())",
  "CREATE INDEX IF NOT EXISTS notification_outbox_due ON notification_outbox(status,available_at)"
 ];
-if(workflowPilot)ddl.push(...bookingPilot.ddl,...opportunityPilot.ddl);
+if(workflowPilot)ddl.push(...bookingPilot.ddl,...opportunityPilot.ddl,...unifiedPilot.ddl);
 async function startDatabase() {
  if (!pool) return;
  try {
@@ -136,6 +137,13 @@ function requireUser(role) { return (req,res,next) => {
  if (role && req.user.role!==role) return forbidden(res,'Account does not have permission.',403);
  next();
 };}
+// The isolated pilot extends provider access to a customer account after provider setup.
+// Existing production role checks and all Stripe permissions remain unchanged.
+const requireProvider=(req,res,next)=>{
+ if(!req.user)return forbidden(res,'Please sign in.',401);
+ if(!workflowPilot)return requireUser('business')(req,res,next);
+ pool.query('SELECT id FROM businesses WHERE owner_id=$1',[req.user.id]).then(q=>q.rowCount?next():forbidden(res,'Create a test service provider profile first.',403)).catch(next);
+};
 async function createSession(userId,res) {
  const token=random();
  await pool.query("INSERT INTO sessions(token_hash,user_id,expires_at) VALUES ($1,$2,now() + interval '7 days')",[hash(token),userId]);
@@ -224,7 +232,7 @@ app.get('/api/config',(req,res)=>{
  if(!req.cookies.routedrop_csrf || !/^[a-f0-9]{64}$/.test(req.cookies.routedrop_csrf)){
   res.cookie('routedrop_csrf',random(),{secure:process.env.NODE_ENV==='production',httpOnly:false,sameSite:'lax',path:'/',maxAge:7*24*60*60*1000});
  }
- res.json({database:ready,payments:paymentsReady,workflow_pilot:workflowPilot&&ready,opportunity_pilot:workflowPilot&&ready,status:ready?'beta':'setup_required',email_enabled:emailReady,payments_mode:liveKey?(paymentsApproved?'live':'live_locked'):'test',public_url:baseUrl});
+ res.json({database:ready,payments:paymentsReady,workflow_pilot:workflowPilot&&ready,opportunity_pilot:workflowPilot&&ready,unified_pilot:workflowPilot&&ready,status:ready?'beta':'setup_required',email_enabled:emailReady,payments_mode:liveKey?(paymentsApproved?'live':'live_locked'):'test',public_url:baseUrl});
 });
 async function issueEmailAction(userId,email,purpose) {
  if(!emailReady||!baseUrl)return false;
@@ -377,13 +385,13 @@ app.post('/api/logout',requireDb,requireUser(),safe(async(req,res)=>{
 app.get('/api/me',requireDb,safe(async(req,res)=>{
  if(!req.user)return res.json({user:null});
  let business=null;
- if(req.user.role==='business'){
+ if(workflowPilot||req.user.role==='business'){
   const r=await pool.query('SELECT id,name,city,category,service_center_code,service_radius_miles, (stripe_account_id IS NOT NULL) AS stripe_connected'+(workflowPilot?',provider_kind':'')+' FROM businesses WHERE owner_id=$1',[req.user.id]);
   business=r.rows[0]||null;
  }
  res.json({user:req.user,business});
 }));
-app.put('/api/business/service-area',requireDb,requireUser('business'),safe(async(req,res)=>{
+app.put('/api/business/service-area',requireDb,requireProvider,safe(async(req,res)=>{
  const v=serviceArea.validate(req.body?.center,req.body?.radiusMiles);
  if(!v)return forbidden(res,'Select a supported city center and a radius of 5–50 miles in 5-mile steps.',400);
  const changed=await pool.query('UPDATE businesses SET service_center_code=$1,service_radius_miles=$2 WHERE owner_id=$3 RETURNING service_center_code,service_radius_miles',[v.center,v.radiusMiles,req.user.id]);
@@ -391,15 +399,17 @@ app.put('/api/business/service-area',requireDb,requireUser('business'),safe(asyn
  res.json({ok:true,serviceArea:changed.rows[0]});
 }));
 if(workflowPilot && pool){
- bookingPilot.registerPilotRoutes(app,{pool,safe,requireDb,requireUser,forbidden});
+ bookingPilot.registerPilotRoutes(app,{pool,safe,requireDb,requireUser,requireProvider,forbidden});
  opportunityPilot.registerOpportunityRoutes(app,{pool,safe,requireDb,requireUser,forbidden});
+ unifiedPilot.registerUnifiedRoutes(app,{pool,safe,requireDb,requireUser,requireProvider,forbidden});
 }
 app.get('/api/listings',requireDb,safe(async(req,res)=>{
+ if(workflowPilot)await unifiedPilot.syncOpenings(pool);
  const pilotExclusion=workflowPilot?" AND NOT EXISTS(SELECT 1 FROM service_requests r WHERE r.listing_id=l.id AND r.status IN ('requested','accepted','completed','confirmed','issue_reported'))":"";
  const data=await pool.query("SELECT l.id,l.title,l.category,l.neighborhood,l.price_cents,l.slot_start,l.duration_minutes,b.name AS business_name,b.city,b.service_center_code,b.service_radius_miles"+(workflowPilot?",b.provider_kind":"")+" FROM listings l JOIN businesses b ON b.id=l.business_id WHERE l.status='active' AND l.slot_start>now() AND NOT EXISTS(SELECT 1 FROM bookings k WHERE k.listing_id=l.id AND k.status IN ('awaiting_payment','paid','completed'))"+pilotExclusion+" ORDER BY l.slot_start ASC LIMIT 100");
  res.json({listings:data.rows});
 }));
-app.post('/api/listings',requireDb,requireUser('business'),safe(async(req,res)=>{
+app.post('/api/listings',requireDb,requireProvider,safe(async(req,res)=>{
  const title=clean(req.body.title,120),category=clean(req.body.category,50),neighborhood=clean(req.body.neighborhood,100),price=Number(req.body.priceCents),start=new Date(req.body.slotStart),mins=Number(req.body.durationMinutes||60);
  if(!title||!category||!neighborhood||!usd(price)||isNaN(start.getTime())||start.getTime()<Date.now()+10*60*1000||start.getTime()>Date.now()+60*24*60*60*1000||!Number.isInteger(mins)||mins<30||mins>480)return forbidden(res,'Check all service fields. Minimum price is $5 and opening must be within 60 days.');
  const r=await pool.query('INSERT INTO listings(business_id,title,category,neighborhood,price_cents,slot_start,duration_minutes) SELECT id,$2,$3,$4,$5,$6,$7 FROM businesses WHERE owner_id=$1 RETURNING id',[req.user.id,title,category,neighborhood,price,start.toISOString(),mins]);
@@ -473,7 +483,7 @@ app.post('/api/business/cancellation-requests/:id/decision',requireDb,requireUse
   return forbidden(res,'Refund could not be confirmed. Check Stripe before trying anything else; no second refund will be created automatically.',503);
  }
 }));
-app.get('/api/my-listings',requireDb,requireUser('business'),safe(async(req,res)=>{
+app.get('/api/my-listings',requireDb,requireProvider,safe(async(req,res)=>{
  const r=await pool.query('SELECT l.id,l.title,l.price_cents,l.neighborhood,l.slot_start,l.status FROM listings l JOIN businesses b ON b.id=l.business_id WHERE b.owner_id=$1 ORDER BY l.created_at DESC LIMIT 100',[req.user.id]);
  res.json({listings:r.rows});
 }));
