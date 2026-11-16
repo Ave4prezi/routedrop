@@ -118,7 +118,7 @@ async function startDatabase() {
  } catch(err) { ready=false; console.error('Database unavailable:',err.message); }
 }
 function requireDb(req,res,next) { if (!ready) return forbidden(res,'Accounts are not yet enabled. The private beta database is pending setup.',503); next(); }
-function setCookie(res,token) { res.cookie('__Host-rd_session',token,{secure:process.env.NODE_ENV==='production',httpOnly:true,sameSite:'lax',path:'/',maxAge:7*24*60*60*1000}); }
+function setCookie(res,token) { res.cookie('__Host-rd_session',token,{secure:true,httpOnly:true,sameSite:'lax',path:'/',maxAge:7*24*60*60*1000}); }
 async function sessionUser(req,res,next) {
  try {
   req.user=null;
@@ -315,7 +315,7 @@ app.post('/api/auth/reset-password',requireDb,authLimiter,safe(async(req,res)=>{
   await client.query('DELETE FROM sessions WHERE user_id=$1',[q.rows[0].user_id]);
   await client.query('DELETE FROM email_action_tokens WHERE user_id=$1',[q.rows[0].user_id]);
   await client.query('COMMIT');
-  res.clearCookie('__Host-rd_session',{path:'/'});
+  res.clearCookie('__Host-rd_session',{secure:true,httpOnly:true,sameSite:'lax',path:'/'});
   res.json({ok:true,message:'Password changed. Please log in again.'});
  }catch(e){await client.query('ROLLBACK').catch(()=>{});throw e;}finally{client.release();}
 }));
@@ -359,13 +359,13 @@ app.post('/api/auth/change-password',requireDb,requireUser(),authLimiter,safe(as
   await client.query('DELETE FROM email_action_tokens WHERE user_id=$1',[req.user.id]);
   await client.query('COMMIT');
  }catch(e){await client.query('ROLLBACK').catch(()=>{});throw e;}finally{client.release();}
- res.clearCookie('__Host-rd_session',{path:'/'});
+ res.clearCookie('__Host-rd_session',{secure:true,httpOnly:true,sameSite:'lax',path:'/'});
  res.json({ok:true,message:'Password updated. Sign in again with your new password.'});
 }));
 app.post('/api/logout',requireDb,requireUser(),safe(async(req,res)=>{
  const token=req.cookies['__Host-rd_session'];
  if(token)await pool.query('DELETE FROM sessions WHERE token_hash=$1',[hash(token)]);
- res.clearCookie('__Host-rd_session',{path:'/'});
+ res.clearCookie('__Host-rd_session',{secure:true,httpOnly:true,sameSite:'lax',path:'/'});
  res.json({ok:true});
 }));
 app.get('/api/me',requireDb,safe(async(req,res)=>{
