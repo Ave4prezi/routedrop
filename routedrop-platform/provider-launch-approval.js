@@ -2,6 +2,7 @@
 // Private, fictional-data preview only. A launch decision does not authorize real
 // onboarding, public listings, payment collection, or legal/regulatory claims.
 // A different explicitly designated role makes the release decision.
+const operatorAccess=require('./operator-access');
 const schema=[
  "CREATE TABLE IF NOT EXISTS provider_launch_approvers (user_id BIGINT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE, granted_at TIMESTAMPTZ NOT NULL DEFAULT now())",
  "CREATE TABLE IF NOT EXISTS provider_launch_decisions (business_id BIGINT NOT NULL REFERENCES businesses(id) ON DELETE CASCADE, category TEXT NOT NULL, state TEXT NOT NULL CHECK(state IN ('approved','revoked')), note TEXT NOT NULL, decided_by BIGINT NOT NULL REFERENCES users(id), decided_at TIMESTAMPTZ NOT NULL DEFAULT now(), PRIMARY KEY(business_id,category))",
@@ -26,8 +27,8 @@ function install(app,{enabled,pool,requireDb,requireUser,safe,forbidden,credenti
  const gate=(req,res,next)=>enabled?next():forbidden(res,'Synthetic launch review unavailable.',503);
  const approver=[gate,requireDb,requireUser(),(req,res,next)=>{
   Promise.resolve().then(async()=>{
-   const role=await pool.query('SELECT 1 FROM provider_launch_approvers WHERE user_id=$1',[req.user.id]);
-   if(!role.rowCount)return forbidden(res,'Launch approver permission required.',403);
+   const role=await operatorAccess.allowed(pool,req.user.id,'launch_approver');
+   if(!role)return forbidden(res,'Launch approver permission required.',403);
    next();
   }).catch(next);
  }];
