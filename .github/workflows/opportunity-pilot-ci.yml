@@ -1,4 +1,4 @@
-name: RouteDrop opportunities: solo providers, job posts and booking regression
+name: 'RouteDrop opportunities — solo providers, jobs and booking regression'
 on:
   push:
     branches:
