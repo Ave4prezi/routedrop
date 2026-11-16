@@ -16,18 +16,57 @@
    '<div class="detail">⌖ '+h(x.neighborhood)+', '+h(x.city)+'</div><div class="detail">'+(demo?'Example duration: ':'Duration: ')+h(x.duration_minutes)+' min</div>'+
    '<button class="profile-open" type="button" data-profile-listing="'+Number(x.id)+'">Explore business profile ↗</button>'+
    (valid?'<button class="coverage-open" type="button" data-coverage-listing="'+Number(x.id)+'">⌖ '+h(area.summary(valid.center,valid.radiusMiles))+' · View map</button>':'<p class="muted">Service area not listed</p>')+
-   '<div class="cardfoot"><span class="price">'+money(x.price_cents)+'</span><button class="btn dark" '+(!demo&&config?.payments?'data-book="'+Number(x.id)+'"':'disabled aria-label="Bookings not available in this preview"')+'>'+(demo?'Preview only':config?.payments?'Book this slot':'Not yet available')+'</button></div></div></article>';
+   '<div class="cardfoot"><span class="price">'+money(x.price_cents)+'</span><button class="btn dark" '+(demo?'data-demo-book="'+Number(x.id)+'"':config?.payments?'data-book="'+Number(x.id)+'"':'disabled aria-label="Bookings not available"')+'>'+(demo?'Try booking preview ↗':config?.payments?'Book this slot':'Not yet available')+'</button></div></div></article>';
   }).join('');
  }
- function bookings(){
-  return '<div class="studio-demo-top"><div class="eyebrow">A PRIVATE TOUR OF THE EXPERIENCE</div><h2>Every detail, thoughtfully handled.</h2><p>See how customers could move from discovery to completion. No actual appointment or payment exists.</p></div>'+
-  '<div class="sample-booking-steps"><article><span>STEP 01</span><strong>Find the right fit</strong><p>Explore services and see approximate provider coverage.</p></article><article><span>STEP 02</span><strong>Set the date</strong><p>In a future approved flow, request an opening with clear expectations.</p></article><article><span>STEP 03</span><strong>Approve the completed work</strong><p>Customer confirmation would be required before charging.</p></article></div>'+
-  '<div class="panel"><h3>Your future bookings, all in one place.</h3><p class="muted">This private preview uses invented examples only. No booking history or payment information exists.</p><button class="btn" type="button" data-tab="explore">Explore example services</button></div>';
+ const WINDOWS=Object.freeze({morning:'9:00 AM',afternoon:'1:00 PM',evening:'5:00 PM'});
+ const STATUSES=Object.freeze({requested:'Awaiting provider response',accepted:'Accepted by provider',completed:'Work marked complete',confirmed:'Customer confirmed · no charge',declined:'Declined by provider',canceled:'Canceled by customer',review:'Problem reported · no charge'});
+ function demoBookingModal(x,slot='afternoon'){
+  if(!x?.demoKind||!Object.hasOwn(WINDOWS,slot))return '';
+  return '<div class="demo-modal-banner"><span class="demo-status-kicker">INTERACTIVE · FICTIONAL SCENARIO</span><h2 id="modal-title">Preview a booking</h2><p>Walk through the customer experience without entering an address, creating an account or providing a payment method.</p></div>'+
+  '<div class="demo-selected-service"><div class="demo-mini-photo provider-photo--'+h(kind(x))+'" aria-hidden="true"></div><div><small>YOUR EXAMPLE SERVICE</small><strong>'+h(x.title)+'</strong><span>'+h(x.business_name)+' · '+h(x.city)+'</span></div></div>'+
+  '<div class="demo-step-heading"><span>01 / 02</span><h3>Select a sample arrival window</h3><p>These are illustrative options, not actual provider availability or a confirmed appointment.</p></div>'+
+  '<div class="demo-time-options" role="group" aria-label="Sample time window">'+Object.entries(WINDOWS).map(([key,label])=>'<button type="button" class="demo-time-option" data-demo-slot="'+key+'" aria-pressed="'+(key===slot)+'"><strong>'+h(label)+'</strong><small>'+h(key[0].toUpperCase()+key.slice(1))+'</small></button>').join('')+'</div>'+
+  '<div class="demo-cost-box"><div><span>Example service price</span><strong>'+money(x.price_cents)+'</strong></div><div><span>Charged today</span><strong>$0.00</strong></div><p>The proposed customer-confirmation payment process has not been activated. No charge will occur in this demonstration.</p></div>'+
+  '<div class="demo-book-actions"><button type="button" class="btn" data-action="demo-confirm-request">Create fictional request <span aria-hidden="true">↗</span></button><button type="button" class="btn secondary" data-action="demo-back-to-profile">Return to profile</button></div>';
  }
- function studio(radiusMarkup){
-  return '<div class="studio-demo-top"><div class="eyebrow">THE PROVIDER EXPERIENCE</div><h2>A more beautiful way to run your day.</h2><p>Preview future provider tools and your coverage planning workflow. All figures are illustrations, not actual revenue or performance.</p></div>'+
-  '<div class="studio-highlights"><div><span>Example service radius</span><strong>20 mi</strong><p>Centered on Decatur · adjustable</p></div><div><span>Example service price</span><strong>$75</strong><p>Fictional house cleaning service</p></div><div><span>Proposed platform fee</span><strong>8%</strong><p>On successfully collected service payments</p></div></div>'+radiusMarkup+
-  '<div class="panel"><h3>Your business, moving forward</h3><div class="record"><div><strong>Set your territory</strong><p>Choose your approximate city center and the miles you travel.</p></div><span class="pill">Try it now</span></div><div class="record"><div><strong>Publish openings</strong><p>In the approved version, list times, prices and service durations.</p></div><span class="pill">Planned</span></div><div class="record"><div><strong>Complete work and get paid</strong><p>Customer-authorized payment after completed work is the proposed model.</p></div><span class="pill">Not active</span></div></div>';
+ function requestMarkup(requests,mode){
+  if(!requests.length)return '<div class="panel demo-empty"><div class="demo-empty-symbol" aria-hidden="true">✦</div><h3>'+ (mode==='provider'?'No example requests yet':'Your preview starts with a service')+'</h3><p class="muted">'+(mode==='provider'?'Go to Explore services, choose a fictional listing and try its booking preview. The example will appear here.':'Explore a fictional provider and select “Try booking preview.” You can follow the example from request to completion without any personal information.')+'</p><button class="btn" type="button" data-tab="explore">Explore services <span aria-hidden="true">↗</span></button></div>';
+  return requests.map(req=>{
+   const item=DEMO.find(x=>x.id===req.listingId);if(!item)return '';
+   const status=STATUSES[req.status]||'Unknown demo state';
+   let controls='';
+   if(mode==='customer'){
+    if(req.status==='requested'||req.status==='accepted')controls='<button class="btn secondary" type="button" data-demo-action="cancel" data-demo-id="'+req.id+'">Cancel fictional request</button>';
+    if(req.status==='accepted')controls+='<button class="btn" type="button" data-tab="business">View provider actions</button>';
+    if(req.status==='completed')controls='<button class="btn" type="button" data-demo-action="approve" data-demo-id="'+req.id+'">Confirm work · no charge</button><button class="btn secondary" type="button" data-demo-action="report" data-demo-id="'+req.id+'">Report a problem (demo)</button>';
+   }else{
+    if(req.status==='requested')controls='<button class="btn" type="button" data-demo-action="accept" data-demo-id="'+req.id+'">Accept fictional job</button><button class="btn secondary" type="button" data-demo-action="decline" data-demo-id="'+req.id+'">Decline</button>';
+    if(req.status==='accepted')controls='<button class="btn" type="button" data-demo-action="finish" data-demo-id="'+req.id+'">Mark example work complete</button>';
+   }
+   const stages=['requested','accepted','completed','confirmed'],order=stages.indexOf(req.status),last=order===-1?0:order;
+   return '<article class="demo-request" aria-label="Fictional request for '+h(item.title)+'"><div class="demo-request-header"><div><span class="demo-status-kicker">SAMPLE REQUEST · '+h(req.id.toUpperCase())+'</span><h3>'+h(item.title)+'</h3><p>'+h(item.business_name)+' · '+h(item.neighborhood)+'</p></div><span class="demo-stage '+(req.status==='confirmed'?'complete':req.status==='review'?'needs-review':'')+'">'+h(status)+'</span></div>'+
+   '<div class="demo-request-info"><div><small>ILLUSTRATIVE TIME</small><strong>'+h(WINDOWS[req.slot])+'</strong></div><div><small>EXAMPLE PRICE</small><strong>'+money(item.price_cents)+'</strong></div><div><small>ACTUAL AMOUNT CHARGED</small><strong>$0.00</strong></div></div>'+
+   '<div class="demo-progress" aria-label="Simulated booking stages">'+stages.map((name,i)=>'<div class="'+(i<=last?'done':'')+'"><span>'+(i<=last?'✓':String(i+1))+'</span><small>'+h(name==='requested'?'Requested':name==='accepted'?'Accepted':name==='completed'?'Work done':'Confirmed')+'</small></div>').join('')+'</div>'+
+   '<p class="demo-safety-caption">'+(req.status==='confirmed'?'The customer confirmed the fictional work. No charge or provider payout was made.':req.status==='review'?'A simulated problem was reported. The preview has not contacted support or created a real dispute.':req.status==='declined'||req.status==='canceled'?'The fictional request is closed. Nothing was canceled or changed outside this page.':'Demo statuses are stored only in this open page; no real appointment exists.')+'</p>'+
+   (controls?'<div class="demo-request-actions">'+controls+'</div>':'')+'</article>';
+  }).join('');
+ }
+ function bookings(requests=[]){
+  return '<div class="studio-demo-top"><div class="eyebrow">INTERACTIVE CUSTOMER PREVIEW</div><h2>Every detail, thoughtfully handled.</h2><p>Follow fictional requests from discovery to completion. No real appointments, personal data, or charges are created.</p></div>'+
+  '<div class="sample-booking-steps"><article><span>STEP 01</span><strong>Choose a professional</strong><p>Browse fictional providers, sample prices and coverage maps.</p></article><article><span>STEP 02</span><strong>Preview a time</strong><p>Choose a fictional arrival window and follow a provider response.</p></article><article><span>STEP 03</span><strong>Confirm the work</strong><p>Practice the planned customer approval step. This preview never charges a card.</p></article></div>'+
+  '<div class="demo-section-head"><div><span class="eyebrow">YOUR EXAMPLE APPOINTMENTS</span><h2>Booking walkthrough</h2></div><button class="demo-reset" type="button" data-action="demo-reset">Reset demo</button></div>'+
+  '<div class="demo-request-list">'+requestMarkup(requests,'customer')+'</div>';
+ }
+ function studio(radiusMarkup,requests=[]){
+  const active=requests.filter(x=>['requested','accepted','completed'].includes(x.status)).length;
+  const done=requests.filter(x=>x.status==='confirmed').length;
+  return '<div class="studio-demo-top"><div class="eyebrow">INTERACTIVE BUSINESS STUDIO</div><h2>A more beautiful way to run your day.</h2><p>Practice reviewing requests and managing your travel radius. Every appointment, provider and amount here is fictional and stored only in this page.</p></div>'+
+  '<div class="studio-highlights"><div><span>Demo requests awaiting action</span><strong>'+active+'</strong><p>Not real leads or customers</p></div><div><span>Example requests completed</span><strong>'+done+'</strong><p>No actual services performed</p></div><div><span>Example platform fee</span><strong>8%</strong><p>Proposed for collected payments · none charged</p></div></div>'+
+  '<div class="demo-section-head"><div><span class="eyebrow">YOUR DAY AT A GLANCE</span><h2>Sample job requests</h2></div><button class="demo-reset" type="button" data-action="demo-reset">Reset demo</button></div>'+
+  '<div class="demo-request-list">'+requestMarkup(requests,'provider')+'</div>'+
+  radiusMarkup+
+  '<div class="panel"><h3>Designed for the way you work</h3><div class="record"><div><strong>Set your territory</strong><p>Experiment with city-center coverage and quick radius settings.</p></div><span class="pill">Interactive preview</span></div><div class="record"><div><strong>Manage your availability</strong><p>Future verified providers can publish service hours and accurate prices.</p></div><span class="pill">Planned</span></div><div class="record"><div><strong>Earn after completed work</strong><p>The proposed fee applies only to real, successfully collected payments after launch approval.</p></div><span class="pill">Not active</span></div></div>';
  }
  function profile(x,area){
   const demo=Boolean(x.demoKind),valid=area.validate(x.service_center_code,x.service_radius_miles);
@@ -47,5 +86,5 @@
   (valid?'<h3>Service-area preview</h3><p>'+h(area.summary(valid.center,valid.radiusMiles))+'. Straight-line estimate; road access and address-level coverage are not guaranteed.</p><div class="coverage-map-wrap">'+area.mapSvg(valid.center,valid.radiusMiles)+'</div>':'<p>No coverage radius is currently listed.</p>')+
   '<p class="legal">'+(demo?'Fictional demonstration. No real reviews, verified provider, availability or booking exists.':'No verified identity or customer rating claims are being made.')+'</p>';
  }
- root.RouteDropPremium2=Object.freeze({DEMO,cards,bookings,studio,profile});
+ root.RouteDropPremium2=Object.freeze({DEMO,WINDOWS,STATUSES,cards,bookings,studio,profile,demoBookingModal});
 })(window);
