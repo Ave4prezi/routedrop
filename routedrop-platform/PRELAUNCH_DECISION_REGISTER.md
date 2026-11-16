@@ -20,7 +20,7 @@
 
 - Legal entity: NOT CONFIRMED
 - Operator/contract signer: NOT NAMED
-- Primary support contact + hours: **PRIMARY DESIGNATED AND SELF-ACCEPTED (identity kept off public GitHub)**; shared temporary business mailbox proposed; both primary and backup report having access; mailbox owner authorization, RouteDrop-specific send/receive testing, availability and coverage hours UNCONFIRMED.
+- Primary support contact + hours: **PRIMARY DESIGNATED AND SELF-ACCEPTED (identity kept off public GitHub)**; shared temporary business mailbox proposed; both primary and backup report having access; mailbox owner authorization and RouteDrop-specific send/receive testing UNCONFIRMED; **operator-selected support hours are Monday–Friday, 9:00 AM–5:00 PM America/Chicago (Central, observes daylight saving time)**. Staffing/handoff during those hours is not yet verified.
 - Backup support contact: **BACKUP ACCEPTED VERBALLY IN PERSON, AS REPORTED BY PRIMARY CONTACT (identity kept off public GitHub)** on November 15, 2026; written acknowledgment recommended; availability, secure handoff and alternate contact method UNCONFIRMED.
 - Privacy contact: NOT ASSIGNED
 - Security incident lead + backup: NOT ASSIGNED
@@ -44,8 +44,8 @@ Public contact emails were verified against the firms' websites. No statements f
 ### Support responsibility status — personal contact roster intentionally not published
 
 - **Business/operator accountable owner:** an authorized RouteDrop representative must approve vendor selection, budget, legal entity and release decisions. **UNCONFIRMED.**
-- **Primary support lead:** designated by the project operator, who has personally accepted responsibility. **INTERNAL ROLE ASSIGNED; operating hours, verified public support channel, training and escalation handoff still PENDING.** Keep identity in a separate access-controlled contact roster, not this public repository.
-- **Backup support/continuity contact:** a distinct backup verbally accepted the role in person, as reported by the primary contact on November 15, 2026. **ACCEPTANCE REPORTED; written role acknowledgment recommended; hours, reliable contact route, escalation handoff and inbox test PENDING.** Keep identity in a private roster, not this public repository.
+- **Primary support lead:** designated by the project operator, who has personally accepted responsibility. **INTERNAL ROLE ASSIGNED; support hours selected as Monday–Friday 9 AM–5 PM Central; verified public support channel, actual staffed coverage, training and escalation handoff still PENDING.** Keep identity in a separate access-controlled contact roster, not this public repository.
+- **Backup support/continuity contact:** a distinct backup verbally accepted the role in person, as reported by the primary contact on November 15, 2026. **ACCEPTANCE REPORTED; written role acknowledgment recommended; agreed support window Monday–Friday 9 AM–5 PM Central, but backup availability, reliable contact route, escalation handoff and inbox test PENDING.** Keep identity in a private roster, not this public repository.
 - **Security incident commander:** a qualified named primary (internal or contracted) must accept incident triage, vendor coordination, containment and counsel escalation. **UNASSIGNED.**
 - **Incident backup:** a second independent contact and tested out-of-band communications are required. **UNASSIGNED.**
 - **Privacy/data-rights contact:** an actual owner/inbox must be established and reviewed by counsel before publishing contact details. **UNASSIGNED.**
@@ -57,7 +57,7 @@ Next decision: after quotes arrive, record proposed scope, costs, independence, 
 
 The project operator proposed temporarily using an existing mailbox belonging to a separate affiliated organization for RouteDrop business/customer support. **This public repo intentionally does not name that mailbox or publish personal contact identities.** Both primary and backup contacts report that they can access the mailbox. **RouteDrop-specific send/receive, routing, mailbox owner authorization, and contractual/privacy permission are still not independently verified.**
 
-Before any real messages are invited: verify organizational authorization to use the shared mailbox, test email in both directions with each authorized operator, set separate labels or forwarding for RouteDrop conversations, assign primary/backup coverage and hours, prepare a RouteDrop-identifying signature and privacy notice, and approve retention/access terms for information from two separate organizations. Prefer a dedicated RouteDrop-domain mailbox before a public pilot. No real-data support channel is approved solely by this entry.
+Before any real messages are invited: verify organizational authorization to use the shared mailbox, test email in both directions with each authorized operator, set separate labels or forwarding for RouteDrop conversations, confirm primary/backup staffing and handoff for the selected Monday–Friday 9 AM–5 PM Central window, prepare a RouteDrop-identifying signature and privacy notice, and approve retention/access terms for information from two separate organizations. Prefer a dedicated RouteDrop-domain mailbox before a public pilot. No real-data support channel is approved solely by this entry.
 
 ## Safe next actions
 
