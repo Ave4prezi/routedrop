@@ -1,0 +1,22 @@
+/* Premium 2.0 Find Work: fictional job board and provider onboarding */
+.opportunity-paths{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px;margin-bottom:22px}
+.opportunity-paths article{border:1px solid #dce8f7;border-radius:21px;background:#fff;padding:26px;box-shadow:0 12px 25px #173b6a0b}
+.opportunity-paths article>span{font-size:10px;letter-spacing:.12em;color:#336ac1;font-weight:850}
+.opportunity-paths h3{font-size:21px;line-height:1.2;color:#133e71;margin:12px 0}
+.opportunity-paths p{font-size:12px;color:#6d839f;line-height:1.7}
+.opportunity-paths .btn{margin-top:8px;max-width:100%;white-space:normal}
+.opportunity-search{width:100%;max-width:620px;border-radius:15px;border:1px solid #d1dff1;padding:15px 17px;font-size:14px;background:#fff;color:#14365d}
+.opportunity-search:focus-visible{outline:3px solid #71aaff;outline-offset:2px}
+.opportunity-disclosure{font-size:11px;line-height:1.6;color:#667e9c;margin:12px 0 22px}
+.opportunity-cards{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px;margin-bottom:32px}
+.opportunity-card{border:1px solid #deebf8;background:#fff;border-radius:21px;padding:26px;box-shadow:0 13px 30px #173b6a0b}
+.opportunity-card h3{font-size:22px;margin:13px 0 7px;color:#143961;letter-spacing:-.035em}
+.opportunity-card p{font-size:12px;color:#69819d;line-height:1.65}
+.opportunity-card .opportunity-employer{font-size:12px;color:#436a9a}
+.opportunity-pay{font-size:18px;color:#174d9e;display:block;margin:14px 0}
+.opportunity-card .btn{margin-top:10px}
+.opportunity-card[hidden]{display:none}
+.opportunity-manage .row{flex-wrap:wrap;gap:16px}
+.opportunity-manage .pilot-listing-row{border-top:1px solid #e1eaf5}
+#job-form input,#job-form select,#job-form textarea{width:100%;box-sizing:border-box}
+@media(max-width:700px){.opportunity-paths,.opportunity-cards{grid-template-columns:1fr}.opportunity-card,.opportunity-paths article{padding:21px}.opportunity-search{max-width:100%}}

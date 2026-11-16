@@ -4,7 +4,8 @@ const $=id=>document.getElementById(id);
 const coverage=window.RouteDropServiceArea;
 const premium=window.RouteDropPremium2;
 const pilot=window.RouteDropPilotUI;
-const state={config:null,me:null,listings:[],bookings:[],mine:[],tab:'explore',demo:false,demoRequests:[],demoCounter:0,demoListingId:null,demoSlot:'afternoon',demoArea:{center:'decatur',radiusMiles:20},pilotRequests:[],pilotListingId:null};
+ const opportunities=window.RouteDropOpportunities;
+const state={config:null,me:null,listings:[],bookings:[],mine:[],tab:'explore',demo:false,demoRequests:[],demoCounter:0,demoListingId:null,demoSlot:'afternoon',demoArea:{center:'decatur',radiusMiles:20},pilotRequests:[],pilotListingId:null,jobs:[],jobSearch:''};
 const esc=v=>String(v===null||v===undefined?'':v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const money=cents=>new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(Number(cents||0)/100);
 const when=iso=>new Intl.DateTimeFormat('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}).format(new Date(iso));
@@ -64,7 +65,7 @@ async function refresh(){
  if(!state.config)return;
  if(!state.config.database){
   state.demo=true;state.listings=premium.DEMO;renderOffers();
-  $('my-bookings').innerHTML=premium.bookings(state.demoRequests);$('studio-body').innerHTML=premium.studio(serviceCoveragePanel({service_center_code:state.demoArea.center,service_radius_miles:state.demoArea.radiusMiles},true),state.demoRequests);nav();return;
+  $('my-bookings').innerHTML=premium.bookings(state.demoRequests);$('studio-body').innerHTML=premium.studio(serviceCoveragePanel({service_center_code:state.demoArea.center,service_radius_miles:state.demoArea.radiusMiles},true),state.demoRequests);state.jobs=opportunities.sampleJobs;$('job-board').innerHTML=opportunities.jobs(state.jobs,true,state.jobSearch);nav();return;
  }
  try{
   const who=await api('/api/me');state.me=who;nav();
@@ -80,9 +81,14 @@ async function refresh(){
    if(!state.me.user){$('my-bookings').innerHTML='<div class="empty">Please log in to see your bookings.</div>';return;}
    const r=await api('/api/bookings');state.bookings=r.bookings;renderBookings();
   }else if(state.tab==='business') await studio();
+   else if(state.tab==='jobs') await loadJobs();
  }catch(e){message(e.message,true);}
 }
-function serviceCoveragePanel(b,readonly=false){
+async function loadJobs(){
+  if(!state.config?.opportunity_pilot){state.jobs=opportunities.sampleJobs;$('job-board').innerHTML=opportunities.jobs(state.jobs,true,state.jobSearch);return;}
+  const data=await api('/api/pilot/jobs');state.jobs=data.jobs;$('job-board').innerHTML=opportunities.jobs(state.jobs,false,state.jobSearch);
+ }
+ function serviceCoveragePanel(b,readonly=false){
  const v=coverage.validate(b?.service_center_code,b?.service_radius_miles);
  const city=Object.entries(coverage.CITIES).map(([key,p])=>'<option value="'+key+'"'+(v?.center===key?' selected':'')+'>'+esc(p.name)+', AL</option>').join('');
  const choices='<option value="">Choose your approximate city center</option>'+city;
@@ -134,9 +140,9 @@ async function studio(){
  if(!u){$('studio-body').innerHTML='<div class="empty"><h3>Business account required</h3><p>Create a business account to list open route slots.</p><button class="btn" data-action="register">Register a business</button></div>';return;}
  if(u.role!=='business'){$('studio-body').innerHTML='<div class="empty">You are signed in as a customer. Use a separate business account to publish routes.</div>';return;}
  if(state.config.workflow_pilot){
-  const [listings,requests]=await Promise.all([api('/api/my-listings'),api('/api/pilot/requests')]);
+  const [listings,requests,jobs]=await Promise.all([api('/api/my-listings'),api('/api/pilot/requests'),api('/api/pilot/my-jobs')]);
   state.mine=listings.listings;state.pilotRequests=requests.requests;
-  $('studio-body').innerHTML=pilot.studio(state.me.business,state.mine,state.pilotRequests,serviceCoveragePanel(state.me.business));return;
+  $('studio-body').innerHTML=pilot.studio(state.me.business,state.mine,state.pilotRequests,serviceCoveragePanel(state.me.business))+opportunities.employerPanel(jobs.jobs,state.me.business.provider_kind);return;
  }
  const b=state.me.business,r=await Promise.all([api('/api/my-listings'),api('/api/bookings')]);
  state.mine=r[0].listings;state.bookings=r[1].bookings;
@@ -154,8 +160,16 @@ async function studio(){
  '<div class="panel"><h3>My route openings</h3>'+(state.mine.length?state.mine.map(x=>'<div class="record"><div><strong>'+esc(x.title)+'</strong><p>'+esc(x.neighborhood)+' · '+when(x.slot_start)+'</p></div><strong>'+money(x.price_cents)+'</strong></div>').join(''):'<p class="muted">No openings published yet.</p>')+'</div>'+
  '<div class="panel"><h3>Recent bookings</h3>'+(state.bookings.length?state.bookings.map(x=>'<div class="record"><div><strong>'+esc(x.title)+'</strong><p>'+when(x.slot_start)+' · '+esc(x.status)+'</p></div>'+(x.status==='paid'&&!['pending','processing','needs_review'].includes(x.cancellation_request_status)?'<button class="btn" data-complete="'+x.id+'">Complete</button>':'<strong>'+money(x.price_cents)+'</strong>')+'</div>').join(''):'<p class="muted">No bookings recorded.</p>')+'</div>';
 }
-function showRegistration(){
- overlay('<h2 id="modal-title">'+(state.config?.workflow_pilot?'Create a test account':'Create your account')+'</h2><p>'+(state.config?.workflow_pilot?'Use a fictional name and test email address. This isolated system saves account data for testing; never enter a real customer’s personal details.':'Join RouteDrop as a customer or service professional.')+'</p><form id="register-form"><label>Account type</label><select name="role" id="register-role"><option value="customer">Customer</option><option value="business">Business owner</option></select><label>Your full name</label><input name="name" minlength="2" maxlength="90" required autocomplete="name"><label>Email address</label><input name="email" type="email" maxlength="254" required autocomplete="email"><label>Password (12+ characters)</label><input name="password" type="password" minlength="12" maxlength="128" required autocomplete="new-password"><div id="business-fields" class="hidden"><label>Business name</label><input name="businessName" maxlength="120"><label>City</label><input name="city" maxlength="100" value="Decatur, AL"><label>Service category</label><select name="category"><option>Washing</option><option>Lawn care</option><option>Car detailing</option><option>Cleaning</option><option>Other</option></select></div><p class="legal">Use a unique password. Verification will be required for payments when email delivery is enabled.</p><p id="form-error" class="error"></p><button type="submit" class="btn">Register</button></form>');
+function showRegistration(preferredRole='customer'){
+ overlay('<h2 id="modal-title">'+(state.config?.workflow_pilot?'Create a test account':'Create your account')+'</h2><p>'+(state.config?.workflow_pilot?'Use a fictional name and test email address. This isolated system saves account data for testing; never enter a real customer’s personal details.':'Join RouteDrop as a customer or service professional.')+'</p><form id="register-form"><label>Account type</label><select name="role" id="register-role"><option value="customer">Customer</option><option value="business">Business / employer</option><option value="individual">Individual service provider</option></select><label>Your full name</label><input name="name" minlength="2" maxlength="90" required autocomplete="name"><label>Email address</label><input name="email" type="email" maxlength="254" required autocomplete="email"><label>Password (12+ characters)</label><input name="password" type="password" minlength="12" maxlength="128" required autocomplete="new-password"><div id="business-fields" class="hidden"><label id="signup-provider-name-label">Business / employer name</label><input name="businessName" maxlength="120"><label>City</label><input name="city" maxlength="100" value="Decatur, AL"><label>Service category</label><select name="category"><option>Washing</option><option>Lawn care</option><option>Car detailing</option><option>Cleaning</option><option>Other</option></select></div><p class="legal">Use fictional identities only in this pilot. Real applicant data and payments are disabled.</p><p id="form-error" class="error"></p><button type="submit" class="btn">Register</button></form>');
+ $('register-role').value=preferredRole;
+ syncSignupFields();
+}
+function syncSignupFields(){
+ const selected=$('register-role')?.value,fields=$('business-fields');if(!fields)return;
+ fields.classList.toggle('hidden',selected==='customer');
+ const label=$('signup-provider-name-label');if(label)label.textContent=selected==='individual'?'Your public provider name uses your fictional account name':'Business / employer name';
+ const nameInput=fields.querySelector('[name="businessName"]');if(nameInput)nameInput.disabled=selected==='individual';
 }
 function showLogin(){
  overlay('<h2 id="modal-title">Welcome back</h2><p>'+(state.config?.workflow_pilot?'Sign in with your RouteDrop pilot test credentials only. No real customer accounts or payments are supported.':'Log in to your RouteDrop account.')+'</p><form id="login-form"><label>Email</label><input type="email" name="email" maxlength="254" autocomplete="email" required><label>Password</label><input type="password" name="password" autocomplete="current-password" required><p id="form-error" class="error"></p><button class="btn" type="submit">Log in</button><button type="button" class="btn secondary" data-action="forgot-password">Forgot password?</button></form>');
@@ -180,6 +194,14 @@ async function act(e){
  const el=e.target.closest('button');if(!el)return;
  if(el.dataset.tab){if(!$('modal').classList.contains('hidden'))dismiss();switchTab(el.dataset.tab);return;}
  if(el.dataset.profileListing){const x=state.listings.find(item=>Number(item.id)===Number(el.dataset.profileListing));if(x)overlay(premium.profile(x,coverage,state.config));return;}
+ if(el.dataset.jobDetail){const x=state.jobs.find(j=>Number(j.id)===Number(el.dataset.jobDetail));if(x)overlay(opportunities.details(x));return;}
+ if(el.dataset.jobStatusId&&state.config?.opportunity_pilot){
+  const id=Number(el.dataset.jobStatusId),status=el.dataset.jobStatus;
+  if(!Number.isSafeInteger(id)||!['active','paused'].includes(status))return;
+  el.disabled=true;
+  try{await api('/api/pilot/jobs/'+id+'/status',{method:'PATCH',body:JSON.stringify({status})});message('Test employment post '+status+'.');await studio();}catch(err){message(err.message,true);}finally{if(el.isConnected)el.disabled=false;}
+  return;
+ }
  if(el.dataset.pilotRequest&&state.config?.workflow_pilot){
   const x=state.listings.find(item=>Number(item.id)===Number(el.dataset.pilotRequest));
   if(!x)return;
@@ -296,6 +318,12 @@ async function act(e){
   if(action==='register')showRegistration();else showLogin();
   return;
  }
+ if(action==='register-individual'){
+  if(state.me?.user){message('A separate test account is currently required to switch between customer and provider. Multi-role profiles are planned.',true);return;}
+  if(state.demo&&!state.config?.database){overlay('<h2 id="modal-title">Independent-provider preview</h2><p>This database-free design preview does not accept accounts. Try individual-provider registration in the isolated test pilot.</p>');return;}
+  showRegistration('individual');return;
+ }
+ if(action==='post-job'){if(state.config?.opportunity_pilot)overlay(opportunities.form());else message('Real job posting is disabled in this preview.',true);return;}
  if(action==='create-listing'){showListing();return;}
  if(action==='change-password'){showChangePassword();return;}
  if(action==='forgot-password'){showForgotPassword();return;}
@@ -317,7 +345,7 @@ async function act(e){
  if(el.dataset.complete){try{await api('/api/bookings/'+Number(el.dataset.complete)+'/complete',{method:'POST'});message('Job marked completed.');refresh();}catch(err){message(err.message,true);}return;}
 }
 async function submit(e){
- if(!['register-form','login-form','listing-form','forgot-form','reset-form','change-password-form'].includes(e.target.id))return;
+ if(!['register-form','login-form','listing-form','forgot-form','reset-form','change-password-form','job-form'].includes(e.target.id))return;
  e.preventDefault();
  const form=e.target,d=Object.fromEntries(new FormData(form).entries());
  const err=$('form-error');err.textContent='';
@@ -328,6 +356,10 @@ async function submit(e){
   if(form.id==='change-password-form'){const r=await api('/api/auth/change-password',{method:'POST',body:JSON.stringify({currentPassword:d.currentPassword,newPassword:d.newPassword})});state.me=null;message(r.message);}
   if(form.id==='forgot-form'){const r=await api('/api/auth/forgot-password',{method:'POST',body:JSON.stringify({email:d.email})});message(r.message);}
   if(form.id==='reset-form'){const r=await api('/api/auth/reset-password',{method:'POST',body:JSON.stringify({token:d.token,password:d.password})});history.replaceState(null,'',location.pathname);message(r.message);}
+  if(form.id==='job-form'){
+   await api('/api/pilot/jobs',{method:'POST',body:JSON.stringify(d)});
+   message('Fictional job posting saved. No applications are enabled.');
+  }
   if(form.id==='listing-form'){
    const amount=Math.round(Number(d.price)*100),date=new Date(d.slotStart);
    if(!Number.isSafeInteger(amount)||!Number.isFinite(date.getTime()))throw Error('Invalid price or date.');
@@ -343,10 +375,17 @@ async function init(){
  $('search').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();document.getElementById('available-openings')?.scrollIntoView({behavior:'smooth'});}});
 
  $('register-role')?.addEventListener('change',()=>{});
- $('modal').addEventListener('change',e=>{if(e.target.id==='register-role')$('business-fields').classList.toggle('hidden',e.target.value!=='business');});
+ $('modal').addEventListener('change',e=>{if(e.target.id==='register-role')syncSignupFields();});
  $('close-modal').addEventListener('click',dismiss);
  $('modal').addEventListener('click',e=>{if(e.target.id==='modal')dismiss();});
  $('search').addEventListener('input',renderOffers);
+ document.addEventListener('input',e=>{
+  if(e.target.id!=='job-search')return;
+  state.jobSearch=e.target.value;
+  const q=state.jobSearch.trim().toLowerCase();let shown=0;
+  document.querySelectorAll('.opportunity-card').forEach(card=>{const match=!q||card.textContent.toLowerCase().includes(q);card.hidden=!match;if(match)shown++;});
+  const count=$('job-visible-count');if(count)count.textContent=shown+' matching '+(state.demo?'fictional examples':'test postings');
+ });
  $('category').addEventListener('change',renderOffers);
  document.querySelectorAll('[data-category-choice]').forEach(el=>el.addEventListener('click',()=>{$('category').value=el.dataset.categoryChoice;renderOffers();}));
  document.addEventListener('input',e=>{if(e.target.id==='area-radius')updateCoveragePreview();});

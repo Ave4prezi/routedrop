@@ -43,7 +43,7 @@ async function register(role,tag){
  assert.equal(r.code,201,'register '+role+': '+JSON.stringify(r.data));
  u.cookie+='; '+sessionCookie(r.response);
  const profile=await call(u,'/api/me');
- assert.equal(profile.data.user.role,role);
+ assert.equal(profile.data.user.role,role==='individual'?'business':role);
  return u;
 }
 async function listing(owner,tag){
@@ -66,6 +66,29 @@ try{
  const outsider=await register('business','other-provider');
  const customer=await register('customer','customer');
  const otherCustomer=await register('customer','other-customer');
+ const individual=await register('individual','independent-lawncare');
+ const individualInfo=await call(individual,'/api/me');
+ assert.equal(individualInfo.code,200);
+ assert.equal(individualInfo.data.user.role,'business','individual providers use service posting permissions');
+ assert.equal(individualInfo.data.business.provider_kind,'individual');
+ assert.equal(individualInfo.data.business.name,'Pilot independent-lawncare','individual public test name derives from account name');
+ const independentSlot=await listing(individual,'Independent');
+ assert.ok((await call(customer,'/api/listings')).data.listings.some(x=>Number(x.id)===independentSlot && x.provider_kind==='individual'), 'independent listing discoverable');
+ const job={title:'Weekend lawn care assistant',category:'Services',city:'Decatur, AL',employmentType:'Part-time',payDisplay:'Example $18/hr',summary:'Fictional weekend team opportunity, no real applications are accepted.'};
+ assert.equal((await call(customer,'/api/pilot/jobs','POST',job)).code,403,'customers cannot publish jobs');
+ assert.equal((await call(individual,'/api/pilot/jobs','POST',job)).code,403,'independent service providers cannot impersonate employer job posts');
+ assert.equal((await call(business,'/api/pilot/jobs','POST',{...job,summary:'short'})).code,400,'invalid hiring details blocked');
+ const employment=await call(business,'/api/pilot/jobs','POST',job);
+ assert.equal(employment.code,201,JSON.stringify(employment.data));
+ const jobId=Number(employment.data.job.id);
+ assert.equal(employment.data.applications_enabled,false,'no applicant collection');
+ assert.ok((await call(customer,'/api/pilot/jobs')).data.jobs.some(x=>Number(x.id)===jobId),'public test job discovery');
+ assert.equal((await call(outsider,'/api/pilot/jobs/'+jobId+'/status','PATCH',{status:'paused'})).code,404,'unrelated business cannot edit job');
+ assert.equal((await call(customer,'/api/pilot/jobs/'+jobId+'/status','PATCH',{status:'paused'})).code,403,'customer cannot manage jobs');
+ assert.equal((await call(business,'/api/pilot/jobs/'+jobId+'/status','PATCH',{status:'paused'})).code,200);
+ assert.ok(!(await call(customer,'/api/pilot/jobs')).data.jobs.some(x=>Number(x.id)===jobId),'paused job removed from discovery');
+ assert.equal((await call(business,'/api/pilot/jobs/'+jobId+'/status','PATCH',{status:'active'})).code,200);
+ assert.equal((await call(business,'/api/pilot/my-jobs')).data.jobs[0].id,String(jobId),'employer owns test job');
  assert.equal((await call(customer,'/api/listings','POST',{title:'not allowed'})).code,403);
  assert.equal((await call(business,'/api/pilot/requests','POST',{listingId:1})).code,403);
  const first=await listing(business,'First');
@@ -113,7 +136,7 @@ try{
  const q=await pool.query('SELECT (SELECT count(*) FROM bookings) AS paid_booking_count,(SELECT count(*) FROM service_requests) AS test_request_count');
  assert.equal(Number(q.rows[0].paid_booking_count),0);
  assert.ok(Number(q.rows[0].test_request_count)>=3);
- console.log('PASS isolated PostgreSQL pilot: real account sessions, role permissions, reservation conflicts, state transitions, availability, no checkout');
+ console.log('PASS isolated PostgreSQL pilot: independent providers, test employment posts, owner permissions, account sessions, bookings and no checkout');
 }finally{
  server.kill('SIGTERM');
  await pool.end();

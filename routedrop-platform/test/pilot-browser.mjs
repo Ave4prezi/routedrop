@@ -71,6 +71,23 @@ try{
   await business.locator('[data-action="save-coverage"]').click();
   await business.getByText('Service coverage radius').waitFor();
   await business.screenshot({path:'pilot-business-'+variant.name+'.png',fullPage:true});
+  await business.locator('[data-action="post-job"]').click();
+  const jobForm=business.locator('#job-form');
+  await jobForm.locator('[name="title"]').fill('Fictional Local Job '+variant.name);
+  await jobForm.locator('[name="category"]').selectOption('Services');
+  await jobForm.locator('[name="city"]').fill('Decatur, AL');
+  await jobForm.locator('[name="employmentType"]').selectOption('Part-time');
+  await jobForm.locator('[name="payDisplay"]').fill('Example $18/hr');
+  await jobForm.locator('[name="summary"]').fill('Fictional test hiring opportunity with no real applicant collection.');
+  await jobForm.locator('button[type="submit"]').click();
+  await business.locator('#modal').waitFor({state:'hidden'});
+  await business.locator('.opportunity-manage [data-job-status-id]').first().waitFor();
+  await business.getByRole('button',{name:'Find Work & Jobs'}).click();
+  await business.locator('.opportunity-card').filter({hasText:'Fictional Local Job '+variant.name}).waitFor();
+  await business.locator('#job-search').fill('Fictional Local Job '+variant.name);
+  assert.equal(await business.locator('.opportunity-card:visible').count(),1,'job search filters real test postings');
+  await business.screenshot({path:'pilot-jobs-'+variant.name+'.png',fullPage:true});
+  await business.getByRole('button',{name:'Business Studio'}).click();
 
   await register(customer,'customer',variant.name+'-customer');
   await customer.locator('nav.tabs [data-tab="explore"]').click();
@@ -91,13 +108,34 @@ try{
   await customer.getByRole('button',{name:'My bookings'}).click();
   await customer.locator('[data-pilot-action="confirm"]').first().click();
   await customer.locator('#my-bookings .pilot-request-card .pilot-status').getByText('Customer confirmed',{exact:true}).waitFor();
+  const individualContext=await browser.newContext(contextArgs);
+  const individual=await individualContext.newPage();
+  individual.on('pageerror',e=>errors.push(e.message));
+  individual.on('request',r=>{if(/\/api\/(checkout|stripe)|stripe\.com/.test(r.url()))payments.push(r.url());});
+  await register(individual,'individual',variant.name+'-independent');
+  await individual.getByRole('button',{name:'Business Studio'}).click();
+  await individual.getByText('Your independent service studio.').waitFor();
+  assert.equal(await individual.locator('[data-action="post-job"]').count(),0,'individual providers cannot post employer job openings');
+  await individual.locator('[data-action="create-listing"]').click();
+  const independentForm=individual.locator('#listing-form');
+  await independentForm.locator('[name="title"]').fill('Solo Mowing '+variant.name);
+  await independentForm.locator('[name="category"]').selectOption('Lawn care');
+  await independentForm.locator('[name="neighborhood"]').fill('Decatur testing area');
+  await independentForm.locator('[name="price"]').fill('45');
+  await independentForm.locator('[name="slotStart"]').fill(new Date(Date.now()+48*60*60*1000).toISOString().slice(0,16));
+  await independentForm.locator('[name="durationMinutes"]').fill('60');
+  await independentForm.locator('button[type="submit"]').click();
+  await individual.locator('#modal').waitFor({state:'hidden'});
+  await customer.getByRole('button',{name:'Explore services'}).click();
+  await customer.locator('.card').filter({hasText:'Solo Mowing '+variant.name}).getByText('Individual provider · unverified').waitFor();
+  await individual.screenshot({path:'pilot-individual-'+variant.name+'.png',fullPage:true});
   assert.deepEqual(payments,[],'no Stripe or checkout requests');
   assert.deepEqual(errors,[],'no browser errors');
   for(const p of [business,customer]){
    const overflow=await p.evaluate(()=>document.documentElement.scrollWidth-window.innerWidth);
    assert.ok(overflow<=2,'no horizontal overflow '+variant.name+': '+overflow);
   }
-  console.log('PASS '+variant.name+' customer sign-up, provider sign-up, publish, coverage, real unpaid request, accept, complete, confirm');
-  await businessContext.close();await customerContext.close();
+  console.log('PASS '+variant.name+' independent signup, job post/search, customer booking lifecycle, no payments');
+  await businessContext.close();await customerContext.close();await individualContext.close();
  }
 }finally{if(browser)await browser.close();app.kill('SIGTERM');}

@@ -12,7 +12,7 @@
   return items.map(x=>{
    const demo=Boolean(x.demoKind),valid=area.validate(x.service_center_code,x.service_radius_miles);
    return '<article class="card">'+(demo?'<div class="provider-photo provider-photo--'+h(kind(x))+'" role="img" aria-label="AI-generated illustrative professional image for a fictional '+h(x.category)+' provider"><span class="provider-photo-label">FICTIONAL DEMO</span></div>':'')+
-   '<div class="cardbanner"><span>'+h(x.category)+'</span><span>'+(demo?'Concept preview':'Service listing')+'</span></div><div class="cardbody"><div class="muted">'+h(x.business_name)+'</div><h3>'+h(x.title)+'</h3>'+
+   '<div class="cardbanner"><span>'+h(x.category)+'</span><span>'+(demo?'Concept preview':x.provider_kind==='individual'?'Individual provider · unverified':'Service listing')+'</span></div><div class="cardbody"><div class="muted">'+h(x.business_name)+'</div><h3>'+h(x.title)+'</h3>'+
    '<div class="detail">⌖ '+h(x.neighborhood)+', '+h(x.city)+'</div><div class="detail">'+(demo?'Example duration: ':'Duration: ')+h(x.duration_minutes)+' min</div>'+
    '<button class="profile-open" type="button" data-profile-listing="'+Number(x.id)+'">Explore business profile ↗</button>'+
    (valid?'<button class="coverage-open" type="button" data-coverage-listing="'+Number(x.id)+'">⌖ '+h(area.summary(valid.center,valid.radiusMiles))+' · View map</button>':'<p class="muted">Service area not listed</p>')+
@@ -77,7 +77,7 @@
   };
   const sampleItems=demo?(details[kind(x)]||[]):[];
   const checklist=demo?'<section class="profile-inclusions"><div class="profile-overline">SAMPLE SERVICE SCOPE</div><h3>What this example could include</h3><ul>'+sampleItems.map(item=>'<li><span aria-hidden="true">✓</span>'+h(item)+'</li>').join('')+'</ul><p>Illustrative checklist only. Actual scope and exclusions would be agreed with the provider before booking.</p></section>':'';
-  return '<div class="profile-overline">'+(demo?'FICTIONAL BUSINESS SHOWCASE':'SERVICE LISTING DETAILS')+'</div><h2 id="modal-title">'+h(x.business_name)+'</h2>'+
+  return '<div class="profile-overline">'+(demo?'FICTIONAL BUSINESS SHOWCASE':x.provider_kind==='individual'?'INDIVIDUAL PROVIDER · UNVERIFIED':'SERVICE LISTING DETAILS')+'</div><h2 id="modal-title">'+h(x.business_name)+'</h2>'+
   (demo?'<div class="profile-cover '+h(kind(x))+'" role="img" aria-label="AI-generated illustrative professional image"></div>':'')+
   '<div class="profile-facts"><span>'+h(x.category)+'</span><span>'+h(x.city)+'</span><span>'+money(x.price_cents)+(demo?' sample price':' listed price')+'</span></div>'+
   '<p class="profile-description">'+(demo?h(x.demoAbout):'This listing has a price and opening, but additional provider credentials, independent reviews and service photos have not been verified for display.')+'</p>'+
