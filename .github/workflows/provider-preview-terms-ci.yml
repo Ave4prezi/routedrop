@@ -1,0 +1,45 @@
+name: RouteDrop synthetic preview versioned terms verification
+on:
+  push:
+    branches:
+      - test/provider-preview-versioned-ack-20261115
+permissions:
+  contents: read
+jobs:
+  preview-terms:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: localonly
+          POSTGRES_DB: routedrop_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d routedrop_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    defaults:
+      run:
+        working-directory: routedrop-platform
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install dependencies without postinstall scripts
+        run: npm install --ignore-scripts --no-audit --no-fund
+      - name: Validate JS syntax
+        run: |
+          node --check preview-acknowledgement.js
+          node --check server.js
+          node --check public/app.js
+          node --check test/provider-preview-ack-http.test.js
+      - name: Test synthetic-only versioned consent and existing provider onboarding
+        env:
+          ROUTEDROP_TEST_DATABASE_URL: postgres://postgres:localonly@127.0.0.1:5432/routedrop_ci
+        run: |
+          node --test test/provider-preview-ack-http.test.js test/founding-partner-http.test.js test/provider-verification.test.js
