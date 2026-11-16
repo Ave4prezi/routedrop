@@ -4,7 +4,7 @@
 
 ## What the software does
 
-- An approved credential with an expiry within **30 calendar days** appears in the fictional business's Business Studio and the separate credential-reviewer's restricted queue.
+- An approved credential with an expiry within **30 calendar days**, or one that is already expired (until renewed), appears in the fictional business's Business Studio and the separate credential-reviewer's restricted queue.
 - Notices classify upcoming/urgent/expired and show days remaining. Alerts change as deadlines approach, independent of server wake/sleep.
 - The reminder scanner logs a unique reminder record when the credential first falls within the **30-, 14-, 7-, 1-day, or expired (0-day)** windows. A database unique key on business/credential/expiry/window makes repeats idempotent.
 - An immediate scan runs after database initialization, and a best-effort scan runs every six hours **while the free preview server is awake**. Sleeping or downtime can delay persisted reminder events; dashboard queries calculate current deadlines directly instead.
