@@ -10,7 +10,7 @@
 - The Business Studio has a provider setup checklist that reads existing authenticated screening and Identity status endpoints. It explicitly labels all results as private-test outcomes, and leaves customer payments off.
 - Moderator passkey enrollment and authentication remain disabled until an authorized test moderator, dedicated private bootstrap key, and passkey device are ready. Do not create a moderation bypass to compensate for missing credentials.
 
-**Resume conditions:** Complete Stripe account review, confirm Identity test API permissions with Stripe if still missing, configure a dedicated TEST-only API key and signature secret securely in staging, validate real TEST-mode webhook deliveries, then separately test passkey enrollment and authentication. No production merge is authorized by this checkpoint.
+**Resume conditions:** Complete Stripe account review, confirm Identity test API permissions with Stripe if still missing, configure a dedicated TEST-only API key and signature secret securely in staging, validate real TEST-mode webhook deliveries, then separately authorize an actual staging moderator and test a physical passkey on an approved device. No production merge is authorized by this checkpoint.
 
 ## Stripe Identity (TEST only)
 
@@ -47,7 +47,9 @@
 
 - Unit tests: test-mode identity key and webhook-event constraints, URL and origin constraints, WebAuthn challenge generation, session expiry / authorization, existing price/review/booking regressions.
 - Database integration: runs with **no Stripe Identity key**, verifies that identity is disabled and privileged moderation fails without passkey step-up. The test suite uses a direct *privileged CI fixture* representing an already-authenticated moderator to exercise downstream authorization; this is not available to external users or production.
-- **Not yet end-to-end verified with a real Stripe test account or a physical/virtual WebAuthn authenticator.** Do not claim external identity checks have been completed until separately verified with the configured vendor and approved test devices.
+- **Completed (isolated CI):** Chromium WebAuthn virtual authenticator performed real credential registration and signed passkey login against the application over ephemeral HTTPS, with PostgreSQL-backed verification. Session lock, expiry, verified-email allowlist and cross-account rejection passed. This is not a physical hardware/OS passkey test, nor an authorized moderator enrollment on the staging site.
+- **Completed (isolated CI):** Signed Stripe TEST-style HTTP webhook integration rejected forged and tampered signatures, unknown or LIVE sessions, replay, and stale events; a recognized test event remained `verified_test` with `identity_verified=false`. These use fictional CI-only signing credentials; **no actual Stripe network call or real sandbox webhook delivery was tested**.
+- **Still required:** A correctly scoped Stripe TEST API key after account review, real TEST session creation and webhook delivery against the isolated staging endpoint, plus a separate manually authorized physical passkey check. Do not claim actual provider identity verification before then.
 - No production merge, real applicants/customers, Stripe payment activation, personal ID collection in RouteDrop, or live identity/verified badges are authorized.
 
 References: [Stripe Identity](https://docs.stripe.com/identity), [SimpleWebAuthn v13 server docs](https://simplewebauthn.dev/docs/13.3.x/packages/server), [NIST SP 800-63A-4](https://pages.nist.gov/800-63-4/sp800-63a.html).
