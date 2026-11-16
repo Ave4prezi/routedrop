@@ -62,7 +62,6 @@ function renderGuidedTour(){
  if(state.tab==='explore'){
   state.listings=TOUR_OPENINGS;
   renderOffers();
-  $('offers').insertAdjacentHTML('beforebegin','');
   if(!$('tour-explore-notice')){$('offers').insertAdjacentHTML('beforebegin','<div id="tour-explore-notice">'+tourNotice()+'</div>');}
  }else if(state.tab==='bookings'){
   $('my-bookings').innerHTML=tourNotice()+'<div class="panel"><h3>Example customer journey</h3><p class="muted">Demonstration only; no booking exists.</p><div class="record"><strong>1. Request an available service</strong><p>Future approved model: save a card securely, with $0 charged today.</p></div><div class="record"><strong>2. Provider completes the work</strong><p>The provider marks the service complete. No automatic charge occurs.</p></div><div class="record"><strong>3. Customer confirms and pays</strong><p>The customer separately approves the quoted amount after reviewing the finished work.</p></div><p class="muted">Dispute, refund, and payment controls are not available in this tour.</p><button type="button" class="btn secondary" data-action="tour-to-services">View example services</button></div>';
@@ -221,7 +220,7 @@ async function act(e){
  if(el.dataset.tab){switchTab(el.dataset.tab);return;}
  const action=el.dataset.action;
  if(action==='start-tour'){if(state.config?.database)return message('Tour is available only in database-free private preview.');state.tour=true;switchTab('explore');return;}
- if(action==='exit-tour'){state.tour=false;switchTab('explore');return;}
+ if(action==='exit-tour'){state.tour=false;$('tour-explore-notice')?.remove();state.listings=[];switchTab('explore');return;}
  if(action==='tour-to-services'){switchTab('explore');return;}
  if(action==='register'){if(state.config&&!state.config.database){message('The private beta database is not connected. Explore the fictional onboarding walkthrough instead.');return;}showRegistration();return;}
  if(action==='clear-filters'){clearFilters();return;}
