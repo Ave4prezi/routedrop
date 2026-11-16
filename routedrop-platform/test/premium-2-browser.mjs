@@ -14,7 +14,7 @@ try{
  browser=await chromium.launch({headless:true});
  for(const v of [{name:'desktop',width:1440,height:900},{name:'mobile',width:390,height:844}]){
   const page=await browser.newPage({viewport:{width:v.width,height:v.height}});
-  const problems=[];page.on('pageerror',e=>problems.push(e.message));
+  const problems=[],mutationRequests=[];page.on('pageerror',e=>problems.push(e.message));page.on('request',r=>{if(!['GET','HEAD'].includes(r.method()))mutationRequests.push({method:r.method(),url:r.url()});});
   await page.goto(url,{waitUntil:'networkidle'});
   assert.equal((await page.locator('header .brand').textContent()).replace(/\s+/g,''),'RouteDrop');
   await page.getByRole('heading',{name:/Local help/}).waitFor();
@@ -33,7 +33,8 @@ try{
   assert.equal(sprite.ok,true,'inline hero photo must decode');
   await page.screenshot({path:'premium-2-home-'+v.name+'.png',fullPage:true});
   assert.equal(await page.locator('.card [data-book]').count(),0,'demo must not book');
-  assert.equal(await page.locator('.card .btn.dark:disabled').count(),3,'demo CTA disabled');
+  assert.equal(await page.locator('.card [data-demo-book]').count(),3,'fictional services offer an interactive booking walkthrough');
+  assert.equal(await page.locator('.card .btn.dark:disabled').count(),0,'fictional walkthrough is interactive without checkout');
   await page.locator('[data-category-choice="Cleaning"]').click();
   assert.equal(await page.locator('.card').count(),1);
   assert.equal(await page.locator('[data-category-choice="Cleaning"]').getAttribute('aria-pressed'),'true');
@@ -57,6 +58,35 @@ try{
   await page.locator('[data-coverage-listing="-102"]').click();
   assert.match(await page.locator('.modal-content .coverage-map').getAttribute('aria-label'),/35-mile radius/);
   await page.locator('#close-modal').click();
+  // Build a fictional booking entirely in browser memory, without PII or server writes.
+  await page.locator('[data-demo-book="-101"]').click();
+  await page.getByRole('heading',{name:'Preview a booking'}).waitFor();
+  assert.match(await page.locator('#modal-body').innerText(),/Charged today[\\s\\S]*?\\$0\\.00/);
+  assert.equal(await page.locator('#modal-body input').count(),0,'no personal information is requested');
+  await page.locator('[data-demo-slot="evening"]').click();
+  assert.equal(await page.locator('[data-demo-slot="evening"]').getAttribute('aria-pressed'),'true');
+  await page.locator('[data-action="demo-confirm-request"]').click();
+  assert.equal(await page.locator('#modal').isVisible(),false);
+  await page.locator('.demo-request').first().waitFor();
+  assert.match(await page.locator('.demo-request').first().innerText(),/Awaiting provider response/);
+  assert.match(await page.locator('.demo-request').first().innerText(),/5:00 PM/);
+  assert.match(await page.locator('.demo-request').first().innerText(),/\\$0\\.00/);
+  // The same simulated request is visible from the other fictional role.
+  await page.getByRole('button',{name:'Business Studio'}).click();
+  await page.locator('[data-demo-action="accept"]').click();
+  assert.match(await page.locator('.demo-request').first().innerText(),/Accepted by provider/);
+  await page.locator('[data-demo-action="finish"]').click();
+  assert.match(await page.locator('.demo-request').first().innerText(),/Work marked complete/);
+  await page.getByRole('button',{name:'My bookings'}).click();
+  await page.locator('[data-demo-action="approve"]').click();
+  assert.match(await page.locator('.demo-request').first().innerText(),/Customer confirmed/);
+  assert.equal(await page.locator('.demo-request [data-demo-action="approve"]').count(),0);
+  // Returning to Explore can start and cancel another fictional request.
+  await page.getByRole('button',{name:'Explore services'}).click();
+  await page.locator('[data-demo-book="-102"]').click();
+  await page.locator('[data-action="demo-confirm-request"]').click();
+  await page.locator('[data-demo-action="cancel"]').first().click();
+  assert.match(await page.locator('.demo-request').first().innerText(),/Canceled by customer/);
   await page.getByRole('button',{name:'My bookings'}).click();
   assert.equal(await page.locator('nav.tabs [data-tab="bookings"]').getAttribute('aria-current'),'page','nav state accessible');
   await page.getByText('Every detail, thoughtfully handled.').waitFor();
@@ -72,12 +102,18 @@ try{
   await page.locator('#area-city').selectOption('madison');
   assert.match(await page.locator('#business-area-map svg').getAttribute('aria-label'),/40-mile radius around Madison/);
   assert.equal(await page.locator('[data-action="save-coverage"]').count(),0,'demo must not save');
+  // The in-page preview retains selected territory while switching tours, never storing server-side.
+  await page.getByRole('button',{name:'My bookings'}).click();
+  await page.getByRole('button',{name:'Business Studio'}).click();
+  assert.equal(await page.locator('#area-city').inputValue(),'madison');
+  assert.equal(await page.locator('#area-radius').inputValue(),'40');
   assert.match(await page.locator('#area-live-summary').innerText(),/Madison/);
   const size=await page.evaluate(()=>({page:document.documentElement.scrollWidth,viewport:window.innerWidth}));
   assert.ok(size.page<=size.viewport+2,'no unexpected horizontal overflow: '+JSON.stringify(size));
+  assert.deepEqual(mutationRequests,[],'demo interactions must not create, mutate, book, charge, or persist via the backend');
   assert.deepEqual(problems,[],'no browser page errors');
   await page.screenshot({path:'premium-2-'+v.name+'.png',fullPage:true});
-  console.log('PASS '+v.name+' premium home, discovery, profile, coverage, booking tour, business studio, no payments');
+  console.log('PASS '+v.name+' premium UI + in-memory fictional booking request/accept/complete/confirm/cancel, coverage retention, no backend writes');
   await page.close();
  }
 }finally{if(browser)await browser.close();app.kill('SIGTERM');}
