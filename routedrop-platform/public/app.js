@@ -1,6 +1,7 @@
 'use strict';
 (function(){
 const $=id=>document.getElementById(id);
+const coverage=window.RouteDropServiceArea;
 const state={config:null,me:null,listings:[],bookings:[],mine:[],tab:'explore'};
 const esc=v=>String(v===null||v===undefined?'':v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const money=cents=>new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(Number(cents||0)/100);
@@ -44,12 +45,35 @@ async function refresh(){
   }else if(state.tab==='business') await studio();
  }catch(e){message(e.message,true);}
 }
+function serviceCoveragePanel(b){
+ const v=coverage.validate(b?.service_center_code,b?.service_radius_miles);
+ const city=Object.entries(coverage.CITIES).map(([key,p])=>'<option value="'+key+'"'+(v?.center===key?' selected':'')+'>'+esc(p.name)+', AL</option>').join('');
+ const choices='<option value="">Choose your approximate city center</option>'+city;
+ return '<div class="panel service-area-panel"><div class="row"><div><h3>Service coverage radius</h3><p class="muted">Choose where your business works and how many miles you travel. This uses an approximate city-center point, never your home address or phone GPS.</p></div><span class="pill">'+(v?'Area configured':'Not configured')+'</span></div>'+
+ '<label for="area-city">Service-area center</label><select id="area-city">'+choices+'</select>'+
+ '<label for="area-radius">Travel radius: <strong id="area-radius-value">'+(v?v.radiusMiles:15)+' miles</strong></label><input id="area-radius" type="range" min="5" max="50" step="5" value="'+(v?v.radiusMiles:15)+'" aria-describedby="area-help">'+
+ '<div class="coverage-map-wrap" id="business-area-map" aria-live="polite">'+(v?coverage.mapSvg(v.center,v.radiusMiles):'<p class="muted">Select a city to preview your coverage area.</p>')+'</div>'+
+ '<p class="muted" id="area-help">The ring shows straight-line miles, not drive time, road access, or confirmed eligibility for a specific address. Routes and service eligibility must be confirmed before booking.</p>'+
+ '<div class="buttonrow"><button type="button" class="btn" data-action="save-coverage">Save service radius</button></div></div>';
+}
+function updateCoveragePreview(){
+ const city=$('area-city'),range=$('area-radius'),label=$('area-radius-value'),map=$('business-area-map');
+ if(!city||!range||!map)return;
+ label.textContent=range.value+' miles';
+ map.innerHTML=coverage.validate(city.value,range.value)?coverage.mapSvg(city.value,range.value):'<p class="muted">Select a city to preview your coverage area.</p>';
+}
+function showCoverageFor(x){
+ const v=coverage.validate(x.service_center_code,x.service_radius_miles);
+ if(!v)return message('This business has not selected a service coverage area.',true);
+ overlay('<h2 id="modal-title">Coverage for '+esc(x.business_name)+'</h2><p>'+esc(coverage.summary(v.center,v.radiusMiles))+'. The circle is indicative, not a guarantee the business can service a given address.</p><div class="coverage-map-wrap">'+coverage.mapSvg(v.center,v.radiusMiles)+'</div><p class="legal">Approximate city-center range only. No device location or address information is collected by this map.</p>');
+}
+
 function renderOffers(){
  const search=$('search').value.trim().toLowerCase(),cat=$('category').value;
  const items=state.listings.filter(x=>(!cat||x.category===cat)&&(!search||[x.title,x.neighborhood,x.business_name,x.city].join(' ').toLowerCase().includes(search)));
  $('offer-count').textContent=items.length+' open slots';
  $('offers').innerHTML=items.length?items.map(x=>
-  '<article class="card"><div class="cardbanner"><span>'+esc(x.category)+'</span><span>Available window</span></div><div class="cardbody"><div class="muted">'+esc(x.business_name)+'</div><h3>'+esc(x.title)+'</h3><div class="detail">⌖ '+esc(x.neighborhood)+', '+esc(x.city)+'</div><div class="detail">◷ '+when(x.slot_start)+' · '+esc(x.duration_minutes)+' min</div><div class="cardfoot"><span class="price">'+money(x.price_cents)+'</span><button class="btn dark" data-book="'+x.id+'">Book this slot</button></div></div></article>').join(''):'<div class="empty"><h3>No openings are listed yet.</h3><p>Local businesses can publish available slots from Business Studio after registration is enabled.</p></div>';
+  '<article class="card"><div class="cardbanner"><span>'+esc(x.category)+'</span><span>Available window</span></div><div class="cardbody"><div class="muted">'+esc(x.business_name)+'</div>'+(coverage.validate(x.service_center_code,x.service_radius_miles)?'<button type="button" class="coverage-open" data-coverage-listing="'+Number(x.id)+'">⌖ '+esc(coverage.summary(x.service_center_code,x.service_radius_miles))+' · View map</button>':'<p class="muted">Service radius not listed</p>')<h3>'+esc(x.title)+'</h3><div class="detail">⌖ '+esc(x.neighborhood)+', '+esc(x.city)+'</div><div class="detail">◷ '+when(x.slot_start)+' · '+esc(x.duration_minutes)+' min</div><div class="cardfoot"><span class="price">'+money(x.price_cents)+'</span><button class="btn dark" data-book="'+x.id+'">Book this slot</button></div></div></article>').join(''):'<div class="empty"><h3>No openings are listed yet.</h3><p>Local businesses can publish available slots from Business Studio after registration is enabled.</p></div>';
 }
 function renderBookings(){
  const list=state.bookings||[];
@@ -69,6 +93,7 @@ async function studio(){
  $('studio-body').innerHTML=
  '<div class="panel"><div class="row"><div><h3>'+esc(b.name)+'</h3><div class="muted">'+esc(b.city)+' · '+esc(b.category)+'</div></div><span class="pill">'+(b.stripe_connected?'Stripe account started':'Payouts not connected')+'</span></div>'+
  '<div class="buttonrow"><button class="btn" data-action="create-listing">+ Post available slot</button><button class="btn secondary" data-action="connect-stripe">'+(b.stripe_connected?'Continue Stripe onboarding':'Connect payouts')+'</button></div><p class="muted">Payment availability requires your Stripe onboarding to be completed and the RouteDrop platform to activate payments.</p></div>'+
+ serviceCoveragePanel(b)+
  '<div class="panel"><h3>Business membership · $79/month</h3><p class="muted">Subscription status: '+esc(subscription.status)+(subscription.current_period_end?' · Next period: '+new Date(subscription.current_period_end*1000).toLocaleDateString('en-US'):'')+(subscription.last_invoice_status==='payment_failed'?' · Payment failed: update billing details':'')+(subscription.cancel_at_period_end?' (cancels at period end)':'')+'</p><div class="buttonrow"><button class="btn" data-action="subscribe">Subscribe · $79/month</button><button class="btn secondary" data-action="manage-subscription">Manage billing</button></div><p class="muted">Stripe sandbox only. Membership is not yet required to accept bookings.</p></div>'+
  '<div class="panel"><h3>Cancellation and refund requests</h3><p class="muted">Full refunds are guaranteed for eligible cancellations requested 24+ hours before service. Late requests are discretionary. Approvals issue a real Stripe refund in the configured payment mode.</p>'+(cancellations.requests.length?cancellations.requests.map(x=>'<div class="record"><div><strong>'+esc(x.title)+'</strong><p>'+when(x.slot_start)+' · '+esc(x.reason)+'</p><p class="muted">Booking #'+x.booking_id+' · '+esc(x.status)+' · '+(x.eligible_full_refund?'24-hour full-refund policy':'Late / discretionary')+'</p>'+(x.refund_amount_cents?'<p>Refund amount: '+money(x.refund_amount_cents)+'</p>':'')+'</div><div>'+(x.status==='pending'?'<button class="btn" data-request-id="'+x.id+'" data-decision="approve">Approve full refund</button>'+(x.eligible_full_refund?'':'<button class="btn secondary" data-request-id="'+x.id+'" data-decision="decline">Decline</button>'):'<strong>'+esc(x.status)+'</strong>')+'</div></div>').join(''):'<p class="muted">No cancellation requests.</p>')+'</div>'+
  '<div class="panel"><h3>Revenue snapshot</h3><div class="row"><div><small>Completed bookings</small><h2>'+completed.length+'</h2></div><div><small>Gross value</small><h2>'+money(gross)+'</h2></div><div><small>Platform fees (8%)</small><h2>'+money(fee)+'</h2></div></div></div>'+
@@ -100,7 +125,23 @@ function showListing(){
 async function act(e){
  const el=e.target.closest('button');if(!el)return;
  if(el.dataset.tab){switchTab(el.dataset.tab);return;}
+ if(el.dataset.coverageListing){
+   const x=state.listings.find(item=>Number(item.id)===Number(el.dataset.coverageListing));
+   if(x)showCoverageFor(x);
+   return;
+ }
  const action=el.dataset.action;
+ if(action==='save-coverage'){
+  const city=$('area-city')?.value,radius=Number($('area-radius')?.value);
+  if(!coverage.validate(city,radius))return message('Choose a listed city and a radius between 5 and 50 miles.',true);
+  el.disabled=true;
+  try{
+   await api('/api/business/service-area',{method:'PUT',body:JSON.stringify({center:city,radiusMiles:radius})});
+   message('Service radius saved. Future listing cards can show your selected coverage area.');
+   await studio();
+  }catch(err){message(err.message,true);}finally{el.disabled=false;}
+  return;
+ }
  if(action==='register'){showRegistration();return;}
  if(action==='login'){showLogin();return;}
  if(action==='create-listing'){showListing();return;}
@@ -152,6 +193,8 @@ async function init(){
  $('modal').addEventListener('click',e=>{if(e.target.id==='modal')dismiss();});
  $('search').addEventListener('input',renderOffers);
  $('category').addEventListener('change',renderOffers);
+ document.addEventListener('input',e=>{if(e.target.id==='area-radius')updateCoveragePreview();});
+ document.addEventListener('change',e=>{if(e.target.id==='area-city')updateCoveragePreview();});
  try {
   state.config=await api('/api/config');
   const actionParams=new URLSearchParams(location.search);
