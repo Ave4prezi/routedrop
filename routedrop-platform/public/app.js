@@ -5,7 +5,8 @@ const coverage=window.RouteDropServiceArea;
 const premium=window.RouteDropPremium2;
 const pilot=window.RouteDropPilotUI;
  const opportunities=window.RouteDropOpportunities;
-const state={config:null,me:null,listings:[],bookings:[],mine:[],tab:'explore',demo:false,demoRequests:[],demoCounter:0,demoListingId:null,demoSlot:'afternoon',demoArea:{center:'decatur',radiusMiles:20},pilotRequests:[],pilotListingId:null,jobs:[],jobSearch:''};
+ const unified=window.RouteDropUnified;
+const state={config:null,me:null,listings:[],bookings:[],mine:[],tab:'explore',demo:false,demoRequests:[],demoCounter:0,demoListingId:null,demoSlot:'afternoon',demoArea:{center:'decatur',radiusMiles:20},pilotRequests:[],pilotListingId:null,jobs:[],jobSearch:'',serviceProfiles:[],myServiceProfiles:{profiles:[],rules:[]},jobInterests:null};
 const esc=v=>String(v===null||v===undefined?'':v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const money=cents=>new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(Number(cents||0)/100);
 const when=iso=>new Intl.DateTimeFormat('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}).format(new Date(iso));
@@ -65,17 +66,16 @@ async function refresh(){
  if(!state.config)return;
  if(!state.config.database){
   state.demo=true;state.listings=premium.DEMO;renderOffers();
-  $('my-bookings').innerHTML=premium.bookings(state.demoRequests);$('studio-body').innerHTML=premium.studio(serviceCoveragePanel({service_center_code:state.demoArea.center,service_radius_miles:state.demoArea.radiusMiles},true),state.demoRequests);state.jobs=opportunities.sampleJobs;$('job-board').innerHTML=opportunities.jobs(state.jobs,true,state.jobSearch);nav();return;
+  $('my-bookings').innerHTML=premium.bookings(state.demoRequests);$('studio-body').innerHTML=premium.studio(serviceCoveragePanel({service_center_code:state.demoArea.center,service_radius_miles:state.demoArea.radiusMiles},true),state.demoRequests);state.jobs=opportunities.sampleJobs;$('job-board').innerHTML=opportunities.jobs(state.jobs,true,state.jobSearch)+unified.seekerPanel(null,null);$('profile-cards').innerHTML=unified.profiles([],null);nav();return;
  }
  try{
   const who=await api('/api/me');state.me=who;nav();
   if(state.tab==='explore'){
-   const r=await api('/api/listings');state.listings=r.listings;renderOffers();
+   const [r,p]=await Promise.all([api('/api/listings'),state.config.unified_pilot?api('/api/pilot/service-profiles'):Promise.resolve({profiles:[]})]);state.listings=r.listings;state.serviceProfiles=p.profiles;renderOffers();$('profile-cards').innerHTML=unified.profiles(state.serviceProfiles,state.config);
   }else if(state.tab==='bookings'){
    if(state.config.workflow_pilot){
     if(!state.me.user){$('my-bookings').innerHTML='<div class="empty"><h3>Test account required</h3><p>Create a customer test account or sign in to see requests.</p><button type="button" class="btn" data-action="register">Create test account</button></div>';return;}
-    if(state.me.user.role!=='customer'){$('my-bookings').innerHTML='<div class="empty">Business accounts manage incoming requests in Business Studio.</div>';return;}
-    state.pilotRequests=(await api('/api/pilot/requests')).requests;
+    state.pilotRequests=(await api('/api/pilot/requests?view=customer')).requests;
     $('my-bookings').innerHTML=pilot.customer(state.pilotRequests);return;
    }
    if(!state.me.user){$('my-bookings').innerHTML='<div class="empty">Please log in to see your bookings.</div>';return;}
@@ -86,7 +86,9 @@ async function refresh(){
 }
 async function loadJobs(){
   if(!state.config?.opportunity_pilot){state.jobs=opportunities.sampleJobs;$('job-board').innerHTML=opportunities.jobs(state.jobs,true,state.jobSearch);return;}
-  const data=await api('/api/pilot/jobs');state.jobs=data.jobs;$('job-board').innerHTML=opportunities.jobs(state.jobs,false,state.jobSearch);
+  const [data,interests]=await Promise.all([api('/api/pilot/jobs'),state.me?.user&&state.config.unified_pilot?api('/api/pilot/job-interests'):Promise.resolve({interests:null})]);
+  state.jobs=data.jobs;state.jobInterests=interests.interests;
+  $('job-board').innerHTML=unified.entry()+unified.seekerPanel(state.me,state.jobInterests)+opportunities.jobs(state.jobs,false,state.jobSearch);
  }
  function serviceCoveragePanel(b,readonly=false){
  const v=coverage.validate(b?.service_center_code,b?.service_radius_miles);
@@ -137,13 +139,14 @@ function renderBookings(){
 }
 async function studio(){
  const u=state.me?.user;
- if(!u){$('studio-body').innerHTML='<div class="empty"><h3>Business account required</h3><p>Create a business account to list open route slots.</p><button class="btn" data-action="register">Register a business</button></div>';return;}
- if(u.role!=='business'){$('studio-body').innerHTML='<div class="empty">You are signed in as a customer. Use a separate business account to publish routes.</div>';return;}
- if(state.config.workflow_pilot){
-  const [listings,requests,jobs]=await Promise.all([api('/api/my-listings'),api('/api/pilot/requests'),api('/api/pilot/my-jobs')]);
-  state.mine=listings.listings;state.pilotRequests=requests.requests;
-  $('studio-body').innerHTML=pilot.studio(state.me.business,state.mine,state.pilotRequests,serviceCoveragePanel(state.me.business))+opportunities.employerPanel(jobs.jobs,state.me.business.provider_kind);return;
+ if(!u){$('studio-body').innerHTML=unified.entry()+'<div class="panel"><h3>One account for every path</h3><p>Sign up with a fictional test identity. You can book services, find work and offer your own services with the same login.</p><button class="btn" data-action="register">Create one account</button></div>';return;}
+ if(state.config.unified_pilot){
+  if(!state.me.business){$('studio-body').innerHTML=unified.entry()+'<div class="panel"><h3>Activate your provider profile</h3><p>Start as an individual without registering a company. Your existing customer bookings and job interests remain on this account.</p><button class="btn" data-action="start-provider">Create provider profile</button></div>';return;}
+  const [listings,requests,jobs,profiles]=await Promise.all([api('/api/my-listings'),api('/api/pilot/requests?view=provider'),api('/api/pilot/my-jobs'),api('/api/pilot/my-service-profiles')]);
+  state.mine=listings.listings;state.pilotRequests=requests.requests;state.myServiceProfiles=profiles;
+  $('studio-body').innerHTML=unified.entry()+pilot.studio(state.me.business,state.mine,state.pilotRequests,serviceCoveragePanel(state.me.business))+unified.studio(profiles,state.me.business.provider_kind)+opportunities.employerPanel(jobs.jobs,state.me.business.provider_kind);return;
  }
+ if(u.role!=='business'){$('studio-body').innerHTML='<div class="empty">A business account is required to publish routes outside the private pilot.</div>';return;}
  const b=state.me.business,r=await Promise.all([api('/api/my-listings'),api('/api/bookings')]);
  state.mine=r[0].listings;state.bookings=r[1].bookings;
  const subscription=await api('/api/business/subscription');
@@ -161,7 +164,7 @@ async function studio(){
  '<div class="panel"><h3>Recent bookings</h3>'+(state.bookings.length?state.bookings.map(x=>'<div class="record"><div><strong>'+esc(x.title)+'</strong><p>'+when(x.slot_start)+' · '+esc(x.status)+'</p></div>'+(x.status==='paid'&&!['pending','processing','needs_review'].includes(x.cancellation_request_status)?'<button class="btn" data-complete="'+x.id+'">Complete</button>':'<strong>'+money(x.price_cents)+'</strong>')+'</div>').join(''):'<p class="muted">No bookings recorded.</p>')+'</div>';
 }
 function showRegistration(preferredRole='customer'){
- overlay('<h2 id="modal-title">'+(state.config?.workflow_pilot?'Create a test account':'Create your account')+'</h2><p>'+(state.config?.workflow_pilot?'Use a fictional name and test email address. This isolated system saves account data for testing; never enter a real customer’s personal details.':'Join RouteDrop as a customer or service professional.')+'</p><form id="register-form"><label>Account type</label><select name="role" id="register-role"><option value="customer">Customer</option><option value="business">Business / employer</option><option value="individual">Individual service provider</option></select><label>Your full name</label><input name="name" minlength="2" maxlength="90" required autocomplete="name"><label>Email address</label><input name="email" type="email" maxlength="254" required autocomplete="email"><label>Password (12+ characters)</label><input name="password" type="password" minlength="12" maxlength="128" required autocomplete="new-password"><div id="business-fields" class="hidden"><label id="signup-provider-name-label">Business / employer name</label><input name="businessName" maxlength="120"><label>City</label><input name="city" maxlength="100" value="Decatur, AL"><label>Service category</label><select name="category"><option>Washing</option><option>Lawn care</option><option>Car detailing</option><option>Cleaning</option><option>Other</option></select></div><p class="legal">Use fictional identities only in this pilot. Real applicant data and payments are disabled.</p><p id="form-error" class="error"></p><button type="submit" class="btn">Register</button></form>');
+ overlay('<h2 id="modal-title">'+(state.config?.workflow_pilot?'One RouteDrop test account':'Create your account')+'</h2><p>'+(state.config?.workflow_pilot?'Use a fictional name and test email address. This isolated system saves account data for testing; never enter a real customer’s personal details.':'Join RouteDrop as a customer or service professional.')+'</p><form id="register-form"><label>Account type</label><select name="role" id="register-role"><option value="customer">Book, offer services &amp; find work (one account)</option><option value="business">Business / employer</option><option value="individual">Individual service provider</option></select><label>Your full name</label><input name="name" minlength="2" maxlength="90" required autocomplete="name"><label>Email address</label><input name="email" type="email" maxlength="254" required autocomplete="email"><label>Password (12+ characters)</label><input name="password" type="password" minlength="12" maxlength="128" required autocomplete="new-password"><div id="business-fields" class="hidden"><label id="signup-provider-name-label">Business / employer name</label><input name="businessName" maxlength="120"><label>City</label><input name="city" maxlength="100" value="Decatur, AL"><label>Service category</label><select name="category"><option>Washing</option><option>Lawn care</option><option>Car detailing</option><option>Cleaning</option><option>Other</option></select></div><p class="legal">Use fictional identities only in this pilot. Real applicant data and payments are disabled.</p><p id="form-error" class="error"></p><button type="submit" class="btn">Register</button></form>');
  $('register-role').value=preferredRole;
  syncSignupFields();
 }
