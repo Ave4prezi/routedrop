@@ -83,6 +83,7 @@
   '<p class="profile-description">'+(demo?h(x.demoAbout):'This listing has a price and opening, but additional provider credentials, independent reviews and service photos have not been verified for display.')+'</p>'+
   '<div class="profile-service-block"><div><span class="profile-overline">SERVICE OVERVIEW</span><h3>'+h(x.title)+'</h3><p>'+h(x.neighborhood)+' · '+h(x.duration_minutes)+' minutes</p></div><div class="profile-price"><small>'+(demo?'SAMPLE PRICE':'LISTED PRICE')+'</small><strong>'+money(x.price_cents)+'</strong></div></div>'+
   checklist+
+  (demo?'<div class="demo-profile-cta"><button type="button" class="btn" data-demo-book="'+Number(x.id)+'">Preview a booking <span aria-hidden="true">↗</span></button><span>Fictional workflow. No personal details, booking or payment.</span></div>':'')+
   (valid?'<h3>Service-area preview</h3><p>'+h(area.summary(valid.center,valid.radiusMiles))+'. Straight-line estimate; road access and address-level coverage are not guaranteed.</p><div class="coverage-map-wrap">'+area.mapSvg(valid.center,valid.radiusMiles)+'</div>':'<p>No coverage radius is currently listed.</p>')+
   '<p class="legal">'+(demo?'Fictional demonstration. No real reviews, verified provider, availability or booking exists.':'No verified identity or customer rating claims are being made.')+'</p>';
  }
