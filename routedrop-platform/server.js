@@ -15,6 +15,7 @@ const postService = require('./post-service');
 const verification = require('./provider-verification');
 const launchApproval = require('./provider-launch-approval');
 const operatorAccess = require('./operator-access');
+const previewSupport = require('./preview-support');
 const providerExpiry = require('./provider-expiry');
 const previewAck = require('./preview-acknowledgement');
 const {createStagingGate} = require('./staging-access');
@@ -104,7 +105,7 @@ const ddl = [
 ]; 
 if (deferredEnabled || previewOnly) ddl.push(...postService.sql);
 if (verificationEnabled) ddl.push(...verification.schema);
-if (launchApprovalEnabled) ddl.push(...launchApproval.schema,...operatorAccess.schema,...providerExpiry.schema);
+if (launchApprovalEnabled) ddl.push(...launchApproval.schema,...operatorAccess.schema,...providerExpiry.schema,...previewSupport.schema);
 if (previewOnly && verificationEnabled) ddl.push(...previewAck.schema);
 async function startDatabase() {
  if (!pool) return;
@@ -222,7 +223,7 @@ app.get('/api/config',(req,res)=>{
  if(!req.cookies.routedrop_csrf || !/^[a-f0-9]{64}$/.test(req.cookies.routedrop_csrf)){
   res.cookie('routedrop_csrf',random(),{secure:process.env.NODE_ENV==='production',httpOnly:false,sameSite:'lax',path:'/',maxAge:7*24*60*60*1000});
  }
- res.json({database:ready,payments:paymentsReady,status:ready?'beta':'setup_required',email_enabled:emailReady,payments_mode:liveKey?(paymentsApproved?'live':'live_locked'):'test',deferred_booking:deferredEnabled,provider_verification:verificationEnabled,private_preview:previewOnly,provider_launch_gate:launchApprovalEnabled,preview_agreement:previewOnly&&verificationEnabled?previewAck.publicTerms():null,public_url:baseUrl});
+ res.json({database:ready,payments:paymentsReady,status:ready?'beta':'setup_required',email_enabled:emailReady,payments_mode:liveKey?(paymentsApproved?'live':'live_locked'):'test',deferred_booking:deferredEnabled,provider_verification:verificationEnabled,private_preview:previewOnly,provider_launch_gate:launchApprovalEnabled,support_preview:launchApprovalEnabled,preview_agreement:previewOnly&&verificationEnabled?previewAck.publicTerms():null,public_url:baseUrl});
 });
 async function issueEmailAction(userId,email,purpose) {
  if(!emailReady||!baseUrl)return false;
@@ -620,6 +621,7 @@ app.post('/api/bookings/:id/complete',requireDb,requireUser('business'),safe(asy
 }));
 verification.install(app,{pool,enabled:verificationEnabled,launchApprovalEnabled,requireDb,requireUser,safe,forbidden});
 postService.install(app,{pool,stripe,baseUrl,enabled:deferredEnabled,verificationEnabled,verifyListing:(db,id)=>verification.eligibleListing(db,id,launchApprovalEnabled),requireDb,requireUser,safe,limiter:checkoutLimiter,forbidden,queueDeferredEmail});
+previewSupport.install(app,{enabled:launchApprovalEnabled,pool,requireDb,requireUser,safe,forbidden});
 app.use(express.static('routedrop-platform/public',{fallthrough:false,maxAge:'15m'}));
 app.use((err,req,res,next)=>{console.error('RouteDrop request error',err.message);res.status(500).json({error:'Unexpected server error.'});});
 app.listen(port,'0.0.0.0',()=>console.log('RouteDrop beta listening on '+port));

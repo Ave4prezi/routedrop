@@ -22,7 +22,7 @@ function overlay(content){$('modal-body').innerHTML=content;$('modal').classList
 function dismiss(){$('modal').classList.add('hidden');$('modal-body').innerHTML='';}
 function nav(){
  const u=state.me?.user;
- $('nav-account').innerHTML=u?'<span class="muted">'+esc(u.full_name)+'</span>'+(state.config?.email_enabled&&!u.email_verified?'<button data-action="verify-email">Verify email</button>':'')+(state.me?.support_agent?'<button data-action="support-reviews">Support reviews</button>':'')+(state.config?.provider_verification&&state.me?.document_reviewer?'<button data-action="verification-reviews">Provider reviews</button><button data-action="expiry-reviews">Expiring credentials</button>':'')+(state.config?.provider_launch_gate&&state.me?.launch_approver?'<button data-action="launch-reviews">Launch reviews</button>':'')+'<button data-action="change-password">Change password</button><button data-action="logout">Log out</button>':'<button data-action="login">Log in</button><button data-action="register">Sign up</button>';
+ $('nav-account').innerHTML=u?'<span class="muted">'+esc(u.full_name)+'</span>'+(state.config?.email_enabled&&!u.email_verified?'<button data-action="verify-email">Verify email</button>':'')+(state.config?.support_preview?'<button data-action="preview-support-mine">Test support requests</button>':'')+(state.config?.support_preview&&state.me?.support_agent?'<button data-action="preview-support-queue">Test triage queue</button>':'')+(state.config?.deferred_booking&&state.me?.support_agent?'<button data-action="support-reviews">Support reviews</button>':'')+(state.config?.provider_verification&&state.me?.document_reviewer?'<button data-action="verification-reviews">Provider reviews</button><button data-action="expiry-reviews">Expiring credentials</button>':'')+(state.config?.provider_launch_gate&&state.me?.launch_approver?'<button data-action="launch-reviews">Launch reviews</button>':'')+'<button data-action="change-password">Change password</button><button data-action="logout">Log out</button>':'<button data-action="login">Log in</button><button data-action="register">Sign up</button>';
 }
 function switchTab(tab){
  state.tab=tab;
@@ -184,6 +184,22 @@ async function showLaunchQueue(){
   ).join(''):'<p class="muted">No fictional providers awaiting launch review.</p>'));
 }
 
+async function showPreviewSupportMine(){
+ const r=await api('/api/preview-support/mine');
+ const kinds=['account_access','provider_eligibility','listing_issue','privacy_access','privacy_correction','privacy_deletion','security_concern','booking_question'];
+ overlay('<h2 id="modal-title">Fictional support request drill</h2><p class="muted">Private simulation only. Do NOT include real names, contact details, payment information, identity documents or descriptions. This does not initiate a real privacy or emergency request.</p>'+
+ '<form id="preview-support-form"><label>Simulated request category</label><select name="kind">'+kinds.map(k=>'<option value="'+k+'">'+esc(k.replaceAll('_',' '))+'</option>').join('')+'</select><p id="form-error" class="bad"></p><button class="btn" type="submit">Create test request</button></form>'+
+ (r.tickets.length?r.tickets.map(x=>'<div class="record"><strong>Test ticket #'+esc(x.id)+'</strong><p class="muted">'+esc(x.kind.replaceAll('_',' '))+' · '+esc(x.priority)+' · '+esc(x.state)+'</p></div>').join(''):'<p class="muted">No fictional requests yet.</p>'));
+}
+async function showPreviewSupportQueue(){
+ const r=await api('/api/preview-support/queue');
+ overlay('<h2 id="modal-title">Restricted fictional support queue</h2><p class="muted">No actual security response, privacy rights processing, support SLA or payment changes occur here.</p>'+
+ (r.tickets.length?r.tickets.map(x=>'<div class="record"><div><strong>Test ticket #'+esc(x.id)+'</strong><p class="muted">'+esc(x.kind.replaceAll('_',' '))+' · '+esc(x.priority)+' · '+esc(x.state)+'</p></div><div class="buttonrow">'+
+ (x.state==='new'||x.state==='escalated'?'<button class="btn" data-preview-ticket="'+esc(x.id)+'" data-preview-kind="'+esc(x.kind)+'" data-preview-decision="reviewing">Review</button>':'')+
+ (x.state==='new'||x.state==='reviewing'?'<button class="btn secondary" data-preview-ticket="'+esc(x.id)+'" data-preview-kind="'+esc(x.kind)+'" data-preview-decision="escalated">Escalate (simulation)</button>':'')+
+ (x.state==='reviewing'?'<button class="btn secondary" data-preview-ticket="'+esc(x.id)+'" data-preview-kind="'+esc(x.kind)+'" data-preview-decision="closed_test">Close test</button>':'')+
+ '</div></div>').join(''):'<p class="muted">No other fictional users have submitted test issues.</p>'));
+}
 async function showSupportReviews(){
  const r=await api('/api/support/deferred-disputes');
  overlay('<h2 id="modal-title">Support dispute reviews</h2><p>Independent support-only decisions. No payment is made here. A customer must accept a proposed resolution and separately approve payment.</p>'+
@@ -241,6 +257,8 @@ async function act(e){
  if(action==='login'){showLogin();return;}
  if(action==='create-listing'){showListing();return;}
  if(action==='support-reviews'){try{await showSupportReviews();}catch(err){message(err.message,true);}return;}
+  if(action==='preview-support-mine'){try{await showPreviewSupportMine();}catch(err){message(err.message,true);}return;}
+  if(action==='preview-support-queue'){try{await showPreviewSupportQueue();}catch(err){message(err.message,true);}return;}
  if(action==='verification-reviews'){try{await showVerificationQueue();}catch(err){message(err.message,true);}return;}
   if(action==='expiry-reviews'){try{await showExpiryReviews();}catch(err){message(err.message,true);}return;}
   if(action==='launch-reviews'){try{await showLaunchQueue();}catch(err){message(err.message,true);}return;}
@@ -303,6 +321,17 @@ async function act(e){
   }catch(err){message(err.message,true);el.disabled=false;}
   return;
  }
+ if(el.dataset.previewTicket&&el.dataset.previewDecision&&el.dataset.previewKind){
+  const id=Number(el.dataset.previewTicket),state=el.dataset.previewDecision,kind=el.dataset.previewKind;
+  const disposition=state==='reviewing'?'review_started':state==='closed_test'?'simulated_resolution':
+   kind==='security_concern'?'referred_security':kind.startsWith('privacy_')?'referred_privacy':'referred_operations';
+  if(!confirm('Record a fictional support '+state+' action? No real case is processed.'))return;
+  el.disabled=true;
+  try{await api('/api/preview-support/'+id+'/decision',{method:'POST',body:JSON.stringify({state,disposition})});
+   message('Fictional support action recorded.');await showPreviewSupportQueue();}
+  catch(e){message(e.message,true);el.disabled=false;}
+  return;
+ }
  if(el.dataset.supportDecision && el.dataset.supportBooking){
   const id=Number(el.dataset.supportBooking),decision=el.dataset.supportDecision;
   const note=prompt('Enter a resolution note (at least 12 characters) shown to the customer and provider. Do not include private information:');
@@ -354,13 +383,18 @@ async function act(e){
  if(el.dataset.complete){try{await api('/api/bookings/'+Number(el.dataset.complete)+'/complete',{method:'POST'});message('Job marked completed.');refresh();}catch(err){message(err.message,true);}return;}
 }
 async function submit(e){
- if(!['register-form','login-form','listing-form','forgot-form','reset-form','change-password-form','credential-upload-form'].includes(e.target.id))return;
+ if(!['register-form','login-form','listing-form','forgot-form','reset-form','change-password-form','credential-upload-form','preview-support-form'].includes(e.target.id))return;
  e.preventDefault();
  const form=e.target,d=Object.fromEntries(new FormData(form).entries());
  if(state.config?.private_preview&&!state.config?.database){const err=$('form-error');if(err)err.textContent='This preview is read-only until its isolated database is connected. Use the onboarding walkthrough for now.';return;}
  const err=$('form-error');err.textContent='';
  const submit=form.querySelector('button[type=submit]');submit.disabled=true;
  try{
+  if(form.id==='preview-support-form'){
+   await api('/api/preview-support/mine',{method:'POST',body:JSON.stringify({kind:d.kind})});
+   message('Fictional test request recorded; this is not a real support channel.');
+   await showPreviewSupportMine();return;
+  }
   if(form.id==='credential-upload-form'){
    const file=form.querySelector('[name=document]').files[0];
    if(!file||file.size>2*1024*1024||file.size<24)throw Error('Choose a PDF, PNG, or JPEG between 24 bytes and 2 MB.');

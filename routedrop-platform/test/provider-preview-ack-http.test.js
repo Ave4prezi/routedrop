@@ -97,8 +97,18 @@ test('synthetic preview enforces exact version, stores immutable-version audit a
    password:'OnlyFakeOperator123!',role:'customer'};
   assert.equal((await register(reviewAccount)).status,201);
   assert.equal((await register(launchAccount)).status,201);
-  const adminAccount={name:'Fictional Designated Admin',email:'fictional-admin@ci.invalid',password:'OnlyFakeAdmin123!',role:'customer'};
-  assert.equal((await register(adminAccount)).status,201);
+  // Synthetic-only fixture accounts are inserted directly in the disposable schema
+  // to preserve the app's strict authLimiter (12 attempts per 15 minutes).
+  // They reuse a fabricated test password hash, never a live credential.
+  const adminAccount={name:'Fictional Designated Admin',email:'fictional-admin@ci.invalid',
+   password:launchAccount.password,role:'customer'};
+  const supportAccount={name:'Synthetic Support Reviewer',email:'synthetic-support@ci.invalid',
+   password:launchAccount.password,role:'customer'};
+  for(const fixture of [adminAccount,supportAccount]){
+   await admin.query('INSERT INTO '+schema+
+    '.users(email,full_name,password_hash,role) SELECT $1,$2,password_hash,$3 FROM '+
+    schema+'.users WHERE email=$4',[fixture.email,fixture.name,fixture.role,launchAccount.email]);
+  }
   const login=async(email,password)=>{
    const r=await fetch(base+'/api/login',{method:'POST',headers:sharedHeaders,body:JSON.stringify({email,password})});
    assert.equal(r.status,200,'fictional account can login');
@@ -109,6 +119,7 @@ test('synthetic preview enforces exact version, stores immutable-version audit a
   const ownerSession=await login(sample.email,sample.password);
   const reviewerSession=await login(reviewAccount.email,reviewAccount.password);
   const operatorSession=await login(launchAccount.email,launchAccount.password);
+  const supportSession=await login(supportAccount.email,supportAccount.password);
   const http=(session,endpoint,method='GET',body=null,kind=null)=>{
    const binary=Buffer.isBuffer(body);
    const headers={...sharedHeaders,cookie:csrfCookie+'; '+session,'content-type':binary?'application/octet-stream':'application/json'};
@@ -116,7 +127,7 @@ test('synthetic preview enforces exact version, stores immutable-version audit a
    return fetch(base+endpoint,{method,headers,body:body===null?undefined:binary?body:JSON.stringify(body)});
   };
   const ids=await admin.query(
-   'SELECT id,email FROM '+schema+'.users WHERE email=ANY($1)',[[sample.email,reviewAccount.email,launchAccount.email,adminAccount.email]]
+   'SELECT id,email FROM '+schema+'.users WHERE email=ANY($1)',[[sample.email,reviewAccount.email,launchAccount.email,adminAccount.email,supportAccount.email]]
   );
   const byEmail=Object.fromEntries(ids.rows.map(r=>[r.email,r.id]));
   // Initial admin designation is a controlled, fixture-only DBA operation.
@@ -134,6 +145,7 @@ test('synthetic preview enforces exact version, stores immutable-version audit a
   await grant(reviewAccount.email,'credential_reviewer');
   await grant(launchAccount.email,'launch_approver');
   await grant(sample.email,'launch_approver');
+  await grant(supportAccount.email,'support_reviewer');
   await assert.rejects(()=>grant(reviewAccount.email,'launch_approver'),/different accounts/);
   await assert.rejects(()=>operatorAccess.change(scopedDb,{
    action:'grant',actorEmail:adminAccount.email,targetEmail:adminAccount.email,role:'launch_approver',
@@ -141,7 +153,7 @@ test('synthetic preview enforces exact version, stores immutable-version audit a
   }),/distinct/);
   assert.equal(await operatorAccess.allowed(scopedDb,byEmail[reviewAccount.email],'credential_reviewer'),true);
   const expired=await scopedDb.query('SELECT COUNT(*)::int AS count FROM provider_operator_grants WHERE revoked_at IS NULL');
-  assert.equal(expired.rows[0].count,3);
+  assert.equal(expired.rows[0].count,4);
 
   const b=(await admin.query('SELECT id FROM '+schema+'.businesses WHERE owner_id=$1',
    [byEmail[sample.email]])).rows[0];
@@ -246,7 +258,7 @@ test('synthetic preview enforces exact version, stores immutable-version audit a
   assert.equal((await http(operatorSession,'/api/provider-launch/queue')).status,403,
    'revoked launch approver is denied immediately');
   const operatorAudit=await scopedDb.query('SELECT role,action,reason FROM provider_operator_audit ORDER BY id');
-  assert.deepEqual(operatorAudit.rows.map(x=>x.action),['grant','grant','grant','revoke']);
+  assert.deepEqual(operatorAudit.rows.map(x=>x.action),['grant','grant','grant','grant','revoke']);
   assert.equal(await operatorAccess.allowed(scopedDb,byEmail[launchAccount.email],'launch_approver'),false);
   await scopedDb.query("UPDATE provider_operator_grants SET expires_at=now()-interval '1 second' WHERE user_id=$1 AND role='credential_reviewer'",[byEmail[reviewAccount.email]]);
   assert.equal((await http(reviewerSession,'/api/provider-operations/expirations')).status,403,
@@ -259,6 +271,66 @@ test('synthetic preview enforces exact version, stores immutable-version audit a
   assert.ok(overdue.some(x=>x.kind==='liability_insurance'&&x.severity==='expired'),
    'expired approvals remain visible even after 30 days');
   assert.deepEqual(await visible(),[],'an expired required credential hides the listing regardless of launch approval');
+  // Non-production privacy/security/support drill: no free-text or attachments.
+  let ticketResponse=await http(ownerSession,'/api/preview-support/mine','POST',
+   {kind:'privacy_deletion',description:'REAL DATA SHOULD NEVER BE ACCEPTED'});
+  assert.equal(ticketResponse.status,400,'reject notes and all additional personal-data fields');
+  ticketResponse=await http(ownerSession,'/api/preview-support/mine','POST',{kind:'privacy_deletion'});
+  assert.equal(ticketResponse.status,201,'fictional category-only privacy ticket accepted');
+  const privacyTicket=(await ticketResponse.json()).ticket;
+  assert.equal(privacyTicket.priority,'P1');
+  ticketResponse=await http(ownerSession,'/api/preview-support/mine','POST',{kind:'privacy_deletion'});
+  assert.equal(ticketResponse.status,409,'duplicate active issue of the same kind refused');
+  ticketResponse=await http(operatorSession,'/api/preview-support/mine','POST',{kind:'security_concern'});
+  assert.equal(ticketResponse.status,201,'fictional security scenario accepted');
+  const securityTicket=(await ticketResponse.json()).ticket;
+  assert.equal(securityTicket.priority,'P0');
+  assert.equal((await http(operatorSession,'/api/preview-support/queue')).status,403,
+   'launch operator cannot read support queue without support role');
+  let triage=await http(supportSession,'/api/preview-support/queue');
+  assert.equal(triage.status,200);
+  const supportQueue=(await triage.json()).tickets;
+  assert.equal(Number(supportQueue[0].id),Number(securityTicket.id),'security scenario prioritized P0');
+  assert.equal(supportQueue.length,2);
+  let action=await http(supportSession,'/api/preview-support/'+privacyTicket.id+'/decision','POST',
+   {state:'closed_test',disposition:'simulated_resolution'});
+  assert.equal(action.status,409,'cannot skip required support review');
+  action=await http(supportSession,'/api/preview-support/'+privacyTicket.id+'/decision','POST',
+   {state:'escalated',disposition:'referred_security'});
+  assert.equal(action.status,409,'privacy scenario cannot be misclassified as security escalation');
+  action=await http(supportSession,'/api/preview-support/'+privacyTicket.id+'/decision','POST',
+   {state:'reviewing',disposition:'review_started'});
+  assert.equal(action.status,200,'review started by authorized fictional operator');
+  action=await http(supportSession,'/api/preview-support/'+privacyTicket.id+'/decision','POST',
+   {state:'escalated',disposition:'referred_privacy'});
+  assert.equal(action.status,200,'fictional privacy case escalation recorded');
+  action=await http(supportSession,'/api/preview-support/'+privacyTicket.id+'/decision','POST',
+   {state:'reviewing',disposition:'review_started'});
+  assert.equal(action.status,200);
+  action=await http(supportSession,'/api/preview-support/'+privacyTicket.id+'/decision','POST',
+   {state:'closed_test',disposition:'simulated_resolution'});
+  assert.equal(action.status,200,'simulated closure distinct from fulfillment');
+  const mine=await (await http(ownerSession,'/api/preview-support/mine')).json();
+  assert.equal(mine.tickets.find(x=>Number(x.id)===Number(privacyTicket.id)).state,'closed_test');
+  const other=await http(supportSession,'/api/preview-support/mine','POST',{kind:'listing_issue'});
+  assert.equal(other.status,201);
+  const ownTicket=(await other.json()).ticket;
+  action=await http(supportSession,'/api/preview-support/'+ownTicket.id+'/decision','POST',
+   {state:'reviewing',disposition:'review_started'});
+  assert.equal(action.status,409,'support operator cannot review their own fictional ticket');
+  const after=await (await http(supportSession,'/api/preview-support/queue')).json();
+  assert.ok(!after.tickets.some(x=>Number(x.id)===Number(ownTicket.id)),
+   'own support tickets are excluded from reviewer queue');
+  const supportAudit=await scopedDb.query('SELECT action,disposition FROM preview_support_audit ORDER BY id');
+  assert.deepEqual(supportAudit.rows.map(x=>x.action),
+   ['opened','opened','reviewing','escalated','reviewing','closed_test','opened']);
+  await operatorAccess.change(scopedDb,{action:'revoke',actorEmail:adminAccount.email,
+   targetEmail:supportAccount.email,role:'support_reviewer',
+   reason:'Synthetic support role revoked after fictional incident drill'});
+  assert.equal((await http(supportSession,'/api/preview-support/queue')).status,403,
+   'revoked support operator immediately denied while signed in');
+  assert.equal((await scopedDb.query('SELECT COUNT(*)::int AS n FROM bookings')).rows[0].n,0,
+   'support drill created no payment-bearing booking rows');
   await scopedDb.end();
   assert.equal((await admin.query('SELECT COUNT(*)::int AS n FROM '+schema+'.bookings')).rows[0].n,0,
    'fictional release never makes a payment booking');
