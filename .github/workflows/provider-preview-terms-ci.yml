@@ -3,6 +3,7 @@ on:
   push:
     branches:
       - test/provider-preview-versioned-ack-20261115
+      - test/provider-synthetic-launch-gate-20261115
 permissions:
   contents: read
 jobs:
@@ -35,6 +36,7 @@ jobs:
       - name: Validate JS syntax
         run: |
           node --check preview-acknowledgement.js
+          node --check provider-launch-approval.js
           node --check server.js
           node --check public/app.js
           node --check test/provider-preview-ack-http.test.js
