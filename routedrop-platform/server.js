@@ -18,6 +18,7 @@ const operatorAccess = require('./operator-access');
 const previewSupport = require('./preview-support');
 const providerExpiry = require('./provider-expiry');
 const previewAck = require('./preview-acknowledgement');
+const {assertSafePreviewStartup} = require('./preview-startup-policy');
 const {createStagingGate} = require('./staging-access');
 
 const app = express();
@@ -35,11 +36,9 @@ const emailReady = providerReady(process.env);
 const paymentsReady = !!(stripe && stripeWebhookSecret && paymentsApproved);
 // Explicitly test-only while the redesigned booking policy is under review.
 const deferredEnabled = process.env.ROUTEDROP_DEFERRED_BETA_ENABLED === 'true' && /^sk_test_/.test(stripeKey) && paymentsReady;
-// Dedicated, password-protected synthetic preview. Has no Stripe key or payment capability.
-const previewOnly = process.env.ROUTEDROP_PRIVATE_PREVIEW_ONLY === 'true' &&
- process.env.ROUTEDROP_STAGING_LOCK === 'true' &&
- process.env.ROUTEDROP_PROVIDER_DOCS_MODE === 'synthetic' &&
- !stripeKey && process.env.ROUTEDROP_LIVE_APPROVED !== 'true';
+// Invalid or partially configured fictional preview must not silently become
+// an ordinary public signup environment. Validate before database or HTTP startup.
+const previewOnly = assertSafePreviewStartup(process.env).enabled;
 // Staging-only. Explicit opt-in; do not turn on for an existing deployment without migration/testing.
 const verificationEnabled = (deferredEnabled || previewOnly) && process.env.ROUTEDROP_PROVIDER_VERIFICATION_ENABLED === 'true';
 // Only the paymentless, private fictional preview may use this additional gate.
