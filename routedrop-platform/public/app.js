@@ -331,6 +331,7 @@ async function act(e){
   return;
  }
  if(action==='start-provider'){
+  if(state.demo&&!state.config?.database){overlay('<h2 id="modal-title">One-account service preview</h2><p>This password-protected visual tour uses fictional data and does not register accounts. In the functional test branch, the same account can set up a provider profile, manage weekly openings and explore jobs.</p>');return;}
   if(!state.me?.user){showRegistration();return;}
   if(state.me.business){switchTab('business');return;}
   if(state.config?.unified_pilot)overlay(unified.providerForm());else message('Provider setup requires the private unified pilot.',true);
