@@ -8,6 +8,7 @@ const crypto = require('crypto');
 const { Pool } = require('pg');
 const serviceArea = require('./public/service-area');
 const bookingPilot = require('./booking-pilot');
+const opportunityPilot = require('./opportunity-pilot');
 const Stripe = require('stripe');
 const { normalizeSubscriptionEvent, invoiceEvent, selectSubscription, canStartSubscription, subscriptionView, securityPolicy } = require('./subscription-security');
 const { providerReady, emailLink, isActionToken, notification, deliverEmail } = require('./mail');
@@ -108,7 +109,7 @@ const ddl = [
  "CREATE TABLE IF NOT EXISTS notification_outbox (id BIGSERIAL PRIMARY KEY, event_key TEXT UNIQUE NOT NULL, recipient TEXT NOT NULL, subject TEXT NOT NULL, body TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','sending','sent','failed')), attempts INTEGER NOT NULL DEFAULT 0, available_at TIMESTAMPTZ NOT NULL DEFAULT now(), sent_at TIMESTAMPTZ, last_error TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())",
  "CREATE INDEX IF NOT EXISTS notification_outbox_due ON notification_outbox(status,available_at)"
 ];
-if(workflowPilot)ddl.push(...bookingPilot.ddl);
+if(workflowPilot)ddl.push(...bookingPilot.ddl,...opportunityPilot.ddl);
 async function startDatabase() {
  if (!pool) return;
  try {
@@ -223,7 +224,7 @@ app.get('/api/config',(req,res)=>{
  if(!req.cookies.routedrop_csrf || !/^[a-f0-9]{64}$/.test(req.cookies.routedrop_csrf)){
   res.cookie('routedrop_csrf',random(),{secure:process.env.NODE_ENV==='production',httpOnly:false,sameSite:'lax',path:'/',maxAge:7*24*60*60*1000});
  }
- res.json({database:ready,payments:paymentsReady,workflow_pilot:workflowPilot&&ready,status:ready?'beta':'setup_required',email_enabled:emailReady,payments_mode:liveKey?(paymentsApproved?'live':'live_locked'):'test',public_url:baseUrl});
+ res.json({database:ready,payments:paymentsReady,workflow_pilot:workflowPilot&&ready,opportunity_pilot:workflowPilot&&ready,status:ready?'beta':'setup_required',email_enabled:emailReady,payments_mode:liveKey?(paymentsApproved?'live':'live_locked'):'test',public_url:baseUrl});
 });
 async function issueEmailAction(userId,email,purpose) {
  if(!emailReady||!baseUrl)return false;
@@ -320,8 +321,10 @@ app.post('/api/auth/reset-password',requireDb,authLimiter,safe(async(req,res)=>{
  }catch(e){await client.query('ROLLBACK').catch(()=>{});throw e;}finally{client.release();}
 }));
 app.post('/api/register',requireDb,authLimiter,safe(async(req,res)=>{
- const name=clean(req.body.name,90),email=clean(req.body.email,254).toLowerCase(),password=String(req.body.password||''),role=req.body.role;
- const businessName=clean(req.body.businessName,120),city=clean(req.body.city,100),category=clean(req.body.category,40);
+ const name=clean(req.body.name,90),email=clean(req.body.email,254).toLowerCase(),password=String(req.body.password||''),roleInput=req.body.role;
+ const providerKind=workflowPilot&&roleInput==='individual'?'individual':'business';
+ const role=providerKind==='individual'?'business':roleInput;
+ const businessName=providerKind==='individual'?name:clean(req.body.businessName,120),city=clean(req.body.city,100),category=clean(req.body.category,40);
  if(!name||!isEmail(email)||password.length<12||password.length>128||!['customer','business'].includes(role))return forbidden(res,'Provide name, email, role, and a password of 12–128 characters.');
  if(role==='business' && (!businessName||!city||!category))return forbidden(res,'Complete the business details.');
  const pw=await bcrypt.hash(password,12);
@@ -329,7 +332,10 @@ app.post('/api/register',requireDb,authLimiter,safe(async(req,res)=>{
  try {
   await client.query('BEGIN');
   const u=await client.query('INSERT INTO users(email,full_name,password_hash,role) VALUES($1,$2,$3,$4) RETURNING id',[email,name,pw,role]);
-  if(role==='business')await client.query('INSERT INTO businesses(owner_id,name,city,category) VALUES($1,$2,$3,$4)',[u.rows[0].id,businessName,city,category]);
+  if(role==='business'){
+    if(workflowPilot)await client.query('INSERT INTO businesses(owner_id,name,city,category,provider_kind) VALUES($1,$2,$3,$4,$5)',[u.rows[0].id,businessName,city,category,providerKind]);
+    else await client.query('INSERT INTO businesses(owner_id,name,city,category) VALUES($1,$2,$3,$4)',[u.rows[0].id,businessName,city,category]);
+   }
   await client.query('COMMIT');
   await createSession(u.rows[0].id,res);
   res.status(201).json({ok:true});
@@ -372,7 +378,7 @@ app.get('/api/me',requireDb,safe(async(req,res)=>{
  if(!req.user)return res.json({user:null});
  let business=null;
  if(req.user.role==='business'){
-  const r=await pool.query('SELECT id,name,city,category,service_center_code,service_radius_miles, (stripe_account_id IS NOT NULL) AS stripe_connected FROM businesses WHERE owner_id=$1',[req.user.id]);
+  const r=await pool.query('SELECT id,name,city,category,service_center_code,service_radius_miles, (stripe_account_id IS NOT NULL) AS stripe_connected'+(workflowPilot?',provider_kind':'')+' FROM businesses WHERE owner_id=$1',[req.user.id]);
   business=r.rows[0]||null;
  }
  res.json({user:req.user,business});
@@ -384,10 +390,13 @@ app.put('/api/business/service-area',requireDb,requireUser('business'),safe(asyn
  if(!changed.rowCount)return forbidden(res,'Business account not found.',404);
  res.json({ok:true,serviceArea:changed.rows[0]});
 }));
-if(workflowPilot && pool)bookingPilot.registerPilotRoutes(app,{pool,safe,requireDb,requireUser,forbidden});
+if(workflowPilot && pool){
+ bookingPilot.registerPilotRoutes(app,{pool,safe,requireDb,requireUser,forbidden});
+ opportunityPilot.registerOpportunityRoutes(app,{pool,safe,requireDb,requireUser,forbidden});
+}
 app.get('/api/listings',requireDb,safe(async(req,res)=>{
  const pilotExclusion=workflowPilot?" AND NOT EXISTS(SELECT 1 FROM service_requests r WHERE r.listing_id=l.id AND r.status IN ('requested','accepted','completed','confirmed','issue_reported'))":"";
- const data=await pool.query("SELECT l.id,l.title,l.category,l.neighborhood,l.price_cents,l.slot_start,l.duration_minutes,b.name AS business_name,b.city,b.service_center_code,b.service_radius_miles FROM listings l JOIN businesses b ON b.id=l.business_id WHERE l.status='active' AND l.slot_start>now() AND NOT EXISTS(SELECT 1 FROM bookings k WHERE k.listing_id=l.id AND k.status IN ('awaiting_payment','paid','completed'))"+pilotExclusion+" ORDER BY l.slot_start ASC LIMIT 100");
+ const data=await pool.query("SELECT l.id,l.title,l.category,l.neighborhood,l.price_cents,l.slot_start,l.duration_minutes,b.name AS business_name,b.city,b.service_center_code,b.service_radius_miles"+(workflowPilot?",b.provider_kind":"")+" FROM listings l JOIN businesses b ON b.id=l.business_id WHERE l.status='active' AND l.slot_start>now() AND NOT EXISTS(SELECT 1 FROM bookings k WHERE k.listing_id=l.id AND k.status IN ('awaiting_payment','paid','completed'))"+pilotExclusion+" ORDER BY l.slot_start ASC LIMIT 100");
  res.json({listings:data.rows});
 }));
 app.post('/api/listings',requireDb,requireUser('business'),safe(async(req,res)=>{
