@@ -400,7 +400,7 @@ app.put('/api/business/service-area',requireDb,requireProvider,safe(async(req,re
 }));
 if(workflowPilot && pool){
  bookingPilot.registerPilotRoutes(app,{pool,safe,requireDb,requireUser,requireProvider,forbidden});
- opportunityPilot.registerOpportunityRoutes(app,{pool,safe,requireDb,requireUser,forbidden});
+ opportunityPilot.registerOpportunityRoutes(app,{pool,safe,requireDb,requireUser,requireProvider,forbidden});
  unifiedPilot.registerUnifiedRoutes(app,{pool,safe,requireDb,requireUser,requireProvider,forbidden});
 }
 app.get('/api/listings',requireDb,safe(async(req,res)=>{
