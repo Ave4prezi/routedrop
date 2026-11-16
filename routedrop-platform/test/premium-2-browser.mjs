@@ -70,7 +70,7 @@ try{
   await page.locator('.demo-request').first().waitFor();
   assert.match(await page.locator('.demo-request').first().innerText(),/Awaiting provider response/);
   assert.ok((await page.locator('.demo-request').first().innerText()).includes('$0.00'),'actual charged amount stays zero');
-  assert.match(await page.locator('.demo-request').first().innerText(),/\\$0\\.00/);
+  assert.ok((await page.locator('.demo-request').first().innerText()).includes('5:00 PM'),'selected sample window is retained');
   // The same simulated request is visible from the other fictional role.
   await page.getByRole('button',{name:'Business Studio'}).click();
   await page.locator('[data-demo-action="accept"]').click();
