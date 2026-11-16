@@ -49,7 +49,7 @@ try{
   await page.getByRole('heading',{name:'Example customer journey'}).waitFor();
   await page.getByText('The customer separately approves the quoted amount').waitFor();
   await page.getByRole('button',{name:'Business Studio'}).click();
-  await page.getByText('Avenue89 Test Services').waitFor();
+  await page.locator('#studio-body').getByText('Avenue89 Test Services').waitFor();
   await page.locator('#studio-body').getByText('No required monthly membership').waitFor();
   assert.equal(await page.getByRole('button',{name:/Connect payouts/}).count(),0);
   await page.screenshot({path:'tour-'+layout.name+'-business.png',fullPage:true});
