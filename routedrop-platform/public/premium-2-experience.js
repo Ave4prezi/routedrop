@@ -31,11 +31,19 @@
  }
  function profile(x,area){
   const demo=Boolean(x.demoKind),valid=area.validate(x.service_center_code,x.service_radius_miles);
+  const details={
+   cleaning:['General surface cleaning','Kitchen and bathroom touch-ups','Floor care and finishing details'],
+   detail:['Interior surfaces and console care','Vacuuming and detailing','Window and mirror cleaning'],
+   lawn:['Lawn mowing','Driveway and border edging','Clipping and presentation cleanup']
+  };
+  const sampleItems=demo?(details[kind(x)]||[]):[];
+  const checklist=demo?'<section class="profile-inclusions"><div class="profile-overline">SAMPLE SERVICE SCOPE</div><h3>What this example could include</h3><ul>'+sampleItems.map(item=>'<li><span aria-hidden="true">✓</span>'+h(item)+'</li>').join('')+'</ul><p>Illustrative checklist only. Actual scope and exclusions would be agreed with the provider before booking.</p></section>':'';
   return '<div class="profile-overline">'+(demo?'FICTIONAL BUSINESS SHOWCASE':'SERVICE LISTING DETAILS')+'</div><h2 id="modal-title">'+h(x.business_name)+'</h2>'+
   (demo?'<div class="profile-cover '+h(kind(x))+'" role="img" aria-label="AI-generated illustrative professional image"></div>':'')+
   '<div class="profile-facts"><span>'+h(x.category)+'</span><span>'+h(x.city)+'</span><span>'+money(x.price_cents)+(demo?' sample price':' listed price')+'</span></div>'+
   '<p class="profile-description">'+(demo?h(x.demoAbout):'This listing has a price and opening, but additional provider credentials, independent reviews and service photos have not been verified for display.')+'</p>'+
-  '<div class="panel"><h3>'+h(x.title)+'</h3><p>'+h(x.neighborhood)+' · '+h(x.duration_minutes)+' minutes</p></div>'+
+  '<div class="profile-service-block"><div><span class="profile-overline">SERVICE OVERVIEW</span><h3>'+h(x.title)+'</h3><p>'+h(x.neighborhood)+' · '+h(x.duration_minutes)+' minutes</p></div><div class="profile-price"><small>'+(demo?'SAMPLE PRICE':'LISTED PRICE')+'</small><strong>'+money(x.price_cents)+'</strong></div></div>'+
+  checklist+
   (valid?'<h3>Service-area preview</h3><p>'+h(area.summary(valid.center,valid.radiusMiles))+'. Straight-line estimate; road access and address-level coverage are not guaranteed.</p><div class="coverage-map-wrap">'+area.mapSvg(valid.center,valid.radiusMiles)+'</div>':'<p>No coverage radius is currently listed.</p>')+
   '<p class="legal">'+(demo?'Fictional demonstration. No real reviews, verified provider, availability or booking exists.':'No verified identity or customer rating claims are being made.')+'</p>';
  }
