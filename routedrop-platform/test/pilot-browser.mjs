@@ -125,7 +125,7 @@ try{
   await independentForm.locator('[name="slotStart"]').fill(new Date(Date.now()+48*60*60*1000).toISOString().slice(0,16));
   await independentForm.locator('[name="durationMinutes"]').fill('60');
   await independentForm.locator('button[type="submit"]').click();
-  await independent.locator('#modal').waitFor({state:'hidden'});
+  await individual.locator('#modal').waitFor({state:'hidden'});
   await customer.getByRole('button',{name:'Explore services'}).click();
   await customer.locator('.card').filter({hasText:'Solo Mowing '+variant.name}).getByText('Individual provider · unverified').waitFor();
   await individual.screenshot({path:'pilot-individual-'+variant.name+'.png',fullPage:true});
