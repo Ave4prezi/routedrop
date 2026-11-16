@@ -32,7 +32,7 @@ const validWeekly=body=>{
 async function syncOpenings(pool){
  // A rolling 35-day horizon in local Central time. PostgreSQL AT TIME ZONE applies DST per occurrence.
  // The partial unique index prevents duplicates on concurrent browser refreshes.
- const result=await pool.query("INSERT INTO listings (business_id,title,category,neighborhood,price_cents,slot_start,duration_minutes,pilot_profile_id,pilot_weekly_rule_id) SELECT p.business_id,p.title,p.category,p.neighborhood,p.price_cents,((z.local_day + r.local_time) AT TIME ZONE 'America/Chicago'),p.duration_minutes,p.id,r.id FROM pilot_weekly_rules r JOIN pilot_service_profiles p ON p.id=r.profile_id JOIN businesses b ON b.id=p.business_id CROSS JOIN LATERAL (SELECT ((now() AT TIME ZONE 'America/Chicago')::date + seq.n)::date AS local_day FROM generate_series(0,35) AS seq(n)) z WHERE r.active=true AND p.active=true AND EXTRACT(DOW FROM z.local_day)=r.day_of_week AND ((z.local_day + r.local_time) AT TIME ZONE 'America/Chicago')>now()+interval '10 minutes' ON CONFLICT (pilot_weekly_rule_id,slot_start) WHERE pilot_weekly_rule_id IS NOT NULL DO NOTHING");
+ const result=await pool.query("INSERT INTO listings (business_id,title,category,neighborhood,price_cents,slot_start,duration_minutes,pilot_profile_id,pilot_weekly_rule_id) SELECT p.business_id,p.title,p.category,p.neighborhood,p.price_cents,((z.local_day + r.local_time) AT TIME ZONE 'America/Chicago'),p.duration_minutes,p.id,r.id FROM pilot_weekly_rules r JOIN pilot_service_profiles p ON p.id=r.profile_id JOIN businesses b ON b.id=p.business_id CROSS JOIN LATERAL (SELECT ((now() AT TIME ZONE 'America/Chicago')::date + seq.n)::date AS local_day FROM generate_series(0,35) AS seq(n)) z WHERE r.active=true AND p.active=true AND b.pilot_screening_status!='suspended' AND EXTRACT(DOW FROM z.local_day)=r.day_of_week AND ((z.local_day + r.local_time) AT TIME ZONE 'America/Chicago')>now()+interval '10 minutes' ON CONFLICT (pilot_weekly_rule_id,slot_start) WHERE pilot_weekly_rule_id IS NOT NULL DO NOTHING");
  return result.rowCount;
 }
 function registerUnifiedRoutes(app,{pool,safe,requireDb,requireUser,requireProvider,forbidden}){
@@ -49,7 +49,7 @@ function registerUnifiedRoutes(app,{pool,safe,requireDb,requireUser,requireProvi
  }));
  app.get('/api/pilot/service-profiles',requireDb,safe(async(req,res)=>{
   await syncOpenings(pool);
-  const q=await pool.query("SELECT p.id,p.title,p.category,p.neighborhood,p.description,p.price_cents,p.duration_minutes,b.id AS provider_id,b.name AS provider_name,b.provider_kind,b.city,b.service_center_code,b.service_radius_miles"+trustPilot.ratingFields('b')+",(SELECT l.id FROM listings l WHERE l.pilot_profile_id=p.id AND l.status='active' AND l.slot_start>now() AND NOT EXISTS(SELECT 1 FROM service_requests sr WHERE sr.listing_id=l.id AND sr.status IN ('requested','accepted','completed','confirmed','issue_reported')) ORDER BY l.slot_start ASC LIMIT 1) AS next_listing_id FROM pilot_service_profiles p JOIN businesses b ON b.id=p.business_id WHERE p.active=true ORDER BY p.created_at DESC LIMIT 100");
+  const q=await pool.query("SELECT p.id,p.title,p.category,p.neighborhood,p.description,p.price_cents,p.duration_minutes,b.id AS provider_id,b.name AS provider_name,b.provider_kind,b.city,b.service_center_code,b.service_radius_miles"+trustPilot.ratingFields('b')+",(SELECT l.id FROM listings l WHERE l.pilot_profile_id=p.id AND l.status='active' AND l.slot_start>now() AND NOT EXISTS(SELECT 1 FROM service_requests sr WHERE sr.listing_id=l.id AND sr.status IN ('requested','accepted','completed','confirmed','issue_reported')) ORDER BY l.slot_start ASC LIMIT 1) AS next_listing_id FROM pilot_service_profiles p JOIN businesses b ON b.id=p.business_id WHERE p.active=true AND b.pilot_screening_status!='suspended' ORDER BY p.created_at DESC LIMIT 100");
   res.set('Cache-Control','no-store').json({profiles:q.rows});
  }));
  app.get('/api/pilot/my-service-profiles',requireDb,requireProvider,safe(async(req,res)=>{
@@ -62,7 +62,7 @@ function registerUnifiedRoutes(app,{pool,safe,requireDb,requireUser,requireProvi
  app.post('/api/pilot/service-profiles',requireDb,requireProvider,safe(async(req,res)=>{
   const p=validProfile(req.body);
   if(!p)return forbidden(res,'Enter a complete fictional service profile, price, duration and description.',400);
-  const result=await pool.query("INSERT INTO pilot_service_profiles(business_id,title,category,neighborhood,description,price_cents,duration_minutes) SELECT b.id,$2,$3,$4,$5,$6,$7 FROM businesses b WHERE b.owner_id=$1 AND (SELECT count(*) FROM pilot_service_profiles t WHERE t.business_id=b.id)<8 RETURNING id,title",[req.user.id,p.title,p.category,p.neighborhood,p.description,p.priceCents,p.durationMinutes]);
+  const result=await pool.query("INSERT INTO pilot_service_profiles(business_id,title,category,neighborhood,description,price_cents,duration_minutes) SELECT b.id,$2,$3,$4,$5,$6,$7 FROM businesses b WHERE b.owner_id=$1 AND b.pilot_screening_status!='suspended' AND (SELECT count(*) FROM pilot_service_profiles t WHERE t.business_id=b.id)<8 RETURNING id,title",[req.user.id,p.title,p.category,p.neighborhood,p.description,p.priceCents,p.durationMinutes]);
   if(!result.rowCount)return forbidden(res,'A provider account can have up to 8 test service profiles.',409);
   res.status(201).json({profile:result.rows[0],message:'Permanent fictional service profile created. Add weekly availability to publish bookable openings.'});
  }));
@@ -72,7 +72,7 @@ function registerUnifiedRoutes(app,{pool,safe,requireDb,requireUser,requireProvi
   const client=await pool.connect();
   try{
    await client.query('BEGIN');
-   const q=await client.query("UPDATE pilot_service_profiles p SET active=$1 FROM businesses b WHERE p.id=$2 AND p.business_id=b.id AND b.owner_id=$3 RETURNING p.id,p.active",[active,id,req.user.id]);
+   const q=await client.query("UPDATE pilot_service_profiles p SET active=$1 FROM businesses b WHERE p.id=$2 AND p.business_id=b.id AND b.owner_id=$3 AND ($1=false OR b.pilot_screening_status!='suspended') RETURNING p.id,p.active",[active,id,req.user.id]);
    if(!q.rowCount){await client.query('ROLLBACK');return forbidden(res,'Service profile not found or outside your account.',404);}
    await client.query("UPDATE listings l SET status=$1 FROM pilot_weekly_rules r WHERE l.pilot_weekly_rule_id=r.id AND r.profile_id=$2 AND l.slot_start>now() AND NOT EXISTS (SELECT 1 FROM service_requests sr WHERE sr.listing_id=l.id AND sr.status IN ('requested','accepted','completed','confirmed','issue_reported'))",[active?'active':'paused',id]);
    await client.query('COMMIT');
@@ -83,7 +83,7 @@ function registerUnifiedRoutes(app,{pool,safe,requireDb,requireUser,requireProvi
  app.post('/api/pilot/weekly-rules',requireDb,requireProvider,safe(async(req,res)=>{
   const profileId=Number(req.body?.profileId),v=validWeekly(req.body);
   if(!idOk(profileId)||!v)return forbidden(res,'Select a service, weekday and valid local time.',400);
-  const q=await pool.query("INSERT INTO pilot_weekly_rules(profile_id,day_of_week,local_time) SELECT p.id,$2,$3::time FROM pilot_service_profiles p JOIN businesses b ON b.id=p.business_id WHERE p.id=$1 AND b.owner_id=$4 AND (SELECT count(*) FROM pilot_weekly_rules x WHERE x.profile_id=p.id)<14 ON CONFLICT(profile_id,day_of_week,local_time) DO NOTHING RETURNING id",[profileId,v.day,v.time,req.user.id]);
+  const q=await pool.query("INSERT INTO pilot_weekly_rules(profile_id,day_of_week,local_time) SELECT p.id,$2,$3::time FROM pilot_service_profiles p JOIN businesses b ON b.id=p.business_id WHERE p.id=$1 AND b.owner_id=$4 AND b.pilot_screening_status!='suspended' AND (SELECT count(*) FROM pilot_weekly_rules x WHERE x.profile_id=p.id)<14 ON CONFLICT(profile_id,day_of_week,local_time) DO NOTHING RETURNING id",[profileId,v.day,v.time,req.user.id]);
   if(!q.rowCount)return forbidden(res,'Choose a different time, an owned service profile, or fewer weekly openings.',409);
   await syncOpenings(pool);
   res.status(201).json({rule:q.rows[0],message:'Weekly availability saved in Central time; next five weeks are generated without double-booking.'});
@@ -94,7 +94,7 @@ function registerUnifiedRoutes(app,{pool,safe,requireDb,requireUser,requireProvi
   const client=await pool.connect();
   try{
    await client.query('BEGIN');
-   const q=await client.query("UPDATE pilot_weekly_rules r SET active=$1 FROM pilot_service_profiles p JOIN businesses b ON b.id=p.business_id WHERE r.id=$2 AND r.profile_id=p.id AND b.owner_id=$3 RETURNING r.id,r.active",[active,id,req.user.id]);
+   const q=await client.query("UPDATE pilot_weekly_rules r SET active=$1 FROM pilot_service_profiles p JOIN businesses b ON b.id=p.business_id WHERE r.id=$2 AND r.profile_id=p.id AND b.owner_id=$3 AND ($1=false OR b.pilot_screening_status!='suspended') RETURNING r.id,r.active",[active,id,req.user.id]);
    if(!q.rowCount){await client.query('ROLLBACK');return forbidden(res,'Weekly rule is not owned by this account.',404);}
    await client.query("UPDATE listings l SET status=$1 WHERE l.pilot_weekly_rule_id=$2 AND l.slot_start>now() AND NOT EXISTS (SELECT 1 FROM service_requests sr WHERE sr.listing_id=l.id AND sr.status IN ('requested','accepted','completed','confirmed','issue_reported'))",[active?'active':'paused',id]);
    await client.query('COMMIT');
