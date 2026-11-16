@@ -15,6 +15,7 @@ const postService = require('./post-service');
 const verification = require('./provider-verification');
 const launchApproval = require('./provider-launch-approval');
 const operatorAccess = require('./operator-access');
+const providerExpiry = require('./provider-expiry');
 const previewAck = require('./preview-acknowledgement');
 const {createStagingGate} = require('./staging-access');
 
@@ -103,13 +104,14 @@ const ddl = [
 ]; 
 if (deferredEnabled || previewOnly) ddl.push(...postService.sql);
 if (verificationEnabled) ddl.push(...verification.schema);
-if (launchApprovalEnabled) ddl.push(...launchApproval.schema,...operatorAccess.schema);
+if (launchApprovalEnabled) ddl.push(...launchApproval.schema,...operatorAccess.schema,...providerExpiry.schema);
 if (previewOnly && verificationEnabled) ddl.push(...previewAck.schema);
 async function startDatabase() {
  if (!pool) return;
  try {
   for (const statement of ddl) await pool.query(statement);
   ready = true;
+  if(launchApprovalEnabled)await providerExpiry.collect(pool).catch(e=>console.error('Preview expiry scan failed',e.message));
   console.log('RouteDrop PostgreSQL ready');
  } catch(err) { ready=false; console.error('Database unavailable:',err.message); }
 }
@@ -622,3 +624,5 @@ app.use(express.static('routedrop-platform/public',{fallthrough:false,maxAge:'15
 app.use((err,req,res,next)=>{console.error('RouteDrop request error',err.message);res.status(500).json({error:'Unexpected server error.'});});
 app.listen(port,'0.0.0.0',()=>console.log('RouteDrop beta listening on '+port));
 startDatabase();
+// Best-effort synthetic preview scan only; dashboard warnings are computed live even after idle.
+if(launchApprovalEnabled)setInterval(()=>{if(ready)providerExpiry.collect(pool).catch(e=>console.error('Preview expiry scan failed',e.message));},6*60*60*1000).unref();
