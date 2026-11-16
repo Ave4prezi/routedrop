@@ -251,6 +251,14 @@ test('synthetic preview enforces exact version, stores immutable-version audit a
   await scopedDb.query("UPDATE provider_operator_grants SET expires_at=now()-interval '1 second' WHERE user_id=$1 AND role='credential_reviewer'",[byEmail[reviewAccount.email]]);
   assert.equal((await http(reviewerSession,'/api/provider-operations/expirations')).status,403,
    'expired reviewer role is denied on every request');
+  await scopedDb.query(
+   "UPDATE provider_verifications SET expires_at=now()-interval '45 days',updated_at=now() WHERE business_id=$1 AND kind='liability_insurance'",
+   [businessId]
+  );
+  const overdue=(await (await http(ownerSession,'/api/provider-verification/me')).json()).expiryReminders;
+  assert.ok(overdue.some(x=>x.kind==='liability_insurance'&&x.severity==='expired'),
+   'expired approvals remain visible even after 30 days');
+  assert.deepEqual(await visible(),[],'an expired required credential hides the listing regardless of launch approval');
   await scopedDb.end();
   assert.equal((await admin.query('SELECT COUNT(*)::int AS n FROM '+schema+'.bookings')).rows[0].n,0,
    'fictional release never makes a payment booking');
