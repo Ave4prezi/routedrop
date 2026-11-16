@@ -282,9 +282,9 @@ test('synthetic preview enforces exact version, stores immutable-version audit a
    'launch operator cannot read support queue without support role');
   let triage=await http(supportSession,'/api/preview-support/queue');
   assert.equal(triage.status,200);
-  const queue=(await triage.json()).tickets;
-  assert.equal(Number(queue[0].id),Number(securityTicket.id),'security scenario prioritized P0');
-  assert.equal(queue.length,2);
+  const supportQueue=(await triage.json()).tickets;
+  assert.equal(Number(supportQueue[0].id),Number(securityTicket.id),'security scenario prioritized P0');
+  assert.equal(supportQueue.length,2);
   let action=await http(supportSession,'/api/preview-support/'+privacyTicket.id+'/decision','POST',
    {state:'closed_test',disposition:'simulated_resolution'});
   assert.equal(action.status,409,'cannot skip required support review');
