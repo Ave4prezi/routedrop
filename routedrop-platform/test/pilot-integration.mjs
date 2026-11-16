@@ -4,6 +4,7 @@ import {once} from 'node:events';
 import net from 'node:net';
 import pg from 'pg';
 import crypto from 'node:crypto';
+import identityAdapter from '../identity-pilot.js';
 
 const pool=new pg.Pool({connectionString:process.env.TEST_DATABASE_URL});
 const suffix=String(Date.now()),moderationToken='local-test-moderator-very-long-unique-key-2026';
@@ -105,6 +106,21 @@ try{
  const screened=await call(business,'/api/pilot/safety/provider');
  assert.equal(screened.data.screening.pilot_screening_status,'test_reviewed');
  assert.equal(screened.data.identity_verified,false,'test screening is not identity verification');
+ // Synthetic SIGNED-EVENT equivalent; signature validation is tested separately
+ // using Stripe's real constructEvent signature-verification helper.
+ const sessionId='vs_test_ci_'+suffix;
+ await pool.query("INSERT INTO pilot_identity_attempts(business_id,idempotency_key,stripe_session_id,status) VALUES($1,$2,$3,'requires_input')",[businessId,'ci-identity-'+suffix,sessionId]);
+ const verifiedEvent={id:'evt_ci_identity_1_'+suffix,type:'identity.verification_session.verified',livemode:false,data:{object:{id:sessionId,status:'verified',livemode:false}}};
+ const synced=await identityAdapter.applyIdentityEvent(pool,verifiedEvent);
+ assert.equal(synced.status,'verified_test');
+ const identitySummary=await call(business,'/api/pilot/identity/status');
+ assert.equal(identitySummary.data.status,'verified_test');
+ assert.equal(identitySummary.data.identity_verified,false,'TEST status never becomes production provider approval');
+ assert.equal((await identityAdapter.applyIdentityEvent(pool,verifiedEvent)).ignored,true,'idempotent webhook replay ignored');
+ assert.equal((await identityAdapter.applyIdentityEvent(pool,{...verifiedEvent,id:'evt_ci_identity_old_'+suffix,type:'identity.verification_session.requires_input',data:{object:{id:sessionId,status:'requires_input',livemode:false}}})).ignored,true,'older event cannot downgrade completed test verification');
+ const checkStored=await pool.query("SELECT column_name FROM information_schema.columns WHERE table_name='pilot_identity_attempts' ORDER BY column_name");
+ assert.ok(!checkStored.rows.some(x=>/name|dob|ssn|address|passport|document_image|selfie|biometric/i.test(x.column_name)),'no sensitive ID columns stored');
+
  const individual=await register('individual','independent-lawncare');
  const individualInfo=await call(individual,'/api/me');
  assert.equal(individualInfo.code,200);
