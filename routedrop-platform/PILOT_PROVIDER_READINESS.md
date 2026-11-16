@@ -9,6 +9,10 @@ Status: **SYNTHETIC TEST PREVIEW ONLY**. This is a working checklist for a futur
 - Draft provider category requirements and enrollment stages; verification/revocation/expiry checks in isolated tests.
 - Encrypted test-document workflow with synthetic-only scanner bypass; mock malware scanner and mock evidence are **not safe for real IDs**.
 - Versioned preview-only acknowledgement with exact published text + SHA256 stored in a separate PostgreSQL audit table at registration. Rejected or outdated versions do not create a user.
+- **Code-only, not deployed:** a separate fictional launch approval is required after credential review; decisions can be revoked and expire after credential changes.
+- **Code-only, not deployed:** time-limited, auditable operator permissions with offline DBA-controlled grants/revokes and separate credential/launch approvers.
+- **Code-only, not deployed:** provider and restricted-reviewer in-app credential expiry reminders, with best-effort idempotent reminder records (no live outbound email).
+- **Drafts, not approved policies:** `OPERATOR_ACCESS_RUNBOOK.md`, `CREDENTIAL_EXPIRY_RUNBOOK.md`, `PROVIDER_PRIVACY_NOTICE_DRAFT.md`, and `PILOT_SUPPORT_PLAYBOOK_DRAFT.md`.
 - No live Stripe keys, no real charges, and no guarantee of paid jobs.
 
 ## Required controls BEFORE accepting real provider identities or documents
