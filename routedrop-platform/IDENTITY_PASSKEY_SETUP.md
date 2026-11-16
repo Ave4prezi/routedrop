@@ -2,6 +2,16 @@
 
 **Status: integrated code only, credentials not connected.** The public RouteDrop website and existing password-protected visual preview must not be modified for this setup. The functional pilot remains payment-disabled.
 
+## Current private-staging checkpoint — 2026-11-16
+
+- A separate PostgreSQL-backed Render staging service is running on the isolated identity/passkeys branch. Automatic deployments remain disabled; changes require deliberate testing and deployment.
+- A Stripe Identity **sandbox Dashboard** document + selfie verification was created and completed using Stripe's **simulated success** test option. This proves the Dashboard test flow, **not** RouteDrop's API integration, signing-secret delivery, or webhook receipt.
+- Stripe's account verification documents are under review. The restricted-key permission screen did not show Identity or Verification Sessions. **Do not substitute an unrelated permission or live Stripe secret.** Provider verification remains disabled until a correctly scoped TEST credential and webhook signing secret are present and checked.
+- The Business Studio has a provider setup checklist that reads existing authenticated screening and Identity status endpoints. It explicitly labels all results as private-test outcomes, and leaves customer payments off.
+- Moderator passkey enrollment and authentication remain disabled until an authorized test moderator, dedicated private bootstrap key, and passkey device are ready. Do not create a moderation bypass to compensate for missing credentials.
+
+**Resume conditions:** Complete Stripe account review, confirm Identity test API permissions with Stripe if still missing, configure a dedicated TEST-only API key and signature secret securely in staging, validate real TEST-mode webhook deliveries, then separately test passkey enrollment and authentication. No production merge is authorized by this checkpoint.
+
 ## Stripe Identity (TEST only)
 
 1. Enable **Stripe Identity** for a Stripe account under its terms and applicable requirements. Use its test environment with fictitious test material only; never ask the user to paste Stripe keys or real identity documents into chat.
