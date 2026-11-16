@@ -8,6 +8,7 @@ const {createServer}=require('node:net');
 const path=require('node:path');
 const crypto=require('node:crypto');
 const terms=require('../preview-acknowledgement');
+const operatorAccess=require('../operator-access');
 const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 
 async function freePort(){
@@ -95,6 +96,8 @@ test('synthetic preview enforces exact version, stores immutable-version audit a
    password:'OnlyFakeOperator123!',role:'customer'};
   assert.equal((await register(reviewAccount)).status,201);
   assert.equal((await register(launchAccount)).status,201);
+  const adminAccount={name:'Fictional Designated Admin',email:'fictional-admin@ci.invalid',password:'OnlyFakeAdmin123!',role:'customer'};
+  assert.equal((await register(adminAccount)).status,201);
   const login=async(email,password)=>{
    const r=await fetch(base+'/api/login',{method:'POST',headers:sharedHeaders,body:JSON.stringify({email,password})});
    assert.equal(r.status,200,'fictional account can login');
@@ -112,12 +115,33 @@ test('synthetic preview enforces exact version, stores immutable-version audit a
    return fetch(base+endpoint,{method,headers,body:body===null?undefined:binary?body:JSON.stringify(body)});
   };
   const ids=await admin.query(
-   'SELECT id,email FROM '+schema+'.users WHERE email=ANY($1)',[[sample.email,reviewAccount.email,launchAccount.email]]
+   'SELECT id,email FROM '+schema+'.users WHERE email=ANY($1)',[[sample.email,reviewAccount.email,launchAccount.email,adminAccount.email]]
   );
   const byEmail=Object.fromEntries(ids.rows.map(r=>[r.email,r.id]));
-  await admin.query('INSERT INTO '+schema+'.provider_document_reviewers(user_id) VALUES($1)',[byEmail[reviewAccount.email]]);
-  await admin.query('INSERT INTO '+schema+'.provider_launch_approvers(user_id) VALUES($1),($2)',
-   [byEmail[launchAccount.email],byEmail[sample.email]]);
+  // Initial admin designation is a controlled, fixture-only DBA operation.
+  await admin.query('INSERT INTO '+schema+'.provider_operator_admins(user_id,appointment_reason) VALUES($1,$2)',
+    [byEmail[adminAccount.email],'CI-only fictional administrator bootstrap']);
+  const scopedDb=new Pool({connectionString:dbUrl.toString(),ssl:false});
+  const grant=async(targetEmail,role,days=45)=>operatorAccess.change(scopedDb,{
+   action:'grant',actorEmail:adminAccount.email,targetEmail,role,
+   reason:'Approved fictional operator test assignment',expiresAt:new Date(Date.now()+days*86400000).toISOString()
+  });
+  await assert.rejects(()=>operatorAccess.change(scopedDb,{
+   action:'grant',actorEmail:reviewAccount.email,targetEmail:launchAccount.email,role:'launch_approver',
+   reason:'Unauthorized fictional operator role change',expiresAt:new Date(Date.now()+45*86400000).toISOString()
+  }),/admin/);
+  await grant(reviewAccount.email,'credential_reviewer');
+  await grant(launchAccount.email,'launch_approver');
+  await grant(sample.email,'launch_approver');
+  await assert.rejects(()=>grant(reviewAccount.email,'launch_approver'),/different accounts/);
+  await assert.rejects(()=>operatorAccess.change(scopedDb,{
+   action:'grant',actorEmail:adminAccount.email,targetEmail:adminAccount.email,role:'launch_approver',
+   reason:'Cannot grant to the same fictional administrator',expiresAt:new Date(Date.now()+45*86400000).toISOString()
+  }),/distinct/);
+  assert.equal(await operatorAccess.allowed(scopedDb,byEmail[reviewAccount.email],'credential_reviewer'),true);
+  const expired=await scopedDb.query('SELECT COUNT(*)::int AS count FROM provider_operator_grants WHERE revoked_at IS NULL');
+  assert.equal(expired.rows[0].count,3);
+
   const b=(await admin.query('SELECT id FROM '+schema+'.businesses WHERE owner_id=$1',
    [byEmail[sample.email]])).rows[0];
   const businessId=Number(b.id);
@@ -200,6 +224,16 @@ test('synthetic preview enforces exact version, stores immutable-version audit a
   const audits=await admin.query('SELECT action FROM '+schema+'.provider_launch_audit WHERE business_id=$1 ORDER BY id',
    [businessId]);
   assert.deepEqual(audits.rows.map(x=>x.action),['approved','revoked','approved','approved']);
+  await operatorAccess.change(scopedDb,{
+   action:'revoke',actorEmail:adminAccount.email,targetEmail:launchAccount.email,role:'launch_approver',
+   reason:'Fictional operator offboarding and immediate revocation'
+  });
+  assert.equal((await http(operatorSession,'/api/provider-launch/queue')).status,403,
+   'revoked launch approver is denied immediately');
+  const operatorAudit=await scopedDb.query('SELECT role,action,reason FROM provider_operator_audit ORDER BY id');
+  assert.deepEqual(operatorAudit.rows.map(x=>x.action),['grant','grant','grant','revoke']);
+  assert.equal(await operatorAccess.allowed(scopedDb,byEmail[launchAccount.email],'launch_approver'),false);
+  await scopedDb.end();
   assert.equal((await admin.query('SELECT COUNT(*)::int AS n FROM '+schema+'.bookings')).rows[0].n,0,
    'fictional release never makes a payment booking');
  } finally {
