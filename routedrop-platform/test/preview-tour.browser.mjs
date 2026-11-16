@@ -49,7 +49,7 @@ try{
   await page.getByText('The customer separately approves the quoted amount').waitFor();
   await page.getByRole('button',{name:'Business Studio'}).click();
   await page.getByText('Demo Cleaning Co. · fictional provider').waitFor();
-  await page.getByText('No required monthly membership').waitFor();
+  await page.getByText('No required monthly membership').first().waitFor();
   assert.equal(await page.getByRole('button',{name:/Connect payouts/}).count(),0);
   await page.screenshot({path:'tour-'+layout.name+'-business.png',fullPage:true});
   await page.getByRole('button',{name:'See customer view'}).click();
