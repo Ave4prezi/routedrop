@@ -1,0 +1,55 @@
+name: RouteDrop synthetic operator security and expiry review
+on:
+  push:
+    branches:
+      - test/provider-operator-expiry-privacy-20261115
+permissions:
+  contents: read
+jobs:
+  synthetic-operator-security:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: disposableonly
+          POSTGRES_DB: routedrop_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d routedrop_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    defaults:
+      run:
+        working-directory: routedrop-platform
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install without lifecycle scripts or production credentials
+        run: npm install --ignore-scripts --no-audit --no-fund
+      - name: Check server, scripts and browser code
+        run: |
+          node --check operator-access.js
+          node --check provider-expiry.js
+          node --check provider-verification.js
+          node --check provider-launch-approval.js
+          node --check server.js
+          node --check public/app.js
+          node --check scripts/manage-preview-operator.js
+          node --check test/provider-preview-ack-http.test.js
+      - name: Test isolated operator privilege and credential reminders
+        env:
+          ROUTEDROP_TEST_DATABASE_URL: postgres://postgres:disposableonly@127.0.0.1:5432/routedrop_ci
+        run: |
+          node --test test/operator-access.test.js test/provider-expiry.test.js test/provider-preview-ack-http.test.js test/founding-partner-http.test.js test/provider-verification.test.js
+      - name: Verify CLI refuses unapproved environment
+        run: |
+          if node scripts/manage-preview-operator.js grant admin@ci.invalid reviewer@ci.invalid credential_reviewer 2027-01-01T00:00:00Z "Synthetic approval not provided"; then
+            echo "Operator CLI improperly allowed unapproved environment"
+            exit 1
+          fi
