@@ -39,8 +39,8 @@
   const item=PROGRESS[status]||{index:0};
   const stage=item.terminal?MILESTONES.slice(0,item.index+1):MILESTONES;
   const steps=stage.map((label,i)=>{
-   const phase=item.terminal||i<item.index?'done':i===item.index?'current':'upcoming';
-   return '<li class="pilot-progress-step '+phase+'"'+(!item.terminal&&i===item.index?' aria-current="step"':'')+'><span class="pilot-progress-dot" aria-hidden="true">'+(phase==='done'?'✓':String(i+1))+'</span><span>'+esc(label)+'</span></li>';
+   const phase=item.terminal||status==='confirmed'||i<item.index?'done':i===item.index?'current':'upcoming';
+   return '<li class="pilot-progress-step '+phase+'"'+(phase==='current'?' aria-current="step"':'')+'><span class="pilot-progress-dot" aria-hidden="true">'+(phase==='done'?'✓':String(i+1))+'</span><span>'+esc(label)+'</span></li>';
   });
   if(item.terminal)steps.push('<li class="pilot-progress-step terminal"><span class="pilot-progress-dot" aria-hidden="true">!</span><span>'+esc(item.terminal)+'</span></li>');
   return '<ol class="pilot-progress" aria-label="Test request progress">'+steps.join('')+'</ol>';
