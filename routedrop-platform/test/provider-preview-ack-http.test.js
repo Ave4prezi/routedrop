@@ -97,11 +97,18 @@ test('synthetic preview enforces exact version, stores immutable-version audit a
    password:'OnlyFakeOperator123!',role:'customer'};
   assert.equal((await register(reviewAccount)).status,201);
   assert.equal((await register(launchAccount)).status,201);
-  const adminAccount={name:'Fictional Designated Admin',email:'fictional-admin@ci.invalid',password:'OnlyFakeAdmin123!',role:'customer'};
-  assert.equal((await register(adminAccount)).status,201);
+  // Synthetic-only fixture accounts are inserted directly in the disposable schema
+  // to preserve the app's strict authLimiter (12 attempts per 15 minutes).
+  // They reuse a fabricated test password hash, never a live credential.
+  const adminAccount={name:'Fictional Designated Admin',email:'fictional-admin@ci.invalid',
+   password:launchAccount.password,role:'customer'};
   const supportAccount={name:'Synthetic Support Reviewer',email:'synthetic-support@ci.invalid',
-   password:'OnlyFakeSupport123!',role:'customer'};
-  assert.equal((await register(supportAccount)).status,201);
+   password:launchAccount.password,role:'customer'};
+  for(const fixture of [adminAccount,supportAccount]){
+   await admin.query('INSERT INTO '+schema+
+    '.users(email,full_name,password_hash,role) SELECT $1,$2,password_hash,$3 FROM '+
+    schema+'.users WHERE email=$4',[fixture.email,fixture.name,fixture.role,launchAccount.email]);
+  }
   const login=async(email,password)=>{
    const r=await fetch(base+'/api/login',{method:'POST',headers:sharedHeaders,body:JSON.stringify({email,password})});
    assert.equal(r.status,200,'fictional account can login');
