@@ -74,7 +74,7 @@ try{
  assert.equal((await call(customer,'/api/pilot/safety/moderation','GET',undefined,modHeaders)).code,403,'moderation requires allowlisted account');
  assert.equal((await call(moderator,'/api/pilot/safety/moderation','GET',undefined,{'x-routedrop-moderator-key':'wrong'})).code,403,'no access with wrong key');
  assert.equal((await call(moderator,'/api/pilot/safety/moderation')).code,403,'session alone cannot moderate');
- assert.equal((await call(null,'/api/pilot/safety/moderation','GET',undefined,modHeaders)).code,403,'key alone cannot moderate');
+ assert.equal((await call(null,'/api/pilot/safety/moderation','GET',undefined,modHeaders)).code,401,'key alone cannot moderate without an authenticated session');
  const screeningBefore=await call(business,'/api/pilot/safety/provider');
  assert.equal(screeningBefore.data.screening.pilot_screening_status,'not_started');
  assert.equal(screeningBefore.data.identity_verified,false);
