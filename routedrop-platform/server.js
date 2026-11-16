@@ -14,6 +14,7 @@ const { livePaymentsAllowed, checkoutOutcome, refundableAmount, disputeState, ca
 const postService = require('./post-service');
 const verification = require('./provider-verification');
 const launchApproval = require('./provider-launch-approval');
+const operatorAccess = require('./operator-access');
 const previewAck = require('./preview-acknowledgement');
 const {createStagingGate} = require('./staging-access');
 
@@ -102,7 +103,7 @@ const ddl = [
 ]; 
 if (deferredEnabled || previewOnly) ddl.push(...postService.sql);
 if (verificationEnabled) ddl.push(...verification.schema);
-if (launchApprovalEnabled) ddl.push(...launchApproval.schema);
+if (launchApprovalEnabled) ddl.push(...launchApproval.schema,...operatorAccess.schema);
 if (previewOnly && verificationEnabled) ddl.push(...previewAck.schema);
 async function startDatabase() {
  if (!pool) return;
@@ -390,9 +391,9 @@ app.get('/api/me',requireDb,safe(async(req,res)=>{
   const r=await pool.query('SELECT id,name,city,category, (stripe_account_id IS NOT NULL) AS stripe_connected FROM businesses WHERE owner_id=$1',[req.user.id]);
   business=r.rows[0]||null;
  }
- const support_agent=(deferredEnabled||previewOnly) && (await pool.query('SELECT 1 FROM deferred_support_agents WHERE user_id=$1',[req.user.id])).rowCount>0;
- const document_reviewer=verificationEnabled && (await pool.query('SELECT 1 FROM provider_document_reviewers WHERE user_id=$1',[req.user.id])).rowCount>0;
- const launch_approver=launchApprovalEnabled && (await pool.query('SELECT 1 FROM provider_launch_approvers WHERE user_id=$1',[req.user.id])).rowCount>0;
+ const support_agent=(deferredEnabled||previewOnly) && (launchApprovalEnabled?await operatorAccess.allowed(pool,req.user.id,'support_reviewer'):(await pool.query('SELECT 1 FROM deferred_support_agents WHERE user_id=$1',[req.user.id])).rowCount>0);
+ const document_reviewer=verificationEnabled && (launchApprovalEnabled?await operatorAccess.allowed(pool,req.user.id,'credential_reviewer'):(await pool.query('SELECT 1 FROM provider_document_reviewers WHERE user_id=$1',[req.user.id])).rowCount>0);
+ const launch_approver=launchApprovalEnabled && await operatorAccess.allowed(pool,req.user.id,'launch_approver');
  res.json({user:req.user,business,support_agent,document_reviewer,launch_approver});
 }));
 app.get('/api/listings',requireDb,safe(async(req,res)=>{
