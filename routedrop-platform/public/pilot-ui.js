@@ -5,6 +5,49 @@
  const date=iso=>new Intl.DateTimeFormat('en-US',{timeZone:'America/Chicago',month:'short',day:'numeric',year:'numeric',hour:'numeric',minute:'2-digit',timeZoneName:'short'}).format(new Date(iso));
  const STATUS=Object.freeze({requested:'Awaiting provider response',accepted:'Accepted',completed:'Work marked complete',confirmed:'Customer confirmed',declined:'Declined',canceled:'Canceled',issue_reported:'Issue reported'});
  const DANGER=new Set(['declined','canceled','issue_reported']);
+ const MILESTONES=Object.freeze(['Requested','Accepted','Work complete','Confirmed']);
+ const PROGRESS=Object.freeze({
+  requested:{index:0},
+  accepted:{index:1},
+  completed:{index:2},
+  confirmed:{index:3},
+  declined:{index:0,terminal:'Provider declined'},
+  canceled:{index:0,terminal:'Canceled'},
+  issue_reported:{index:2,terminal:'Issue reported'}
+ });
+ const NEXT=Object.freeze({
+  customer:Object.freeze({
+   requested:'Waiting for the test provider to accept or decline. You can cancel while waiting.',
+   accepted:'Provider accepted. Wait for the provider to mark the fictional work complete; you can cancel before that.',
+   completed:'Your turn: confirm the fictional work or report an issue. No payment is due.',
+   confirmed:'Test request complete. You can leave a test review, but no payment was collected.',
+   declined:'Provider declined this test request. No payment was collected.',
+   canceled:'This test request was canceled. No payment was collected.',
+   issue_reported:'Your issue was recorded for test review. No refund or support escalation was started.'
+  }),
+  business:Object.freeze({
+   requested:'Your turn: accept or decline this fictional service request.',
+   accepted:'Your turn: mark work complete only after the fictional service is finished.',
+   completed:'Waiting for the customer to confirm the fictional work or report an issue.',
+   confirmed:'Customer confirmed the test request. No payment was collected.',
+   declined:'You declined this test request. No payment was collected.',
+   canceled:'The customer canceled this test request. No payment was collected.',
+   issue_reported:'Customer reported an issue. This test record is not a real support or refund case.'
+  })
+ });
+ function progress(status){
+  const item=PROGRESS[status]||{index:0};
+  const stage=item.terminal?MILESTONES.slice(0,item.index+1):MILESTONES;
+  const steps=stage.map((label,i)=>{
+   const phase=item.terminal||status==='confirmed'||i<item.index?'done':i===item.index?'current':'upcoming';
+   return '<li class="pilot-progress-step '+phase+'"'+(phase==='current'?' aria-current="step"':'')+'><span class="pilot-progress-dot" aria-hidden="true">'+(phase==='done'?'✓':String(i+1))+'</span><span>'+esc(label)+'</span></li>';
+  });
+  if(item.terminal)steps.push('<li class="pilot-progress-step terminal"><span class="pilot-progress-dot" aria-hidden="true">!</span><span>'+esc(item.terminal)+'</span></li>');
+  return '<ol class="pilot-progress" aria-label="Test request progress">'+steps.join('')+'</ol>';
+ }
+ function nextAction(status,role){
+  return '<p class="pilot-next-action"><strong>What happens next:</strong> '+esc(NEXT[role]?.[status]||'This request cannot be updated in the private test.')+'</p>';
+ }
  function requestModal(x){
   return '<div class="pilot-eyebrow">PRIVATE ACCOUNT TEST · NO PAYMENTS</div><h2 id="modal-title">Request this opening</h2>'+
   '<p>This is a test request with a registered account. It will be saved in the isolated RouteDrop test database and shared with the test business account. Do not use real personal information.</p>'+
@@ -32,6 +75,7 @@
    }
    return '<article class="pilot-request-card"><div class="pilot-card-heading"><div><div class="pilot-eyebrow">REQUEST #'+esc(x.id)+' · TEST ACCOUNT</div><h3>'+esc(x.title)+'</h3><p>'+esc(x.business_name)+' · '+esc(x.neighborhood)+'</p></div><span class="pilot-status'+(DANGER.has(x.status)?' muted-status':'')+'">'+esc(status)+'</span></div>'+
    '<div class="pilot-request-meta"><div><small>SCHEDULED OPENING</small><strong>'+esc(date(x.slot_start))+'</strong></div><div><small>LISTED PRICE</small><strong>'+money(x.price_cents)+'</strong></div><div><small>PAYMENT STATUS</small><strong>Not collected</strong></div></div>'+
+   progress(x.status)+nextAction(x.status,role)+
    (role==='business'&&x.customer_name?'<p class="pilot-safe-note">Test customer: '+esc(x.customer_name)+'</p>':'')+
    '<p class="pilot-safe-note">'+(x.status==='confirmed'?'Customer confirmed completion. No payment was collected.':x.status==='issue_reported'?'Issue noted in the test database. No support escalation or refund was initiated.':'This is an unpaid test request. No customer address, payment method or identity check is included.')+'</p>'+
    (actions?'<div class="buttonrow pilot-actions">'+actions+'</div>':'')+'</article>';
@@ -52,5 +96,5 @@
   '<div class="panel"><div class="row"><div><h3>Manage availability</h3><p class="muted">Pause an opening to hide it from discovery. Pausing does not cancel previously accepted requests.</p></div><span class="pill">'+listings.length+' opening'+(listings.length===1?'':'s')+'</span></div>'+
   (listings.length?listings.map(l=>'<div class="pilot-listing-row"><div><strong>'+esc(l.title)+'</strong><p>'+esc(l.neighborhood)+' · '+date(l.slot_start)+' · '+money(l.price_cents)+'</p></div><div><span class="pilot-status">'+esc(l.status)+'</span><button type="button" class="btn secondary" data-pilot-listing-id="'+esc(l.id)+'" data-pilot-listing-status="'+(l.status==='active'?'paused':'active')+'">'+(l.status==='active'?'Pause':'Resume')+'</button></div></div>').join(''):'<p class="muted">No service openings published yet.</p>')+'</div>'+radiusMarkup;
  }
- root.RouteDropPilotUI=Object.freeze({STATUS,date,requestModal,customer,studio});
+ root.RouteDropPilotUI=Object.freeze({STATUS,date,requestModal,customer,studio,progress,nextAction});
 })(window);

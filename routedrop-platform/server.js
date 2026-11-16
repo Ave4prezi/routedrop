@@ -12,6 +12,8 @@ const opportunityPilot = require('./opportunity-pilot');
 const unifiedPilot = require('./unified-pilot');
 const trustPilot = require('./trust-pilot');
 const safetyPilot = require('./safety-pilot');
+const identityPilot = require('./identity-pilot');
+const moderatorPasskeys = require('./moderator-passkeys');
 const Stripe = require('stripe');
 const { normalizeSubscriptionEvent, invoiceEvent, selectSubscription, canStartSubscription, subscriptionView, securityPolicy } = require('./subscription-security');
 const { providerReady, emailLink, isActionToken, notification, deliverEmail } = require('./mail');
@@ -21,7 +23,7 @@ const app = express();
 app.disable('x-powered-by');
 app.set('trust proxy', 1);
 const port = Number(process.env.PORT || 10000);
-const baseUrl = (process.env.PUBLIC_URL || '').replace(/\/+$/, '');
+const baseUrl = (process.env.PUBLIC_URL || process.env.RENDER_EXTERNAL_URL || '').replace(/\/+$/, '');
 const databaseUrl = process.env.DATABASE_URL || '';
 const stripeKey = process.env.STRIPE_SECRET_KEY || '';
 const stripeWebhookSecret = process.env.STRIPE_WEBHOOK_SECRET || '';
@@ -31,6 +33,9 @@ if (pilotRequested && (!previewAccessPassword || stripeKey || stripeWebhookSecre
  throw Error('Booking pilot requires private preview authentication, no Stripe keys and no live-payment approval.');
 }
 const workflowPilot = pilotRequested;
+const identityEnabled=workflowPilot && identityPilot.identityConfigured();
+const identityClient=identityEnabled?identityPilot.stripeIdentityClient():null;
+const passkeyOptions=workflowPilot?moderatorPasskeys.config():null;
 const stripe = stripeKey ? new Stripe(stripeKey) : null;
 const liveKey = /^(sk|rk)_live_/.test(stripeKey);
 const paymentsApproved = livePaymentsAllowed(stripeKey,process.env.ROUTEDROP_LIVE_APPROVED);
@@ -50,23 +55,83 @@ app.use(helmet({
  contentSecurityPolicy: { directives: { defaultSrc:["'self'"], scriptSrc:["'self'"], styleSrc:["'self'","'unsafe-inline'"], imgSrc:["'self'","data:"], connectSrc:["'self'"], objectSrc:["'none'"], frameAncestors:["'none'"], upgradeInsecureRequests: process.env.NODE_ENV==='production' ? [] : null } },
  referrerPolicy: { policy:'no-referrer' }
 }));
-// Optional password gate for an isolated, database-free UX walkthrough only.
+app.use(cookieParser());
+
+// Browser-friendly access for the isolated pilot. Other previews retain Basic auth.
 const previewPass=previewAccessPassword;
 if(previewPass){
+ const username='routedrop-preview';
+ const loginPath='/preview-sign-in';
+ const sessionCookie='__Host-rd_preview';
+ const formCookie='__Host-rd_preview_form';
+ const sessionDuration=8*60*60*1000;
+ const signingKey=crypto.randomBytes(32);
+ const cookieOptions={secure:true,httpOnly:true,sameSite:'strict',path:'/'};
+ const digest=value=>crypto.createHash('sha256').update(value).digest();
+ const same=(received,expected)=>crypto.timingSafeEqual(digest(received),digest(expected));
+ const signature=value=>crypto.createHmac('sha256',signingKey).update(value).digest('hex');
+ const expected=username+':'+previewPass;
+
+ function validSession(token){
+  if(typeof token!=='string'||!/^\d{13}\.[a-f0-9]{64}\.[a-f0-9]{64}$/.test(token))return false;
+  const [expires,nonce,mac]=token.split('.');
+  return Number(expires)>Date.now()&&same(mac,signature(expires+'.'+nonce));
+ }
+
+ function signInPage(req,res,error,status=200){
+  const previousToken=req.cookies[formCookie];
+  const formToken=typeof previousToken==='string'&&/^[a-f0-9]{64}$/.test(previousToken)?previousToken:random();
+  res.cookie(formCookie,formToken,{...cookieOptions,maxAge:15*60*1000});
+  return res.set({'Cache-Control':'no-store','Referrer-Policy':'same-origin'}).status(status).type('html').send(`<!doctype html>
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>RouteDrop Private Staging</title>
+<main><h1>RouteDrop Private Staging</h1>
+<p>Sign in with your preview credentials.</p>
+${error?'<p role="alert">'+error+'</p>':''}
+<form method="post" action="/preview-sign-in">
+<input type="hidden" name="formToken" value="${formToken}">
+<p><label for="preview-username">Username</label><br><input id="preview-username" name="username" type="text" autocomplete="username" required></p>
+<p><label for="preview-password">Password</label><br><input id="preview-password" name="password" type="password" autocomplete="current-password" required></p>
+<button type="submit">Sign in</button></form></main></html>`);
+ }
+
+ if(workflowPilot){
+  const loginLimiter=rateLimit({windowMs:15*60*1000,limit:12,skipSuccessfulRequests:true,standardHeaders:'draft-7',legacyHeaders:false});
+  app.get(loginPath,(req,res)=>signInPage(req,res));
+  app.post(loginPath,loginLimiter,express.urlencoded({extended:false,limit:'4kb',parameterLimit:3}),(req,res)=>{
+   const {username:enteredUsername,password,formToken}=req.body||{};
+   const cookieToken=req.cookies[formCookie];
+   const crossSite=req.get('sec-fetch-site')==='cross-site';
+   const validToken=typeof formToken==='string'&&typeof cookieToken==='string'&&same(formToken,cookieToken);
+   if(crossSite||!validToken){
+    console.warn('RouteDrop preview sign-in rejected: '+(crossSite?'cross-site submission':!cookieToken?'form cookie missing':!formToken?'form token missing':'form token mismatch'));
+    return signInPage(req,res,'The sign-in form could not be verified. Reload this page and allow cookies for this site before trying again.',403);
+   }
+   if(typeof enteredUsername!=='string'||typeof password!=='string'||!same(enteredUsername+':'+password,expected))return signInPage(req,res,'The username or password was incorrect.',401);
+   const session=String(Date.now()+sessionDuration)+'.'+random();
+   res.clearCookie(formCookie,cookieOptions);
+   res.cookie(sessionCookie,session+'.'+signature(session),{...cookieOptions,maxAge:sessionDuration});
+   return res.set('Cache-Control','no-store').redirect(303,'/');
+  });
+ }
+
  app.use((req,res,next)=>{
-  const auth=req.get('authorization')||'';
-  let pair='';
-  if(auth.startsWith('Basic ')){
-   try{pair=Buffer.from(auth.slice(6),'base64').toString('utf8');}catch{}
+  if(identityEnabled&&req.path==='/api/pilot/identity/webhook')return next(); // Stripe signature protects this webhook.
+  if(workflowPilot&&validSession(req.cookies[sessionCookie])){
+   res.set('Cache-Control','private, no-store');
+   return next();
   }
-  const received=Buffer.from(pair);
-  const expected=Buffer.from('routedrop-preview:'+previewPass);
-  const valid=received.length===expected.length && crypto.timingSafeEqual(received,expected);
-  if(!valid){res.set('WWW-Authenticate','Basic realm="RouteDrop private radius preview"');return res.status(401).send('Private preview: enter your access credentials.');}
-  next();
+  const auth=req.get('authorization')||'';
+  if(auth.startsWith('Basic ')&&same(Buffer.from(auth.slice(6),'base64'),expected)){
+   res.set('Cache-Control','private, no-store');
+   return next();
+  }
+  res.set('Cache-Control','no-store');
+  if(!workflowPilot)res.set('WWW-Authenticate','Basic realm="RouteDrop private preview"');
+  if(workflowPilot&&req.method==='GET'&&req.accepts('html')&&!req.path.startsWith('/api/')&&req.path!=='/health')return res.redirect(303,loginPath);
+  return res.status(401).send('Private preview: sign in to continue.');
  });
 }
-app.use(cookieParser());
 app.use((req,res,next) => {
  if (req.path.startsWith('/api/')) res.set('Cache-Control', 'no-store');
  next();
@@ -75,6 +140,7 @@ app.use('/api', rateLimit({ windowMs:15*60*1000, limit:process.env.NODE_ENV==='t
 const authLimiter = rateLimit({ windowMs:15*60*1000, limit:12, standardHeaders:'draft-7', legacyHeaders:false });
 const checkoutLimiter = rateLimit({windowMs:15*60*1000, limit:15, standardHeaders:'draft-7', legacyHeaders:false});
 const moderationLimiter=rateLimit({windowMs:15*60*1000,limit:process.env.NODE_ENV==='test'?300:30,standardHeaders:'draft-7',legacyHeaders:false});
+const identityLimiter=rateLimit({windowMs:60*60*1000,limit:process.env.NODE_ENV==='test'?100:5,standardHeaders:'draft-7',legacyHeaders:false});
 
 const schema = String.raw; // no dynamic SQL interpolation in schema below
 const ddl = [
@@ -113,7 +179,7 @@ const ddl = [
  "CREATE TABLE IF NOT EXISTS notification_outbox (id BIGSERIAL PRIMARY KEY, event_key TEXT UNIQUE NOT NULL, recipient TEXT NOT NULL, subject TEXT NOT NULL, body TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','sending','sent','failed')), attempts INTEGER NOT NULL DEFAULT 0, available_at TIMESTAMPTZ NOT NULL DEFAULT now(), sent_at TIMESTAMPTZ, last_error TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())",
  "CREATE INDEX IF NOT EXISTS notification_outbox_due ON notification_outbox(status,available_at)"
 ];
-if(workflowPilot)ddl.push(...bookingPilot.ddl,...opportunityPilot.ddl,...unifiedPilot.ddl,...trustPilot.ddl,...safetyPilot.ddl);
+if(workflowPilot)ddl.push(...bookingPilot.ddl,...opportunityPilot.ddl,...unifiedPilot.ddl,...trustPilot.ddl,...safetyPilot.ddl,...identityPilot.ddl,...moderatorPasskeys.ddl);
 async function startDatabase() {
  if (!pool) return;
  try {
@@ -147,10 +213,10 @@ const requireProvider=(req,res,next)=>{
  if(!workflowPilot)return requireUser('business')(req,res,next);
  pool.query('SELECT id FROM businesses WHERE owner_id=$1',[req.user.id]).then(q=>q.rowCount?next():forbidden(res,'Create a test service provider profile first.',403)).catch(next);
 };
-const requireModerator=(req,res,next)=>{
+const requireModeratorBootstrap=(req,res,next)=>{
  // Moderator authority requires both an authenticated, email-verified allowlisted
  // test account AND a separate 32+ character environment secret. No bypass token.
- if(!workflowPilot||!safetyPilot.moderatorConfigured())return forbidden(res,'Moderator access is not configured for this pilot.',403);
+ if(!workflowPilot||!passkeyOptions||!safetyPilot.moderatorConfigured())return forbidden(res,'Passkey-protected moderator access is not configured for this pilot.',403);
  if(!req.user||!req.user.email_verified)return forbidden(res,'Moderator access requires a verified session.',403);
  const emails=String(process.env.ROUTEDROP_MODERATOR_EMAILS||'').split(',').map(x=>x.trim().toLowerCase());
  if(!emails.includes(String(req.user.email||'').toLowerCase()))return forbidden(res,'Access denied.',403);
@@ -159,6 +225,9 @@ const requireModerator=(req,res,next)=>{
  if(supplied.length!==expected.length||!crypto.timingSafeEqual(supplied,expected))return forbidden(res,'Access denied.',403);
  next();
 };
+const requireModerator=(req,res,next)=>requireModeratorBootstrap(req,res,()=>{
+ moderatorPasskeys.isFresh(pool,req).then(ok=>ok?next():forbidden(res,'Passkey step-up required. Authenticate with your registered security key.',403)).catch(next);
+});
 async function createSession(userId,res) {
  const token=random();
  await pool.query("INSERT INTO sessions(token_hash,user_id,expires_at) VALUES ($1,$2,now() + interval '7 days')",[hash(token),userId]);
@@ -175,6 +244,18 @@ function checkMutation(req,res,next) {
  next();
 }
 app.get('/health', (req,res)=>res.status(200).json({service:'RouteDrop platform beta',server:'up',database:ready?'ready':'not configured',payments:paymentsReady?'configured':'not configured',mode:liveKey?(paymentsApproved?'live':'live_locked'):'beta'}));
+// Stripe Identity has its own restricted TEST key and webhook signature.
+ // Register before JSON parsing/CSRF. No payment routes can be called with this key.
+app.post('/api/pilot/identity/webhook',express.raw({type:'application/json'}),safe(async(req,res)=>{
+ if(!identityEnabled||!identityClient)return forbidden(res,'Identity verification disabled.',404);
+ const signature=req.get('stripe-signature')||'';
+ let event;
+ try{event=identityClient.webhooks.constructEvent(req.body,signature,process.env.ROUTEDROP_STRIPE_IDENTITY_WEBHOOK_SECRET);}
+ catch{return forbidden(res,'Invalid Stripe Identity signature.',400);}
+ if(!event.type.startsWith('identity.verification_session.'))return res.json({received:true,ignored:true});
+ const result=await identityPilot.applyIdentityEvent(pool,event);
+ res.json({received:true,processed:!!result.processed});
+}));
 app.post('/api/stripe/webhook', express.raw({type:'application/json'}),safe(async(req,res)=>{
  if (!paymentsReady) return forbidden(res,'Payments not configured',503);
  let event;
@@ -247,7 +328,7 @@ app.get('/api/config',(req,res)=>{
  if(!req.cookies.routedrop_csrf || !/^[a-f0-9]{64}$/.test(req.cookies.routedrop_csrf)){
   res.cookie('routedrop_csrf',random(),{secure:process.env.NODE_ENV==='production',httpOnly:false,sameSite:'lax',path:'/',maxAge:7*24*60*60*1000});
  }
- res.json({database:ready,payments:paymentsReady,workflow_pilot:workflowPilot&&ready,opportunity_pilot:workflowPilot&&ready,unified_pilot:workflowPilot&&ready,safety_pilot:workflowPilot&&ready,moderation_available:workflowPilot&&ready&&safetyPilot.moderatorConfigured(),status:ready?'beta':'setup_required',email_enabled:emailReady,payments_mode:liveKey?(paymentsApproved?'live':'live_locked'):'test',public_url:baseUrl});
+ res.json({database:ready,payments:paymentsReady,workflow_pilot:workflowPilot&&ready,opportunity_pilot:workflowPilot&&ready,unified_pilot:workflowPilot&&ready,safety_pilot:workflowPilot&&ready,identity_test_available:identityEnabled&&ready,moderation_available:workflowPilot&&ready&&!!passkeyOptions&&safetyPilot.moderatorConfigured(),moderator_passkeys_required:true,status:ready?'beta':'setup_required',email_enabled:emailReady,payments_mode:liveKey?(paymentsApproved?'live':'live_locked'):'test',public_url:baseUrl});
 });
 async function issueEmailAction(userId,email,purpose) {
  if(!emailReady||!baseUrl)return false;
@@ -419,6 +500,8 @@ if(workflowPilot && pool){
  unifiedPilot.registerUnifiedRoutes(app,{pool,safe,requireDb,requireUser,requireProvider,forbidden});
  trustPilot.registerTrustRoutes(app,{pool,safe,requireDb,requireUser,forbidden,safetyPilot});
  safetyPilot.registerSafetyRoutes(app,{pool,safe,requireDb,requireUser,requireProvider,forbidden,requireModerator,moderationLimiter});
+ identityPilot.registerIdentityRoutes(app,{pool,safe,requireDb,requireProvider,forbidden,identityClient,identityLimiter,baseUrl,enabled:identityEnabled});
+ moderatorPasskeys.registerPasskeyRoutes(app,{pool,safe,requireDb,bootstrap:requireModeratorBootstrap,limiter:moderationLimiter,forbidden,options:passkeyOptions});
 }
 app.get('/api/listings',requireDb,safe(async(req,res)=>{
  if(workflowPilot)await unifiedPilot.syncOpenings(pool);

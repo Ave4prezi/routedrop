@@ -55,6 +55,8 @@ try{
   await register(business,'business',variant.name+'-provider');
   await business.getByRole('button',{name:'Business Studio'}).click();
   await business.getByText('Your service headquarters.').waitFor();
+  await business.locator('.readiness-panel').getByText('Awaiting secure Stripe TEST connection').waitFor();
+  await business.locator('.readiness-panel').getByText('Disabled · no charges or payouts').waitFor();
   await business.locator('[data-action="create-listing"]').click();
   const form=business.locator('#listing-form');
   await form.locator('input[name="title"]').fill('Private Pilot Cleaning '+variant.name);
@@ -107,17 +109,22 @@ try{
   await customer.locator('[data-action="pilot-confirm-request"]').click();
   await customer.locator('.pilot-request-card').first().waitFor();
   const requestedText=await customer.locator('.pilot-request-card').first().innerText();
+  await customer.locator('#my-bookings .pilot-progress [aria-current="step"]').first().getByText('Requested',{exact:true}).waitFor();
+  await customer.locator('#my-bookings .pilot-next-action').first().getByText(/Waiting for the test provider/).waitFor();
   assert.ok(requestedText.includes('Awaiting provider response'),'expected pending customer request; rendered='+JSON.stringify(requestedText)+'; status='+JSON.stringify(await customer.locator('#status').innerText()));
   await customer.screenshot({path:'pilot-customer-'+variant.name+'.png',fullPage:true});
 
   await business.getByRole('button',{name:'Business Studio'}).click();
   await business.locator('[data-pilot-action="accept"]').first().click();
   await business.locator('#studio-body .pilot-request-card .pilot-status').getByText('Accepted',{exact:true}).waitFor();
+  await business.locator('#studio-body .pilot-progress [aria-current="step"]').first().getByText('Accepted',{exact:true}).waitFor();
   await business.locator('[data-pilot-action="complete"]').first().click();
   await business.locator('#studio-body .pilot-request-card .pilot-status').getByText('Work marked complete',{exact:true}).waitFor();
+  await business.locator('#studio-body .pilot-progress [aria-current="step"]').first().getByText('Work complete',{exact:true}).waitFor();
   await customer.getByRole('button',{name:'My bookings'}).click();
   await customer.locator('[data-pilot-action="confirm"]').first().click();
   await customer.locator('#my-bookings .pilot-request-card .pilot-status').getByText('Customer confirmed',{exact:true}).waitFor();
+  await customer.locator('#my-bookings .pilot-progress [aria-current="step"]').first().getByText('Confirmed',{exact:true}).waitFor();
   await customer.locator('#my-bookings [data-review-request-id]').first().click();
   const review=customer.locator('#service-review-form');
   await review.locator('[name="rating"]').selectOption('5');
@@ -152,6 +159,7 @@ try{
   await individual.getByText('Under test review').waitFor();
   await individual.screenshot({path:'pilot-safety-'+variant.name+'.png',fullPage:true});
   await individual.getByRole('button',{name:'Business Studio'}).click();
+  await individual.locator('.readiness-panel').getByText('Awaiting test review').waitFor();
   assert.equal(await individual.locator('[data-action="post-job"]').count(),0,'individual providers cannot post employer job openings');
   await individual.locator('[data-action="create-listing"]').click();
   const independentForm=individual.locator('#listing-form');

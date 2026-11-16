@@ -3,6 +3,8 @@ import {spawn} from 'node:child_process';
 import {once} from 'node:events';
 import net from 'node:net';
 import pg from 'pg';
+import crypto from 'node:crypto';
+import identityAdapter from '../identity-pilot.js';
 
 const pool=new pg.Pool({connectionString:process.env.TEST_DATABASE_URL});
 const suffix=String(Date.now()),moderationToken='local-test-moderator-very-long-unique-key-2026';
@@ -13,7 +15,7 @@ const port=socket.address().port;await new Promise(resolve=>socket.close(resolve
 const base='http://127.0.0.1:'+port,pass='local-ephemeral-test-only';
 const auth='Basic '+Buffer.from('routedrop-preview:'+pass).toString('base64');
 const server=spawn(process.execPath,['routedrop-platform/server.js'],{
- env:{...process.env,PORT:String(port),DATABASE_URL:process.env.TEST_DATABASE_URL,ROUTEDROP_WORKFLOW_PILOT:'true',ROUTEDROP_PREVIEW_ACCESS_PASSWORD:pass,ROUTEDROP_LIVE_APPROVED:'false',STRIPE_SECRET_KEY:'',STRIPE_WEBHOOK_SECRET:'',PUBLIC_URL:'',NODE_ENV:'test',ROUTEDROP_MODERATION_TOKEN:moderationToken,ROUTEDROP_MODERATOR_EMAILS:moderatorEmail},
+ env:{...process.env,PORT:String(port),DATABASE_URL:process.env.TEST_DATABASE_URL,ROUTEDROP_WORKFLOW_PILOT:'true',ROUTEDROP_PREVIEW_ACCESS_PASSWORD:pass,ROUTEDROP_LIVE_APPROVED:'false',STRIPE_SECRET_KEY:'',STRIPE_WEBHOOK_SECRET:'',PUBLIC_URL:'',NODE_ENV:'test',ROUTEDROP_MODERATION_TOKEN:moderationToken,ROUTEDROP_MODERATOR_EMAILS:moderatorEmail,ROUTEDROP_MODERATOR_PASSKEYS_ENABLED:'true',ROUTEDROP_WEBAUTHN_ORIGIN:'https://moderator.example.test',ROUTEDROP_WEBAUTHN_RP_ID:'moderator.example.test',ROUTEDROP_MODERATOR_ENROLLMENT_ENABLED:'false',ROUTEDROP_IDENTITY_TEST_ENABLED:'false'},
  stdio:['ignore','pipe','pipe']
 });
 let errors='';server.stderr.on('data',x=>errors+=x.toString());
@@ -33,6 +35,22 @@ function sessionCookie(resp){
  return '__Host-rd_session='+m[1];
 }
 async function register(role,tag){
+ // Private staging must reject unauthenticated requests, including health and JS.
+ const privateHome=await fetch(base+'/');
+ assert.equal(privateHome.status,401,'private preview homepage is not public');
+ assert.match(privateHome.headers.get('www-authenticate')||'',/Basic/i);
+ const privateHealth=await fetch(base+'/health');
+ assert.equal(privateHealth.status,401,'private staging health metadata requires private access');
+ const privateCode=await fetch(base+'/pilot-ui.js');
+ assert.equal(privateCode.status,401,'the isolated client bundle cannot be scraped without preview authentication');
+ const securedHealth=await call(null,'/health');
+ assert.match(securedHealth.response.headers.get('content-security-policy')||'',/default-src 'self'/);
+ assert.match(securedHealth.response.headers.get('x-frame-options')||'',/^(DENY|SAMEORIGIN)$/);
+ assert.match(securedHealth.response.headers.get('content-security-policy')||'',/frame-ancestors 'none'/);
+ assert.match(securedHealth.response.headers.get('referrer-policy')||'',/no-referrer/);
+ const gatedWebhook=await fetch(base+'/api/pilot/identity/webhook',{method:'POST',
+  headers:{authorization:auth,'content-type':'application/json'},body:JSON.stringify({id:'evt_not_real'})});
+ assert.equal(gatedWebhook.status,404,'Stripe Identity webhook is disabled without dedicated TEST credentials');
  const config=await call(null,'/api/config');
  assert.equal(config.code,200);
  const cookie=(config.response.headers.get('set-cookie')||'').match(/routedrop_csrf=([a-f0-9]{64})/);
@@ -75,6 +93,20 @@ try{
  assert.equal((await call(moderator,'/api/pilot/safety/moderation','GET',undefined,{'x-routedrop-moderator-key':'wrong'})).code,403,'no access with wrong key');
  assert.equal((await call(moderator,'/api/pilot/safety/moderation')).code,403,'session alone cannot moderate');
  assert.equal((await call(null,'/api/pilot/safety/moderation','GET',undefined,modHeaders)).code,401,'key alone cannot moderate without an authenticated session');
+ assert.equal((await call(moderator,'/api/pilot/safety/moderation','GET',undefined,modHeaders)).code,403,'even allowlisted verified moderators need fresh WebAuthn step-up');
+ const passkeyStatus=await call(moderator,'/api/pilot/moderator/passkeys/status','GET',undefined,modHeaders);
+ assert.equal(passkeyStatus.code,200);
+ assert.equal(passkeyStatus.data.registered,0);
+ assert.equal(passkeyStatus.data.enrollment_enabled,false,'enrollment disabled by default');
+ assert.equal((await call(moderator,'/api/pilot/moderator/passkeys/register/options','POST',{},modHeaders)).code,403,'no enrollment outside controlled window');
+ assert.equal((await call(moderator,'/api/pilot/moderator/passkeys/authenticate/options','POST',{},modHeaders)).code,409,'unregistered passkey cannot authenticate');
+ // CI-only DB fixture representing a successful passkey ceremony; no HTTP bypass.
+ const modSession=moderator.cookie.match(/__Host-rd_session=([a-f0-9]{64})/);
+ assert.ok(modSession);
+ const sessionHash=crypto.createHash('sha256').update(modSession[1]).digest('hex');
+ const modWho=(await call(moderator,'/api/me')).data.user;
+ await pool.query("INSERT INTO pilot_moderator_stepup(session_hash,user_id,expires_at) VALUES($1,$2,now()+interval '10 minutes')",[sessionHash,modWho.id]);
+ assert.equal((await call(moderator,'/api/pilot/safety/moderation','GET',undefined,modHeaders)).code,200,'signed-in moderator with short step-up can access queue');
  const screeningBefore=await call(business,'/api/pilot/safety/provider');
  assert.equal(screeningBefore.data.screening.pilot_screening_status,'not_started');
  assert.equal(screeningBefore.data.identity_verified,false);
@@ -90,6 +122,21 @@ try{
  const screened=await call(business,'/api/pilot/safety/provider');
  assert.equal(screened.data.screening.pilot_screening_status,'test_reviewed');
  assert.equal(screened.data.identity_verified,false,'test screening is not identity verification');
+ // Synthetic SIGNED-EVENT equivalent; signature validation is tested separately
+ // using Stripe's real constructEvent signature-verification helper.
+ const sessionId='vs_test_ci_'+suffix;
+ await pool.query("INSERT INTO pilot_identity_attempts(business_id,idempotency_key,stripe_session_id,status) VALUES($1,$2,$3,'requires_input')",[businessId,'ci-identity-'+suffix,sessionId]);
+ const verifiedEvent={id:'evt_ci_identity_1_'+suffix,type:'identity.verification_session.verified',livemode:false,data:{object:{id:sessionId,status:'verified',livemode:false}}};
+ const synced=await identityAdapter.applyIdentityEvent(pool,verifiedEvent);
+ assert.equal(synced.status,'verified_test');
+ const identitySummary=await call(business,'/api/pilot/identity/status');
+ assert.equal(identitySummary.data.status,'verified_test');
+ assert.equal(identitySummary.data.identity_verified,false,'TEST status never becomes production provider approval');
+ assert.equal((await identityAdapter.applyIdentityEvent(pool,verifiedEvent)).ignored,true,'idempotent webhook replay ignored');
+ assert.equal((await identityAdapter.applyIdentityEvent(pool,{...verifiedEvent,id:'evt_ci_identity_old_'+suffix,type:'identity.verification_session.requires_input',data:{object:{id:sessionId,status:'requires_input',livemode:false}}})).ignored,true,'older event cannot downgrade completed test verification');
+ const checkStored=await pool.query("SELECT column_name FROM information_schema.columns WHERE table_name='pilot_identity_attempts' ORDER BY column_name");
+ assert.ok(!checkStored.rows.some(x=>/name|dob|ssn|address|passport|document_image|selfie|biometric/i.test(x.column_name)),'no sensitive ID columns stored');
+
  const individual=await register('individual','independent-lawncare');
  const individualInfo=await call(individual,'/api/me');
  assert.equal(individualInfo.code,200);
@@ -195,6 +242,55 @@ try{
  assert.equal((await call(business,'/api/pilot/listings/'+second+'/status','PATCH',{status:'paused'})).code,200);
  assert.ok(!(await call(customer,'/api/listings')).data.listings.some(x=>Number(x.id)===second),'paused opening hidden');
  assert.equal((await call(business,'/api/pilot/listings/'+second+'/status','PATCH',{status:'active'})).code,200);
+ // Concurrent request race: preserve one active booking and prevent duplicate provider action.
+ const concurrentSlot=await listing(business,'Concurrent request race');
+ const attempts=await Promise.all([
+  call(customer,'/api/pilot/requests','POST',{listingId:concurrentSlot}),
+  call(otherCustomer,'/api/pilot/requests','POST',{listingId:concurrentSlot})
+ ]);
+ assert.deepEqual(attempts.map(x=>x.code).sort((a,b)=>a-b),[201,409],
+  'simultaneous customers cannot both reserve one opening');
+ const winning=attempts.find(x=>x.code===201),winningUser=attempts[0].code===201?customer:otherCustomer;
+ const winningId=Number(winning.data.request.id);
+ const activeSlots=await pool.query("SELECT count(*)::int AS n FROM service_requests WHERE listing_id=$1 AND status IN ('requested','accepted','completed','confirmed','issue_reported')",[concurrentSlot]);
+ assert.equal(activeSlots.rows[0].n,1,'database must have exactly one active reservation after race');
+ const providerRace=await Promise.all([
+  call(business,'/api/pilot/requests/'+winningId+'/action','POST',{action:'accept'}),
+  call(business,'/api/pilot/requests/'+winningId+'/action','POST',{action:'accept'})
+ ]);
+ assert.deepEqual(providerRace.map(x=>x.code).sort((a,b)=>a-b),[200,409],
+  'a provider cannot accept a booking twice under concurrency');
+ assert.equal((await call(winningUser,'/api/pilot/requests/'+winningId+'/action','POST',{action:'cancel'})).code,200,
+  'customer cancel after acceptance reopens fictional slot without a payment');
+ assert.ok((await call(otherCustomer,'/api/listings')).data.listings.some(x=>Number(x.id)===concurrentSlot),
+  'slot returns to test discovery after cancellation');
+ // Invalid Origin/CSRF must block changes even from an otherwise valid session.
+ const invalidCsrf=await fetch(base+'/api/pilot/requests',{
+  method:'POST',headers:{authorization:auth,origin:base,'content-type':'application/json',cookie:winningUser.cookie},
+  body:JSON.stringify({listingId:concurrentSlot})
+ });
+ assert.equal(invalidCsrf.status,403,'authenticated POST without CSRF token must be rejected');
+ const invalidOrigin=await fetch(base+'/api/pilot/requests',{
+  method:'POST',headers:{authorization:auth,origin:'https://not-routedrop.example.test',
+  'content-type':'application/json',cookie:winningUser.cookie,'x-csrf-token':winningUser.csrf},
+  body:JSON.stringify({listingId:concurrentSlot})
+ });
+ assert.equal(invalidOrigin.status,403,'cross-origin mutation must be rejected even with CSRF token');
+ const oneMore=await call(otherCustomer,'/api/pilot/requests','POST',{listingId:concurrentSlot});
+ assert.equal(oneMore.code,201,'invalid attacks did not reserve or alter the slot');
+ assert.equal((await call(business,'/api/pilot/requests/'+oneMore.data.request.id+'/action','POST',{action:'decline'})).code,200);
+ // A signed-out account must immediately lose its server-side session, including privileges.
+ const transientUser=await register('customer','session-revocation');
+ const beforeLogout=await call(transientUser,'/api/me');
+ assert.equal(beforeLogout.code,200);
+ assert.ok(beforeLogout.data.user,'fictional user signed in before logout');
+ assert.match(beforeLogout.response.headers.get('cache-control')||'',/no-store/);
+ const loggedOut=await call(transientUser,'/api/logout','POST',{});
+ assert.equal(loggedOut.code,200);
+ const afterLogout=await call(transientUser,'/api/me');
+ assert.equal(afterLogout.data.user,null,'expired session cookie cannot restore server-side authorization');
+ assert.equal((await call(transientUser,'/api/pilot/requests')).code,401,
+  'old session token cannot retrieve any booking information after logout');
  // A single customer account can add a provider identity, keep separate customer/provider requests,
  // maintain permanent service pages and publish repeated Central-time availability.
  const unified=await register('customer','unified-acc');
@@ -278,6 +374,11 @@ try{
  assert.equal((await call(moderator,'/api/pilot/safety/moderation/providers/'+businessId,'POST',{action:'reinstate',note:'Allow provider to resubmit fictional screening details for human review.'},modHeaders)).code,200);
  assert.equal((await call(business,'/api/pilot/safety/provider')).data.screening.pilot_screening_status,'needs_changes');
  assert.ok((await call(otherCustomer,'/api/listings')).data.listings.some(x=>Number(x.id)===beforeSuspension),'reinstatement restores discoverability');
+ assert.equal((await call(business,'/api/pilot/identity/status')).data.identity_verified,false,'new provider has no verified identity');
+ assert.equal((await call(business,'/api/pilot/identity/start','POST',{explicitConsent:true})).code,503,'Stripe Identity disabled without test credentials');
+ const expired=await pool.query("UPDATE pilot_moderator_stepup SET expires_at=now()-interval '5 seconds' WHERE session_hash=$1 RETURNING user_id",[sessionHash]);
+ assert.equal(expired.rowCount,1);
+ assert.equal((await call(moderator,'/api/pilot/safety/moderation','GET',undefined,modHeaders)).code,403,'expired passkey step-up blocks moderator even with secret');
  assert.equal((await call(customer,'/api/checkout','POST',{listingId:second})).code,503,'Stripe checkout unavailable');
  assert.equal((await call(business,'/api/stripe/connect','POST',{})).code,503,'Stripe payouts unavailable');
  assert.equal((await call(customer,'/api/bookings')).data.bookings.length,0,'no paid bookings');

@@ -1,0 +1,58 @@
+# PRIVATE, UNPAID RouteDrop staging infrastructure. Never use live credentials or real users.
+# This blueprint creates ONLY new services and a new database.
+services:
+  - type: web
+    name: routedrop-identity-staging-private-av
+    runtime: node
+    plan: free
+    region: virginia
+    repo: https://github.com/Ave4prezi/routedrop
+    branch: feature/identity-passkeys-20261116
+    autoDeployTrigger: off
+    healthCheckPath: /health
+    buildCommand: cd routedrop-platform && npm install --ignore-scripts --omit=dev --no-audit --no-fund && node --check server.js && node --check identity-pilot.js && node --check moderator-passkeys.js
+    startCommand: node routedrop-platform/server.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: ROUTEDROP_PREVIEW_ACCESS_PASSWORD
+        generateValue: true
+      - key: ROUTEDROP_WORKFLOW_PILOT
+        value: "true"
+      - key: ROUTEDROP_LIVE_APPROVED
+        value: "false"
+      - key: ROUTEDROP_IDENTITY_TEST_ENABLED
+        value: "false"
+      - key: ROUTEDROP_MODERATOR_PASSKEYS_ENABLED
+        value: "false"
+      - key: ROUTEDROP_MODERATOR_ENROLLMENT_ENABLED
+        value: "false"
+      - key: ROUTEDROP_MODERATION_TOKEN
+        generateValue: true
+      - key: DATABASE_URL
+        fromDatabase:
+          name: routedrop-identity-staging-db-av
+          property: connectionString
+      - key: PUBLIC_URL
+        fromService:
+          name: routedrop-identity-staging-private-av
+          type: web
+          envVarKey: RENDER_EXTERNAL_URL
+      - key: ROUTEDROP_WEBAUTHN_ORIGIN
+        fromService:
+          name: routedrop-identity-staging-private-av
+          type: web
+          envVarKey: RENDER_EXTERNAL_URL
+      - key: ROUTEDROP_WEBAUTHN_RP_ID
+        fromService:
+          name: routedrop-identity-staging-private-av
+          type: web
+          envVarKey: RENDER_EXTERNAL_HOSTNAME
+
+databases:
+  - name: routedrop-identity-staging-db-av
+    plan: free
+    region: virginia
+    databaseName: routedrop_identity_staging
+    postgresMajorVersion: "16"
+    ipAllowList: []

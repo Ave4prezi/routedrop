@@ -8,7 +8,9 @@ const pilot=window.RouteDropPilotUI;
  const unified=window.RouteDropUnified;
  const trust=window.RouteDropTrustUI;
  const safetyUi=window.RouteDropSafetyUI;
-const state={config:null,me:null,listings:[],bookings:[],mine:[],tab:'explore',demo:false,demoRequests:[],demoCounter:0,demoListingId:null,demoSlot:'afternoon',demoArea:{center:'decatur',radiusMiles:20},pilotRequests:[],pilotListingId:null,jobs:[],jobSearch:'',serviceProfiles:[],myServiceProfiles:{profiles:[],rules:[]},jobInterests:null,compareIds:[],profileSort:'default',profileCategory:'',moderatorKey:null,safetyStatus:null,myReviews:[]};
+ const readiness=window.RouteDropReadiness;
+ const passkeys=window.RouteDropPasskeys;
+const state={config:null,me:null,listings:[],bookings:[],mine:[],tab:'explore',demo:false,demoRequests:[],demoCounter:0,demoListingId:null,demoSlot:'afternoon',demoArea:{center:'decatur',radiusMiles:20},pilotRequests:[],pilotListingId:null,jobs:[],jobSearch:'',serviceProfiles:[],myServiceProfiles:{profiles:[],rules:[]},jobInterests:null,compareIds:[],profileSort:'default',profileCategory:'',moderatorKey:null,safetyStatus:null,myReviews:[],identityStatus:null};
 const esc=v=>String(v===null||v===undefined?'':v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const money=cents=>new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(Number(cents||0)/100);
 const when=iso=>new Intl.DateTimeFormat('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}).format(new Date(iso));
@@ -56,13 +58,14 @@ function nav(){
 }
 async function renderSafety(){
  const target=$('safety-body');if(!target)return;
- if(!state.config?.safety_pilot){target.innerHTML=safetyUi.overview(null,null,state.config);return;}
- const [screening,own]=await Promise.all([
+ if(!state.config?.safety_pilot){target.innerHTML=safetyUi.overview(null,null,state.config)+safetyUi.identityPanel(null,{available:false,status:'not_started'});return;}
+ const [screening,own,identity]=await Promise.all([
   state.me?.business?api('/api/pilot/safety/provider'):Promise.resolve({screening:null}),
-  state.me?.user?api('/api/pilot/safety/my-reviews'):Promise.resolve({reviews:[]})
+  state.me?.user?api('/api/pilot/safety/my-reviews'):Promise.resolve({reviews:[]}),
+  state.me?.business?api('/api/pilot/identity/status'):Promise.resolve({available:false,status:'not_started'})
  ]);
- state.safetyStatus=screening;state.myReviews=own.reviews;
- target.innerHTML=safetyUi.overview(state.me,screening,state.config,own.reviews);
+ state.safetyStatus=screening;state.myReviews=own.reviews;state.identityStatus=identity;
+ target.innerHTML=safetyUi.overview(state.me,screening,state.config,own.reviews)+safetyUi.identityPanel(state.me,identity);
  if(state.moderatorKey){
   try{
    const data=await api('/api/pilot/safety/moderation',{headers:{'x-routedrop-moderator-key':state.moderatorKey}});
@@ -163,9 +166,9 @@ async function studio(){
  if(!u){$('studio-body').innerHTML=unified.entry()+'<div class="panel"><h3>One account for every path</h3><p>Sign up with a fictional test identity. You can book services, find work and offer your own services with the same login.</p><button class="btn" data-action="register">Create one account</button></div>';return;}
  if(state.config.unified_pilot){
   if(!state.me.business){$('studio-body').innerHTML=unified.entry()+'<div class="panel"><h3>Activate your provider profile</h3><p>Start as an individual without registering a company. Your existing customer bookings and job interests remain on this account.</p><button class="btn" data-action="start-provider">Create provider profile</button></div>';return;}
-  const [listings,requests,jobs,profiles]=await Promise.all([api('/api/my-listings'),api('/api/pilot/requests?view=provider'),api('/api/pilot/my-jobs'),api('/api/pilot/my-service-profiles')]);
-  state.mine=listings.listings;state.pilotRequests=requests.requests;state.myServiceProfiles=profiles;
-  $('studio-body').innerHTML=unified.entry()+pilot.studio(state.me.business,state.mine,state.pilotRequests,serviceCoveragePanel(state.me.business))+unified.studio(profiles,state.me.business.provider_kind)+opportunities.employerPanel(jobs.jobs,state.me.business.provider_kind);return;
+  const [listings,requests,jobs,profiles,screening,identity]=await Promise.all([api('/api/my-listings'),api('/api/pilot/requests?view=provider'),api('/api/pilot/my-jobs'),api('/api/pilot/my-service-profiles'),api('/api/pilot/safety/provider'),api('/api/pilot/identity/status')]);
+  state.mine=listings.listings;state.pilotRequests=requests.requests;state.myServiceProfiles=profiles;state.safetyStatus=screening;state.identityStatus=identity;
+  $('studio-body').innerHTML=unified.entry()+readiness.providerChecklist(state.me,screening,identity,state.config)+pilot.studio(state.me.business,state.mine,state.pilotRequests,serviceCoveragePanel(state.me.business))+unified.studio(profiles,state.me.business.provider_kind)+opportunities.employerPanel(jobs.jobs,state.me.business.provider_kind);return;
  }
  if(u.role!=='business'){$('studio-body').innerHTML='<div class="empty">A business account is required to publish routes outside the private pilot.</div>';return;}
  const b=state.me.business,r=await Promise.all([api('/api/my-listings'),api('/api/bookings')]);
@@ -373,8 +376,13 @@ async function act(e){
   return;
  }
  if(action==='safety-start-screening'&&state.config?.safety_pilot){overlay(safetyUi.screeningForm());return;}
+ if(action==='identity-start'&&state.config?.identity_test_available){overlay(safetyUi.identityConsentForm());return;}
  if(action==='moderator-connect'&&state.config?.moderation_available){overlay(safetyUi.moderatorForm());return;}
- if(action==='moderator-disconnect'){state.moderatorKey=null;message('Moderator key cleared from this page.');await renderSafety();return;}
+ if(action==='moderator-disconnect'){
+   const key=state.moderatorKey;state.moderatorKey=null;
+   if(key)await api('/api/pilot/moderator/passkeys/lock',{method:'POST',headers:{'x-routedrop-moderator-key':key},body:'{}'}).catch(()=>{});
+   message('Moderator key cleared and step-up session locked.');await renderSafety();return;
+  }
  if(action==='start-provider'){
   if(state.demo&&!state.config?.database){overlay('<h2 id="modal-title">One-account service preview</h2><p>This password-protected visual tour uses fictional data and does not register accounts. In the functional test branch, the same account can set up a provider profile, manage weekly openings and explore jobs.</p>');return;}
   if(!state.me?.user){showRegistration();return;}
@@ -417,7 +425,7 @@ async function act(e){
  if(el.dataset.complete){try{await api('/api/bookings/'+Number(el.dataset.complete)+'/complete',{method:'POST'});message('Job marked completed.');refresh();}catch(err){message(err.message,true);}return;}
 }
 async function submit(e){
- if(!['register-form','login-form','listing-form','forgot-form','reset-form','change-password-form','job-form','provider-setup-form','service-profile-form','weekly-form','job-interests-form','service-review-form','review-report-form','safety-screening-form','safety-appeal-form','safety-mod-login-form','safety-moderation-form'].includes(e.target.id))return;
+ if(!['register-form','login-form','listing-form','forgot-form','reset-form','change-password-form','job-form','provider-setup-form','service-profile-form','weekly-form','job-interests-form','service-review-form','review-report-form','safety-screening-form','safety-appeal-form','safety-mod-login-form','safety-moderation-form','safety-identity-form'].includes(e.target.id))return;
  e.preventDefault();
  const form=e.target,d=Object.fromEntries(new FormData(form).entries());
  const err=$('form-error');err.textContent='';
@@ -428,6 +436,12 @@ async function submit(e){
   if(form.id==='change-password-form'){const r=await api('/api/auth/change-password',{method:'POST',body:JSON.stringify({currentPassword:d.currentPassword,newPassword:d.newPassword})});state.me=null;message(r.message);}
   if(form.id==='forgot-form'){const r=await api('/api/auth/forgot-password',{method:'POST',body:JSON.stringify({email:d.email})});message(r.message);}
   if(form.id==='reset-form'){const r=await api('/api/auth/reset-password',{method:'POST',body:JSON.stringify({token:d.token,password:d.password})});history.replaceState(null,'',location.pathname);message(r.message);}
+  if(form.id==='safety-identity-form'){
+   const result=await api('/api/pilot/identity/start',{method:'POST',body:JSON.stringify({explicitConsent:d.explicitConsent==='yes'})});
+   if(!/^https:\/\//.test(result.url||''))throw Error('Verification provider did not return an HTTPS destination.');
+   location.assign(result.url);
+   return;
+  }
   if(form.id==='safety-screening-form'){
    const result=await api('/api/pilot/safety/provider/request',{method:'POST',body:JSON.stringify({serviceCategory:d.serviceCategory,serviceDescription:d.serviceDescription,acknowledgeTestOnly:d.acknowledgeTestOnly==='yes'})});
    message(result.message);
@@ -437,9 +451,16 @@ async function submit(e){
    message(result.message);
   }
   if(form.id==='safety-mod-login-form'){
-   const result=await api('/api/pilot/safety/moderation',{headers:{'x-routedrop-moderator-key':d.key}});
+   const headers={'x-routedrop-moderator-key':d.key};
+   const status=await api('/api/pilot/moderator/passkeys/status',{headers});
+   if(!status.registered){
+    if(!status.enrollment_enabled)throw Error('No moderator passkey is enrolled. Administrator enrollment must first be enabled securely.');
+    await passkeys.enroll(api,d.key);
+   }
+   await passkeys.authenticate(api,d.key);
+   await api('/api/pilot/safety/moderation',{headers});
    state.moderatorKey=d.key;
-   message('Restricted moderation queue accessible. No ID documents or actual customers.');
+   message('Passkey verified. Restricted moderation access is valid for ten minutes.');
   }
   if(form.id==='safety-moderation-form'){
    if(!state.moderatorKey)throw Error('Connect an authorized moderator account first.');

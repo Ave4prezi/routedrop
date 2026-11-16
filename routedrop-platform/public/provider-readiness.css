@@ -1,0 +1,11 @@
+/* Private RouteDrop provider checklist. No success color implies real approval. */
+.readiness-panel{margin-top:20px}
+.readiness-steps{list-style:none;padding:0;margin:18px 0 16px;display:grid;gap:10px}
+.readiness-step{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;border:1px solid rgba(114,139,169,.24);border-radius:12px;background:rgba(124,151,179,.055)}
+.readiness-step-label{font-weight:700}
+.readiness-step-detail{text-align:right;font-size:.9rem}
+.readiness-done{color:#287a65}
+.readiness-pending{color:#966d2d}
+.readiness-blocked{color:inherit;font-weight:700}
+.readiness-panel .legal{margin-top:14px}
+@media(max-width:560px){.readiness-step{align-items:flex-start;flex-direction:column;gap:3px}.readiness-step-detail{text-align:left}}

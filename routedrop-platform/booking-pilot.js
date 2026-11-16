@@ -98,17 +98,23 @@ function registerPilotRoutes(app,{pool,safe,requireDb,requireUser,requireProvide
   const states=transition[role];
   if(!states)return forbidden(res,'This role cannot manage requests.',403);
   // Select the allowed FROM status from our fixed transition graph, never user-supplied SQL.
-  const entry=Object.entries(states).find(([,actions])=>Object.hasOwn(actions,action));
-  if(!entry)return forbidden(res,'This action is not allowed for your account.',403);
-  const [from,allowed]=entry,to=allowed[action];
+  const matches=Object.entries(states).filter(([,actions])=>Object.hasOwn(actions,action));
+  if(!matches.length)return forbidden(res,'This action is not allowed for your account.',403);
+  // An action (e.g. customer cancel) may be valid from more than one state.
+  // Keep the destination fixed by the server-side transition graph, and update
+  // only rows still in an allowed source state at the instant of the SQL write.
+  const from=matches.map(([state])=>state);
+  const destinations=new Set(matches.map(([,allowed])=>allowed[action]));
+  if(destinations.size!==1)return forbidden(res,'Ambiguous request action mapping.',500);
+  const [to]=destinations;
   const query=provider?
    `UPDATE service_requests r SET status=$1,updated_at=now()
     FROM listings l JOIN businesses b ON b.id=l.business_id
-    WHERE r.id=$2 AND r.status=$3 AND r.listing_id=l.id AND b.owner_id=$4
+    WHERE r.id=$2 AND r.status=ANY($3::text[]) AND r.listing_id=l.id AND b.owner_id=$4
     ${action==='accept'?"AND l.slot_start>now() AND b.pilot_screening_status!='suspended'":''}
     RETURNING r.id,r.status`:
    `UPDATE service_requests r SET status=$1,updated_at=now()
-    WHERE r.id=$2 AND r.status=$3 AND r.customer_id=$4
+    WHERE r.id=$2 AND r.status=ANY($3::text[]) AND r.customer_id=$4
     RETURNING r.id,r.status`;
   const result=await pool.query(query,[to,id,from,req.user.id]);
   if(!result.rowCount)return forbidden(res,'Request unavailable, unchanged, or outside your permissions.',409);
