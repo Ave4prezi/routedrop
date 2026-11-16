@@ -5,18 +5,20 @@ import net from 'node:net';
 import pg from 'pg';
 
 const pool=new pg.Pool({connectionString:process.env.TEST_DATABASE_URL});
+const suffix=String(Date.now()),moderationToken='local-test-moderator-very-long-unique-key-2026';
+const moderatorEmail='pilot-moderator-'+suffix+'@example.test',modHeaders={'x-routedrop-moderator-key':moderationToken};
 const socket=net.createServer();
 socket.listen(0,'127.0.0.1');await once(socket,'listening');
 const port=socket.address().port;await new Promise(resolve=>socket.close(resolve));
 const base='http://127.0.0.1:'+port,pass='local-ephemeral-test-only';
 const auth='Basic '+Buffer.from('routedrop-preview:'+pass).toString('base64');
 const server=spawn(process.execPath,['routedrop-platform/server.js'],{
- env:{...process.env,PORT:String(port),DATABASE_URL:process.env.TEST_DATABASE_URL,ROUTEDROP_WORKFLOW_PILOT:'true',ROUTEDROP_PREVIEW_ACCESS_PASSWORD:pass,ROUTEDROP_LIVE_APPROVED:'false',STRIPE_SECRET_KEY:'',STRIPE_WEBHOOK_SECRET:'',PUBLIC_URL:'',NODE_ENV:'test'},
+ env:{...process.env,PORT:String(port),DATABASE_URL:process.env.TEST_DATABASE_URL,ROUTEDROP_WORKFLOW_PILOT:'true',ROUTEDROP_PREVIEW_ACCESS_PASSWORD:pass,ROUTEDROP_LIVE_APPROVED:'false',STRIPE_SECRET_KEY:'',STRIPE_WEBHOOK_SECRET:'',PUBLIC_URL:'',NODE_ENV:'test',ROUTEDROP_MODERATION_TOKEN:moderationToken,ROUTEDROP_MODERATOR_EMAILS:moderatorEmail},
  stdio:['ignore','pipe','pipe']
 });
 let errors='';server.stderr.on('data',x=>errors+=x.toString());
-async function call(user,path,method='GET',body){
- const headers={authorization:auth};
+async function call(user,path,method='GET',body,extraHeaders={}){
+ const headers={authorization:auth,...extraHeaders};
  if(method!=='GET'){headers.origin=base;headers['content-type']='application/json';}
  if(user){headers.cookie=user.cookie;headers['x-csrf-token']=user.csrf;}
  const response=await fetch(base+path,{method,headers,...(body===undefined?{}:{body:JSON.stringify(body)})});
@@ -30,7 +32,6 @@ function sessionCookie(resp){
  assert.ok(m,'authenticated session cookie');
  return '__Host-rd_session='+m[1];
 }
-const suffix=String(Date.now());
 async function register(role,tag){
  const config=await call(null,'/api/config');
  assert.equal(config.code,200);
@@ -67,6 +68,28 @@ try{
  const outsider=await register('business','other-provider');
  const customer=await register('customer','customer');
  const otherCustomer=await register('customer','other-customer');
+ const moderator=await register('customer','moderator');
+ assert.equal((await call(moderator,'/api/pilot/safety/moderation','GET',undefined,modHeaders)).code,403,'moderator account needs verified email');
+ await pool.query("UPDATE users SET email_verified_at=now() WHERE email=$1",[moderatorEmail]);
+ assert.equal((await call(customer,'/api/pilot/safety/moderation','GET',undefined,modHeaders)).code,403,'moderation requires allowlisted account');
+ assert.equal((await call(moderator,'/api/pilot/safety/moderation','GET',undefined,{'x-routedrop-moderator-key':'wrong'})).code,403,'no access with wrong key');
+ assert.equal((await call(moderator,'/api/pilot/safety/moderation')).code,403,'session alone cannot moderate');
+ assert.equal((await call(null,'/api/pilot/safety/moderation','GET',undefined,modHeaders)).code,401,'key alone cannot moderate without an authenticated session');
+ const screeningBefore=await call(business,'/api/pilot/safety/provider');
+ assert.equal(screeningBefore.data.screening.pilot_screening_status,'not_started');
+ assert.equal(screeningBefore.data.identity_verified,false);
+ assert.equal((await call(business,'/api/pilot/safety/provider/request','POST',{serviceCategory:'Cleaning',serviceDescription:'Test-only fictional cleaning provider in a local neighborhood.',acknowledgeTestOnly:false})).code,400,'explicit consent required');
+ const screening=await call(business,'/api/pilot/safety/provider/request','POST',{serviceCategory:'Cleaning',serviceDescription:'Test-only fictional cleaning provider in a local neighborhood.',acknowledgeTestOnly:true});
+ assert.equal(screening.code,201,JSON.stringify(screening.data));
+ assert.equal(screening.data.identity_verified,false,'no ID documents collected or verified');
+ assert.equal((await call(business,'/api/pilot/safety/provider/request','POST',{serviceCategory:'Cleaning',serviceDescription:'Repeat fictional test screening attempt for the account.',acknowledgeTestOnly:true})).code,409);
+ const pending=await call(moderator,'/api/pilot/safety/moderation','GET',undefined,modHeaders);
+ assert.equal(pending.code,200);
+ const businessId=Number(pending.data.cases.find(x=>x.provider_name==='Pilot provider Service').business_id);
+ assert.equal((await call(moderator,'/api/pilot/safety/moderation/providers/'+businessId,'POST',{action:'review_test_submission',note:'Fictional service scope checked; this does not establish identity.'},modHeaders)).code,200);
+ const screened=await call(business,'/api/pilot/safety/provider');
+ assert.equal(screened.data.screening.pilot_screening_status,'test_reviewed');
+ assert.equal(screened.data.identity_verified,false,'test screening is not identity verification');
  const individual=await register('individual','independent-lawncare');
  const individualInfo=await call(individual,'/api/me');
  assert.equal(individualInfo.code,200);
@@ -134,6 +157,24 @@ try{
  assert.equal(flagged.data.reviews.length,1,'review stays visible until a moderation decision');
  assert.equal((await call(otherCustomer,'/api/pilot/reviews/'+reviewId+'/report','POST',{reason:'Spam or promotion'})).code,409,'same reporter cannot file twice');
  assert.equal((await call(customer,'/api/pilot/reviews/'+reviewId+'/report','POST',{reason:'Personal information'})).code,201,'independent reports are recorded without auto-censorship');
+ const moderate=await call(moderator,'/api/pilot/safety/moderation','GET',undefined,modHeaders);
+ assert.ok(moderate.data.reviews.some(x=>Number(x.id)===reviewId),'reported test review appears in restricted queue');
+ assert.equal((await call(customer,'/api/pilot/safety/moderation/reviews/'+reviewId,'POST',{action:'hide',note:'Try to censor criticism'})).code,403,'customers cannot moderate reviews');
+ const hidden=await call(moderator,'/api/pilot/safety/moderation/reviews/'+reviewId,'POST',{action:'hide',note:'Manual moderation test: hold this review for content safety review.'},modHeaders);
+ assert.equal(hidden.code,200,JSON.stringify(hidden.data));
+ assert.equal((await call(customer,'/api/pilot/reviews?businessId='+businessId)).data.rating.review_count,0,'manually hidden review leaves public test average');
+ const appeal=await call(customer,'/api/pilot/safety/appeals','POST',{subjectKind:'review',subjectId:reviewId,reason:'This fictional review was genuine and requires a second manual check.'});
+ assert.equal(appeal.code,201,JSON.stringify(appeal.data));
+ assert.equal((await call(customer,'/api/pilot/safety/appeals','POST',{subjectKind:'review',subjectId:reviewId,reason:'Another reconsideration for the same hidden fictional review.'})).code,409,'duplicate appeals blocked');
+ assert.ok((await call(moderator,'/api/pilot/safety/moderation','GET',undefined,modHeaders)).data.appeals.some(x=>Number(x.id)===Number(appeal.data.appeal.id)));
+ assert.equal((await call(moderator,'/api/pilot/safety/moderation/appeals/'+appeal.data.appeal.id,'POST',{action:'overturned',note:'Manual pilot appeal granted after checking the source of review.'},modHeaders)).code,200);
+ assert.equal((await call(customer,'/api/pilot/reviews?businessId='+businessId)).data.rating.review_count,0,'appeal does not silently alter moderation status');
+ assert.equal((await call(moderator,'/api/pilot/safety/moderation/reviews/'+reviewId,'POST',{action:'restore',note:'Human reviewer restored the genuine fictional customer experience.'},modHeaders)).code,200);
+ assert.equal((await call(customer,'/api/pilot/reviews?businessId='+businessId)).data.rating.review_count,1,'manual restoration restores rating');
+ const audit=(await call(moderator,'/api/pilot/safety/moderation/audit','GET',undefined,modHeaders)).data.events;
+ assert.ok(audit.filter(x=>x.subject_kind==='review'&&Number(x.subject_id)===reviewId).length>=2,'audited hide and restore');
+ assert.ok(!JSON.stringify(audit).includes(moderationToken),'moderator secret must never enter API response');
+ assert.equal((await call(customer,'/api/pilot/safety/my-reviews')).data.reviews.find(x=>Number(x.id)===reviewId).status,'visible','only author sees their own review status');
  assert.equal((await call(customer,'/api/pilot/requests/'+id+'/action','POST',{action:'confirm'})).code,409,'terminal state immutable');
  const ownerHistory=await call(business,'/api/pilot/requests');
  assert.equal(ownerHistory.data.requests[0].status,'confirmed');
@@ -223,13 +264,27 @@ try{
  await Promise.all([call(customer,'/api/listings'),call(otherCustomer,'/api/listings')]);
  const countAfter=await pool.query('SELECT count(*)::int AS n FROM listings WHERE pilot_weekly_rule_id=$1',[ruleId]);
  assert.equal(countAfter.rows[0].n,countBefore.rows[0].n,'refreshing recurrence concurrently never doubles slots');
+ // A suspended provider cannot take new work, create recurring slots or post jobs.
+ const beforeSuspension=await listing(business,'Before suspension');
+ assert.ok((await call(otherCustomer,'/api/listings')).data.listings.some(x=>Number(x.id)===beforeSuspension));
+ assert.equal((await call(moderator,'/api/pilot/safety/moderation/providers/'+businessId,'POST',{action:'suspend',note:'Manual temporary suspension to prevent new fictional customer requests.'},modHeaders)).code,200);
+ assert.equal((await call(business,'/api/pilot/safety/provider')).data.screening.pilot_screening_status,'suspended');
+ assert.ok(!(await call(otherCustomer,'/api/listings')).data.listings.some(x=>Number(x.id)===beforeSuspension),'suspended provider removed from discovery');
+ assert.equal((await call(otherCustomer,'/api/pilot/requests','POST',{listingId:beforeSuspension})).code,409,'no new customer request while suspended');
+ assert.equal((await call(business,'/api/listings','POST',{title:'Unallowed suspended listing',category:'Cleaning',neighborhood:'Decatur',priceCents:7500,slotStart:new Date(Date.now()+48*60*60*1000).toISOString(),durationMinutes:60})).code,403);
+ assert.equal((await call(business,'/api/pilot/jobs','POST',{title:'Suspended employer test role',category:'Services',city:'Decatur, AL',employmentType:'Part-time',payDisplay:'Example $18/hr',summary:'Fictional hiring test that must not publish during a suspension.'})).code,403);
+ const businessAppeal=await call(business,'/api/pilot/safety/appeals','POST',{subjectKind:'provider',subjectId:businessId,reason:'I request a manual review of this fictional provider restriction.'});
+ assert.equal(businessAppeal.code,201);
+ assert.equal((await call(moderator,'/api/pilot/safety/moderation/providers/'+businessId,'POST',{action:'reinstate',note:'Allow provider to resubmit fictional screening details for human review.'},modHeaders)).code,200);
+ assert.equal((await call(business,'/api/pilot/safety/provider')).data.screening.pilot_screening_status,'needs_changes');
+ assert.ok((await call(otherCustomer,'/api/listings')).data.listings.some(x=>Number(x.id)===beforeSuspension),'reinstatement restores discoverability');
  assert.equal((await call(customer,'/api/checkout','POST',{listingId:second})).code,503,'Stripe checkout unavailable');
  assert.equal((await call(business,'/api/stripe/connect','POST',{})).code,503,'Stripe payouts unavailable');
  assert.equal((await call(customer,'/api/bookings')).data.bookings.length,0,'no paid bookings');
  const q=await pool.query('SELECT (SELECT count(*) FROM bookings) AS paid_booking_count,(SELECT count(*) FROM service_requests) AS test_request_count');
  assert.equal(Number(q.rows[0].paid_booking_count),0);
  assert.ok(Number(q.rows[0].test_request_count)>=3);
- console.log('PASS unified PostgreSQL pilot: one account books and offers, recurring profiles, job interests, owner permissions, job posts and no checkout');
+ console.log('PASS trust/safety PostgreSQL pilot: moderator guard, test screening, reports, audited review decisions, appeals, suspension, bookings and no checkout');
 }finally{
  server.kill('SIGTERM');
  await pool.end();

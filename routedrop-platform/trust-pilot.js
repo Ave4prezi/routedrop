@@ -20,7 +20,7 @@ function ratingFields(alias='b'){
  return ",(SELECT round(avg(rv.rating)::numeric,1) FROM pilot_service_reviews rv WHERE rv.business_id="+alias+".id AND rv.status='visible') AS rating_avg"+
  ",(SELECT count(*)::int FROM pilot_service_reviews rv WHERE rv.business_id="+alias+".id AND rv.status='visible') AS review_count";
 }
-function registerTrustRoutes(app,{pool,safe,requireDb,requireUser,forbidden}){
+function registerTrustRoutes(app,{pool,safe,requireDb,requireUser,forbidden,safetyPilot}){
  if(!pool)throw Error('Trusted reviews require the isolated pilot database');
  app.get('/api/pilot/reviews',requireDb,safe(async(req,res)=>{
   const businessId=Number(req.query.businessId);
@@ -36,9 +36,17 @@ function registerTrustRoutes(app,{pool,safe,requireDb,requireUser,forbidden}){
  app.post('/api/pilot/reviews',requireDb,requireUser(),safe(async(req,res)=>{
   const requestId=Number(req.body?.requestId),review=validReview(req.body);
   if(!validId(requestId)||!review)return forbidden(res,'Rate 1–5 stars and enter a fictional headline and review without contact information.',400);
-  const q=await pool.query("INSERT INTO pilot_service_reviews (request_id,business_id,customer_id,rating,headline,comment) SELECT r.id,b.id,$1,$3,$4,$5 FROM service_requests r JOIN listings l ON l.id=r.listing_id JOIN businesses b ON b.id=l.business_id WHERE r.id=$2 AND r.customer_id=$1 AND r.status='confirmed' AND b.owner_id<>$1 ON CONFLICT(request_id) DO NOTHING RETURNING id,rating",[req.user.id,requestId,review.rating,review.headline,review.comment]);
-  if(!q.rowCount)return forbidden(res,'Only the customer of a confirmed test request may leave one review for that job.',409);
-  res.status(201).json({review:q.rows[0],message:'Private test review saved. No real business rating has been published.'});
+  const client=await pool.connect();
+  try{
+   await client.query('BEGIN');
+   const risk=await safetyPilot.reviewRisk(client,req.user.id,review.comment);
+   if(risk.deny){await client.query('ROLLBACK');return forbidden(res,risk.deny,429);}
+   const q=await client.query("INSERT INTO pilot_service_reviews (request_id,business_id,customer_id,rating,headline,comment,status) SELECT r.id,b.id,$1,$3,$4,$5,$6 FROM service_requests r JOIN listings l ON l.id=r.listing_id JOIN businesses b ON b.id=l.business_id WHERE r.id=$2 AND r.customer_id=$1 AND r.status='confirmed' AND b.owner_id<>$1 ON CONFLICT(request_id) DO NOTHING RETURNING id,rating,status",[req.user.id,requestId,review.rating,review.headline,review.comment,risk.status]);
+   if(!q.rowCount){await client.query('ROLLBACK');return forbidden(res,'Only the customer of a confirmed test request may leave one review for that job.',409);}
+   if(risk.rule)await client.query("INSERT INTO pilot_risk_events(actor_id,target_kind,target_id,rule) VALUES($1,'review',$2,$3)",[req.user.id,q.rows[0].id,risk.rule]);
+   await client.query('COMMIT');
+   res.status(201).json({review:q.rows[0],message:risk.rule?'Test review held for manual fraud review. No public score was changed.':'Private test review saved. No real business rating has been published.'});
+  }catch(e){await client.query('ROLLBACK').catch(()=>{});throw e;}finally{client.release();}
  }));
  app.post('/api/pilot/reviews/:id/report',requireDb,requireUser(),safe(async(req,res)=>{
   const id=Number(req.params.id),reason=req.body?.reason;
@@ -46,6 +54,8 @@ function registerTrustRoutes(app,{pool,safe,requireDb,requireUser,forbidden}){
   const client=await pool.connect();
   try{
    await client.query('BEGIN');
+   const denied=await safetyPilot.reportRisk(client,req.user.id);
+   if(denied){await client.query('ROLLBACK');return forbidden(res,denied,429);}
    const q=await client.query("INSERT INTO pilot_review_reports(review_id,reporter_id,reason) SELECT id,$2,$3 FROM pilot_service_reviews WHERE id=$1 AND status='visible' ON CONFLICT(review_id,reporter_id) DO NOTHING RETURNING id",[id,req.user.id,reason]);
    if(!q.rowCount){await client.query('ROLLBACK');return forbidden(res,'Review unavailable or already reported.',409);}
    await client.query('COMMIT');

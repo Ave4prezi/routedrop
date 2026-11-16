@@ -140,6 +140,18 @@ try{
   await register(individual,'individual',variant.name+'-independent');
   await individual.getByRole('button',{name:'Business Studio'}).click();
   await individual.getByText('Your independent service studio.').waitFor();
+  await individual.getByRole('button',{name:'Trust & Safety'}).click();
+  await individual.getByRole('heading',{name:'Confidence must be earned.'}).waitFor();
+  await individual.locator('[data-action="safety-start-screening"]').click();
+  const screeningForm=individual.locator('#safety-screening-form');
+  await screeningForm.locator('[name="serviceCategory"]').selectOption('Lawn care');
+  await screeningForm.locator('[name="serviceDescription"]').fill('Fictional lawn care and edging offered in the private RouteDrop test environment.');
+  await screeningForm.locator('[name="acknowledgeTestOnly"]').check();
+  await screeningForm.locator('button[type="submit"]').click();
+  await individual.locator('#modal').waitFor({state:'hidden'});
+  await individual.getByText('Under test review').waitFor();
+  await individual.screenshot({path:'pilot-safety-'+variant.name+'.png',fullPage:true});
+  await individual.getByRole('button',{name:'Business Studio'}).click();
   assert.equal(await individual.locator('[data-action="post-job"]').count(),0,'individual providers cannot post employer job openings');
   await individual.locator('[data-action="create-listing"]').click();
   const independentForm=individual.locator('#listing-form');

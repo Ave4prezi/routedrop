@@ -1,0 +1,23 @@
+# RouteDrop trust, identity and moderation — launch gates
+
+**Status:** private, fictional-data pilot only. These controls do **not** authorize real customers, hiring, payments, or any "verified provider" claim.
+
+## Implemented in the isolated pilot
+- **Provider screening:** account owners may submit fictional service scope; case status can be `not_started`, `pending`, `test_reviewed`, `needs_changes` or `suspended`. The pilot does not accept legal names, ID documents, addresses, SSNs, DOB, biometric images or certificates. **"Test reviewed" is not "identity verified."**
+- **Suspension:** an authorized moderator can suspend a provider, stopping new service discovery, new unpaid requests, recurring openings, and fresh employer listings. Existing accepted work is not silently erased.
+- **Review integrity:** one review from the actual customer after confirmed test completion; independent providers cannot review their own listings. Review volume is limited to 3 per customer / rolling 24 hours. Repeated identical review text by one account within 30 days is held from ratings pending a human decision, independent of star score.
+- **Abuse reports:** at most 5 reports per reporter / rolling 24 hours and one report per review per reporter. Reports create a moderation queue item and **do not** automatically hide negative feedback.
+- **Human moderator access:** disabled by default. Requires `ROUTEDROP_MODERATION_TOKEN` (32+ high-entropy characters) and `ROUTEDROP_MODERATOR_EMAILS` (comma-separated email allowlist), plus a signed-in **email-verified** account. Secrets are configured only in Render/private environment, never committed or pasted into customer support chats. Moderation API requires its own header and standard origin/CSRF controls; moderator decisions append auditable records.
+- **Appeals:** only the affected provider or review author can appeal an eligible safety decision once per pending appeal. Decision and content/status changes are separate audited acts. This is not an operational support team yet.
+- **Fictional identity only:** never invite actual ID/document uploads, and do not turn on a verified badge, employment application, or real-world scheduling based on pilot test review.
+
+## Required before real launch
+1. **Identity proofing vendor selection and consent:** review NIST SP 800-63A-4; choose a suitable provider, identity-assurance level, accessible fallback and dispute mechanism. Use vendor-hosted document collection; do not store raw documents or biometric data in RouteDrop. Validate signed vendor callbacks and a provider reference server-side; limit retained attributes and define deletion periods.
+2. **Business, trade and credential checks:** independently validate company registration and, for regulated work, licenses and insurance where required by locality; distinguish a verified identity from a certified or licensed business. Allow individuals offering ordinary services without falsely presenting them as registered companies.
+3. **Authentication:** require verified email for real identity verification; use phishing-resistant MFA for moderators and sensitive administrative actions, strong session invalidation and audit. Current email-verified allowlist plus separate secret is a **pilot safeguard**, not enterprise-grade administrator IAM.
+4. **Anti-fraud and Sybil defense:** add account linking using privacy-preserving signals, velocity limits per network/device, bot management, chargeback/dispute linkage (once payments are approved), anomaly investigation and reversible enforcement. Never rely solely on IP addresses or punish users merely for sharing an address.
+5. **Moderation operations:** staff an accountable team, have published standards, evidence-based triage, harassment/PII emergency takedown, appeal deadlines, anti-retaliation, spam-and-review-manipulation investigations and escalation pathways. Add alerts so serious reports are actually seen.
+6. **Privacy, security and law:** privacy policy; data-use minimization; consent and retention schedule; encryption in transit and at rest; role-separated access; annual penetration/security testing; incident response; state and federal legal review including consumer-review integrity and applicable employment rules.
+7. **Release gates:** do not merge or deploy this branch to production without separate security/privacy review, documented owner approval, isolated staging verification and real identity integration. Real booking, payments and live hiring remain disabled.
+
+Reference: [NIST SP 800-63A-4](https://pages.nist.gov/800-63-4/sp800-63a.html) (2025); guidance informs design but this prototype does **not** claim NIST compliance.

@@ -31,6 +31,13 @@ try{
     const img=new Image();img.src=src;await img.decode();return {ok:img.naturalWidth>0&&img.naturalHeight>0};
   });
   assert.equal(sprite.ok,true,'inline hero photo must decode');
+  await page.getByRole('button',{name:'Trust & Safety'}).click();
+  await page.getByRole('heading',{name:'Confidence must be earned.'}).waitFor();
+  assert.equal(await page.locator('.safety-grid .safety-panel').count(),3,'visible trust, fraud and moderation pillars');
+  assert.match(await page.locator('#safety-body').innerText(),/No real identity checks yet/,'do not falsely imply verified providers');
+  assert.equal(await page.locator('#safety-body input').count(),0,'visual preview never collects government ID documents');
+  await page.screenshot({path:'premium-2-safety-'+v.name+'.png',fullPage:true});
+  await page.getByRole('button',{name:'Explore services',exact:true}).first().click();
   await page.screenshot({path:'premium-2-home-'+v.name+'.png',fullPage:true});
   const compareCards=page.locator('#profile-cards .trust-service-card');
   assert.equal(await compareCards.count(),3,'fictional visual preview includes three comparable service prices');

@@ -1,0 +1,26 @@
+/* RouteDrop private-test trust & safety, never an identity verification claim */
+.safety-hero{background:linear-gradient(125deg,#122a4f,#244f87);border-radius:23px;padding:30px 34px;color:#fff;margin-bottom:20px}
+.safety-hero .pilot-eyebrow{color:#b6d4fb}
+.safety-hero h2{font-size:clamp(24px,3.5vw,36px);color:#fff;margin:10px 0}
+.safety-hero p{font-size:13px;color:#dfedff;line-height:1.7;max-width:720px}
+.safety-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:15px;margin-bottom:22px}
+.safety-panel{border:1px solid #dce8f8;border-radius:18px;padding:23px;background:#fff}
+.safety-panel>span{font-size:10px;letter-spacing:.09em;font-weight:800;color:#3369b2}
+.safety-panel h3{font-size:19px;color:#183e6b;line-height:1.2;margin:13px 0 9px}
+.safety-panel p{font-size:12px;line-height:1.65;color:#627f9f}
+.safety-panel>strong{display:block;color:#3668a8;font-size:11px;margin-top:14px}
+.safety-note,.safety-queue{margin:18px 0}
+.safety-note .row{flex-wrap:wrap;gap:14px}
+.safety-note p{font-size:12px;line-height:1.65}
+.safety-review-row{border-top:1px solid #e3eaf5;padding:12px 0;display:flex;align-items:center;justify-content:space-between;gap:12px}
+.safety-review-row strong{font-size:12px;color:#1c477d}
+.safety-review-row p{font-size:11px;color:#5e7d9b}
+.safety-checkbox{display:flex!important;align-items:flex-start;gap:10px;font-size:12px;color:#385e89;line-height:1.6;margin:12px 0}
+.safety-checkbox input{width:auto!important;flex:0 0 auto;margin-top:4px}
+.safety-queue h4{font-size:15px;color:#244f80;margin-top:24px}
+.safety-case{border:1px solid #e3eaf6;border-radius:12px;padding:15px;margin:11px 0;overflow-wrap:anywhere;background:#f7faff}
+.safety-case strong{font-size:12px;color:#1b436b}
+.safety-case p{font-size:12px;line-height:1.6;color:#4e6b8c;white-space:pre-wrap}
+.safety-case .buttonrow{display:flex;flex-wrap:wrap;gap:8px}
+.safety-case .btn{font-size:11px;white-space:normal}
+@media(max-width:760px){.safety-grid{grid-template-columns:1fr}.safety-hero{padding:22px}.safety-case .btn{flex:1 1 120px}}

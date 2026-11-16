@@ -68,8 +68,8 @@ function registerPilotRoutes(app,{pool,safe,requireDb,requireUser,requireProvide
    await client.query('BEGIN');
    // Lock listing so simultaneous customers cannot both reserve a single published opening.
    const q=await client.query(`
-    SELECT l.id,l.price_cents FROM listings l
-    WHERE l.id=$1 AND l.status='active' AND l.slot_start>now()+interval '10 minutes'
+    SELECT l.id,l.price_cents FROM listings l JOIN businesses owner ON owner.id=l.business_id
+    WHERE l.id=$1 AND owner.pilot_screening_status!='suspended' AND l.status='active' AND l.slot_start>now()+interval '10 minutes'
     AND NOT EXISTS (
      SELECT 1 FROM bookings b
      WHERE b.listing_id=l.id AND b.status IN ('awaiting_payment','paid','completed')
@@ -105,7 +105,7 @@ function registerPilotRoutes(app,{pool,safe,requireDb,requireUser,requireProvide
    `UPDATE service_requests r SET status=$1,updated_at=now()
     FROM listings l JOIN businesses b ON b.id=l.business_id
     WHERE r.id=$2 AND r.status=$3 AND r.listing_id=l.id AND b.owner_id=$4
-    ${action==='accept'?"AND l.slot_start>now()":''}
+    ${action==='accept'?"AND l.slot_start>now() AND b.pilot_screening_status!='suspended'":''}
     RETURNING r.id,r.status`:
    `UPDATE service_requests r SET status=$1,updated_at=now()
     WHERE r.id=$2 AND r.status=$3 AND r.customer_id=$4

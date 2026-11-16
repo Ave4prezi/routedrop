@@ -22,7 +22,7 @@ const idOk=id=>Number.isSafeInteger(Number(id))&&Number(id)>0;
 function registerOpportunityRoutes(app,{pool,safe,requireDb,requireUser,requireProvider,forbidden}){
  if(!pool)throw Error('Private job pilot requires a database');
  app.get('/api/pilot/jobs',requireDb,safe(async(req,res)=>{
-  const q=await pool.query("SELECT j.id,j.title,j.category,j.city,j.employment_type,j.pay_display,j.summary,b.name AS employer_name FROM pilot_job_openings j JOIN businesses b ON b.id=j.business_id WHERE j.status='active' ORDER BY j.created_at DESC LIMIT 100");
+  const q=await pool.query("SELECT j.id,j.title,j.category,j.city,j.employment_type,j.pay_display,j.summary,b.name AS employer_name FROM pilot_job_openings j JOIN businesses b ON b.id=j.business_id WHERE j.status='active' AND b.pilot_screening_status!='suspended' ORDER BY j.created_at DESC LIMIT 100");
   res.set('Cache-Control','no-store').json({jobs:q.rows,applications_enabled:false});
  }));
  app.get('/api/pilot/my-jobs',requireDb,requireProvider,safe(async(req,res)=>{
@@ -32,14 +32,14 @@ function registerOpportunityRoutes(app,{pool,safe,requireDb,requireUser,requireP
  app.post('/api/pilot/jobs',requireDb,requireProvider,safe(async(req,res)=>{
   const x=validJob(req.body);
   if(!x)return forbidden(res,'Enter a valid fictional job title, category, location, employment type, pay and description.',400);
-  const q=await pool.query("INSERT INTO pilot_job_openings(business_id,title,category,city,employment_type,pay_display,summary) SELECT id,$2,$3,$4,$5,$6,$7 FROM businesses WHERE owner_id=$1 AND provider_kind='business' RETURNING id,title,status",[req.user.id,x.title,x.category,x.city,x.employmentType,x.payDisplay,x.summary]);
+  const q=await pool.query("INSERT INTO pilot_job_openings(business_id,title,category,city,employment_type,pay_display,summary) SELECT id,$2,$3,$4,$5,$6,$7 FROM businesses WHERE owner_id=$1 AND provider_kind='business' AND pilot_screening_status!='suspended' RETURNING id,title,status",[req.user.id,x.title,x.category,x.city,x.employmentType,x.payDisplay,x.summary]);
   if(!q.rowCount)return forbidden(res,'Only business/employer test accounts may post job openings.',403);
   res.status(201).json({job:q.rows[0],applications_enabled:false});
  }));
  app.patch('/api/pilot/jobs/:id/status',requireDb,requireProvider,safe(async(req,res)=>{
   const id=Number(req.params.id),status=req.body?.status;
   if(!idOk(id)||!['active','paused'].includes(status))return forbidden(res,'Invalid job or status.',400);
-  const q=await pool.query("UPDATE pilot_job_openings j SET status=$1 FROM businesses b WHERE j.id=$2 AND j.business_id=b.id AND b.owner_id=$3 AND b.provider_kind='business' RETURNING j.id,j.status",[status,id,req.user.id]);
+  const q=await pool.query("UPDATE pilot_job_openings j SET status=$1 FROM businesses b WHERE j.id=$2 AND j.business_id=b.id AND b.owner_id=$3 AND b.provider_kind='business' AND ($1='paused' OR b.pilot_screening_status!='suspended') RETURNING j.id,j.status",[status,id,req.user.id]);
   if(!q.rowCount)return forbidden(res,'Job unavailable or outside your permissions.',404);
   res.json({job:q.rows[0]});
  }));
