@@ -6,7 +6,7 @@ import {chromium} from 'playwright';
 
 const socket=net.createServer();socket.listen(0,'127.0.0.1');await once(socket,'listening');
 const port=socket.address().port;await new Promise(resolve=>socket.close(resolve));
-const base='http://127.0.0.1:'+port,pass='local-private-pilot-only';
+const base='http://localhost:'+port,pass='local-private-pilot-only';
 const auth='Basic '+Buffer.from('routedrop-preview:'+pass).toString('base64');
 const app=spawn(process.execPath,['routedrop-platform/server.js'],{
  env:{...process.env,PORT:String(port),NODE_ENV:'test',DATABASE_URL:process.env.TEST_DATABASE_URL,STRIPE_SECRET_KEY:'',STRIPE_WEBHOOK_SECRET:'',ROUTEDROP_LIVE_APPROVED:'false',ROUTEDROP_PREVIEW_ACCESS_PASSWORD:pass,ROUTEDROP_WORKFLOW_PILOT:'true',PUBLIC_URL:''},
@@ -30,6 +30,8 @@ async function register(page,role,tag){
  }
  await f.locator('button[type=submit]').click();
  await page.locator('#modal').waitFor({state:'hidden'});
+ const cookies=await page.context().cookies();
+ assert.ok(cookies.some(c=>c.name==='__Host-rd_session'),'session cookie must be retained by Chromium on localhost: '+JSON.stringify(cookies.map(c=>c.name)));
  await page.locator('#nav-account [data-action="logout"]').waitFor();
 }
 try{
