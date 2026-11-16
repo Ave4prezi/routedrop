@@ -10,6 +10,7 @@ const serviceArea = require('./public/service-area');
 const bookingPilot = require('./booking-pilot');
 const opportunityPilot = require('./opportunity-pilot');
 const unifiedPilot = require('./unified-pilot');
+const trustPilot = require('./trust-pilot');
 const Stripe = require('stripe');
 const { normalizeSubscriptionEvent, invoiceEvent, selectSubscription, canStartSubscription, subscriptionView, securityPolicy } = require('./subscription-security');
 const { providerReady, emailLink, isActionToken, notification, deliverEmail } = require('./mail');
@@ -110,7 +111,7 @@ const ddl = [
  "CREATE TABLE IF NOT EXISTS notification_outbox (id BIGSERIAL PRIMARY KEY, event_key TEXT UNIQUE NOT NULL, recipient TEXT NOT NULL, subject TEXT NOT NULL, body TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','sending','sent','failed')), attempts INTEGER NOT NULL DEFAULT 0, available_at TIMESTAMPTZ NOT NULL DEFAULT now(), sent_at TIMESTAMPTZ, last_error TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())",
  "CREATE INDEX IF NOT EXISTS notification_outbox_due ON notification_outbox(status,available_at)"
 ];
-if(workflowPilot)ddl.push(...bookingPilot.ddl,...opportunityPilot.ddl,...unifiedPilot.ddl);
+if(workflowPilot)ddl.push(...bookingPilot.ddl,...opportunityPilot.ddl,...unifiedPilot.ddl,...trustPilot.ddl);
 async function startDatabase() {
  if (!pool) return;
  try {
@@ -402,11 +403,12 @@ if(workflowPilot && pool){
  bookingPilot.registerPilotRoutes(app,{pool,safe,requireDb,requireUser,requireProvider,forbidden});
  opportunityPilot.registerOpportunityRoutes(app,{pool,safe,requireDb,requireUser,requireProvider,forbidden});
  unifiedPilot.registerUnifiedRoutes(app,{pool,safe,requireDb,requireUser,requireProvider,forbidden});
+ trustPilot.registerTrustRoutes(app,{pool,safe,requireDb,requireUser,forbidden});
 }
 app.get('/api/listings',requireDb,safe(async(req,res)=>{
  if(workflowPilot)await unifiedPilot.syncOpenings(pool);
  const pilotExclusion=workflowPilot?" AND NOT EXISTS(SELECT 1 FROM service_requests r WHERE r.listing_id=l.id AND r.status IN ('requested','accepted','completed','confirmed','issue_reported'))":"";
- const data=await pool.query("SELECT l.id,l.title,l.category,l.neighborhood,l.price_cents,l.slot_start,l.duration_minutes,b.name AS business_name,b.city,b.service_center_code,b.service_radius_miles"+(workflowPilot?",b.provider_kind":"")+" FROM listings l JOIN businesses b ON b.id=l.business_id WHERE l.status='active' AND l.slot_start>now() AND NOT EXISTS(SELECT 1 FROM bookings k WHERE k.listing_id=l.id AND k.status IN ('awaiting_payment','paid','completed'))"+pilotExclusion+" ORDER BY l.slot_start ASC LIMIT 100");
+ const data=await pool.query("SELECT l.id,l.title,l.category,l.neighborhood,l.price_cents,l.slot_start,l.duration_minutes,b.name AS business_name,b.city,b.service_center_code,b.service_radius_miles"+(workflowPilot?",b.id AS provider_id,b.provider_kind"+trustPilot.ratingFields("b"):"")+" FROM listings l JOIN businesses b ON b.id=l.business_id WHERE l.status='active' AND l.slot_start>now() AND NOT EXISTS(SELECT 1 FROM bookings k WHERE k.listing_id=l.id AND k.status IN ('awaiting_payment','paid','completed'))"+pilotExclusion+" ORDER BY l.slot_start ASC LIMIT 100");
  res.json({listings:data.rows});
 }));
 app.post('/api/listings',requireDb,requireProvider,safe(async(req,res)=>{
