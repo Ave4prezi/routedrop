@@ -3,6 +3,7 @@ const test=require('node:test'),assert=require('node:assert/strict');
 const identity=require('../identity-pilot');
 const passkeys=require('../moderator-passkeys');
 const {generateRegistrationOptions,generateAuthenticationOptions}=require('@simplewebauthn/server');
+const Stripe=require('stripe');
 
 test('identity tests require dedicated Stripe TEST key, signed webhook and explicit opt-in',()=>{
  const good={ROUTEDROP_IDENTITY_TEST_ENABLED:'true',ROUTEDROP_STRIPE_IDENTITY_TEST_KEY:'rk_test_only-for-unit-tests',ROUTEDROP_STRIPE_IDENTITY_WEBHOOK_SECRET:'whsec_unit_only_test_webhook_secret_012345'};
@@ -60,4 +61,16 @@ test('WebAuthn library generates signed proof challenges with required user veri
  assert.ok(auth.challenge.length>20);
  assert.equal(auth.userVerification,'required');
  assert.notEqual(options.challenge,auth.challenge);
+});
+
+test('Stripe Identity webhooks reject a forged signature and accept a valid test signature',()=>{
+ const stripe=new Stripe('sk_test_fictional_unit_only');
+ const secret='whsec_fictional_for_unit_signature_12345678';
+ const payload=JSON.stringify({id:'evt_test_unit',type:'identity.verification_session.verified',livemode:false,data:{object:{id:'vs_test_unit',livemode:false,status:'verified'}}});
+ const signature=stripe.webhooks.generateTestHeaderString({payload,secret,timestamp:Math.floor(Date.now()/1000)});
+ const event=stripe.webhooks.constructEvent(payload,signature,secret);
+ assert.equal(event.type,'identity.verification_session.verified');
+ assert.equal(identity.eventOutcome(event,{stripe_session_id:'vs_test_unit',status:'processing'}),'verified_test');
+ assert.throws(()=>stripe.webhooks.constructEvent(payload,signature,'whsec_wrong_key_1234567890'),/signature/i);
+ assert.throws(()=>stripe.webhooks.constructEvent(payload.replace('verified','requires_input'),signature,secret),/signature/i);
 });
