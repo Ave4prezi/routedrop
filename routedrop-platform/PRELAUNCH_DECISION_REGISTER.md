@@ -39,7 +39,7 @@
 | Independent application / API security assessment | Cyburity — contact@cyburity.com | Scoped quote and independence-methodology inquiry sent; awaiting response |
 | Independent application / API security assessment | H2L Solutions — info@h2lsolutions.com | Scoped quote and independent-assessment inquiry sent; awaiting response |
 
-Public contact emails were verified against the firms' websites. No statements from any prospective supplier have been received accepting the scope or authorizing access.
+Public contact emails were verified against the firms' websites. As of the latest Gmail check on November 15, 2026, only outbound inquiries were found for both security firms and counsel; no incoming proposals or engagement confirmations were found. No statements from any prospective supplier have been received accepting the scope or authorizing access.
 
 ### Support responsibility status — personal contact roster intentionally not published
 
@@ -59,7 +59,7 @@ As confirmed by the project operator on November 15, 2026, two internal first co
 
 **Draft playbook, requiring operational rehearsal:** if a serious security incident is suspected, attempt the primary via an agreed direct phone/text route, then the backup if unreachable. Do not use an ordinary shared mailbox as the sole emergency alarm. Preserve timestamps and evidence, minimize further exposure, suspend affected high-risk operations only when authorized, consult an independent security professional and counsel as appropriate, and never claim a breach has been fully assessed by an internal role assignment. No public emergency response SLA is promised.
 
-**Unresolved before real-data pilot:** the primary contact has provided a direct phone number for confidential operational use (number intentionally omitted here); the project operator confirms the backup has a distinct direct phone number, both intentionally omitted here. The operator reports that a direct phone call and return call between primary and backup were successfully tested; **reported verified, not independently observed by this application**. A genuine unavailable-primary failover scenario remains untested. Set actual acknowledgement and failover expectations, arrange an external qualified incident responder, document decision authority and after-hours monitoring, and receive security/privacy counsel review.
+**Unresolved before real-data pilot:** the primary contact has provided a direct phone number for confidential operational use (number intentionally omitted here); the project operator confirms the backup has a distinct direct phone number, both intentionally omitted here. The operator reports that a direct phone call and return call between primary and backup were successfully tested; **reported verified, not independently observed by this application**. A genuine unavailable-primary failover scenario remains untested. A fictional-only rehearsal checklist is now prepared in `AFTER_HOURS_SECURITY_FAILOVER_DRILL.md` but **has not been performed**. Set actual acknowledgement and failover expectations, arrange an external qualified incident responder, document decision authority and after-hours monitoring, and receive security/privacy counsel review.
 
 ### Temporary shared-business support channel proposal — no forwarding
 
