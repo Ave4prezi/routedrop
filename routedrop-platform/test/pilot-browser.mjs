@@ -16,7 +16,14 @@ let stderr='';app.stderr.on('data',x=>stderr+=x.toString());
 let browser;
 const suffix=Date.now();
 async function register(page,role,tag){
- await page.goto(base,{waitUntil:'networkidle'});
+ await page.goto(base);
+ assert.equal(new URL(page.url()).pathname,'/preview-sign-in');
+ await page.getByLabel('Username').fill('routedrop-preview');
+ await page.getByLabel('Password').fill(pass);
+ await page.getByRole('button',{name:'Sign in',exact:true}).click();
+ await page.waitForURL(base+'/');
+ const previewCookie=(await page.context().cookies()).find(c=>c.name==='__Host-rd_preview');
+ assert.ok(previewCookie?.secure && previewCookie.httpOnly,'preview sign-in must retain a secure HTTP-only session');
  await page.locator('#nav-account [data-action="register"]').click();
  const f=page.locator('#register-form');
  await f.locator('select[name="role"]').selectOption(role);
@@ -43,7 +50,7 @@ try{
  assert.ok(ready,'server ready with test database: '+stderr);
  browser=await chromium.launch({headless:true});
  for(const variant of [{name:'desktop',width:1440,height:900},{name:'mobile',width:390,height:844}]){
-  const contextArgs={viewport:{width:variant.width,height:variant.height},httpCredentials:{username:'routedrop-preview',password:pass}};
+  const contextArgs={viewport:{width:variant.width,height:variant.height}};
   const businessContext=await browser.newContext(contextArgs);
   const customerContext=await browser.newContext(contextArgs);
   const business=await businessContext.newPage(),customer=await customerContext.newPage();
@@ -97,7 +104,7 @@ try{
    const overflow=await p.evaluate(()=>document.documentElement.scrollWidth-window.innerWidth);
    assert.ok(overflow<=2,'no horizontal overflow '+variant.name+': '+overflow);
   }
-  console.log('PASS '+variant.name+' customer sign-up, provider sign-up, publish, coverage, real unpaid request, accept, complete, confirm');
+  console.log('PASS '+variant.name+' preview sign-in, customer sign-up, provider sign-up, publish, coverage, real unpaid request, accept, complete, confirm');
   await businessContext.close();await customerContext.close();
  }
 }finally{if(browser)await browser.close();app.kill('SIGTERM');}

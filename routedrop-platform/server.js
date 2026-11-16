@@ -8,6 +8,7 @@ const crypto = require('crypto');
 const { Pool } = require('pg');
 const serviceArea = require('./public/service-area');
 const bookingPilot = require('./booking-pilot');
+const { mountStagingSignIn } = require('./staging-access');
 const Stripe = require('stripe');
 const { normalizeSubscriptionEvent, invoiceEvent, selectSubscription, canStartSubscription, subscriptionView, securityPolicy } = require('./subscription-security');
 const { providerReady, emailLink, isActionToken, notification, deliverEmail } = require('./mail');
@@ -46,9 +47,17 @@ app.use(helmet({
  contentSecurityPolicy: { directives: { defaultSrc:["'self'"], scriptSrc:["'self'"], styleSrc:["'self'","'unsafe-inline'"], imgSrc:["'self'","data:"], connectSrc:["'self'"], objectSrc:["'none'"], frameAncestors:["'none'"], upgradeInsecureRequests: process.env.NODE_ENV==='production' ? [] : null } },
  referrerPolicy: { policy:'no-referrer' }
 }));
-// Optional password gate for an isolated, database-free UX walkthrough only.
+app.use(cookieParser());
 const previewPass=previewAccessPassword;
-if(previewPass){
+if(workflowPilot){
+ mountStagingSignIn(app,{
+  enabled:true,
+  password:previewPass,
+  username:'routedrop-preview',
+  publicPaths:[],
+  title:'RouteDrop Private Booking Pilot'
+ });
+}else if(previewPass){
  app.use((req,res,next)=>{
   const auth=req.get('authorization')||'';
   let pair='';
@@ -62,7 +71,6 @@ if(previewPass){
   next();
  });
 }
-app.use(cookieParser());
 app.use((req,res,next) => {
  if (req.path.startsWith('/api/')) res.set('Cache-Control', 'no-store');
  next();
