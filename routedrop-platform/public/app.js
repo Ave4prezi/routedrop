@@ -407,7 +407,7 @@ async function submit(e){
   }
   if(form.id==='review-report-form'){
    await api('/api/pilot/reviews/'+Number(d.reviewId)+'/report',{method:'POST',body:JSON.stringify({reason:d.reason})});
-   message('Review flagged and hidden in this private test. No live support ticket was sent.');
+   message('Test review report saved. The review remains visible pending an appropriate moderation decision.');
   }
   if(form.id==='provider-setup-form'){
    await api('/api/pilot/provider-profile',{method:'POST',body:JSON.stringify(d)});
