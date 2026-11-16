@@ -18,7 +18,7 @@
 .pilot-card-heading{display:flex;gap:16px;align-items:flex-start;justify-content:space-between;flex-wrap:wrap}
 .pilot-card-heading h3{font-size:22px;letter-spacing:-.045em;color:#16395f;margin:8px 0}
 .pilot-card-heading p{font-size:12px;color:#7990aa;margin:0}
-.pilot-status{white-space:nowrap;font-size:10px;font-weight:850;color:#1856ae;background:#e9f2ff;border-radius:30px;padding:9px 12px;text-transform:capitalize}
+.pilot-status{white-space:nowrap;font-size:10px;font-weight:850;color:#1856ae;background:#e9f2ff;border-radius:30px;padding:9px 12px}
 .pilot-status.muted-status{background:#fff0e4;color:#8c5a2d}
 .pilot-request-meta{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;border-top:1px solid #e6edf7;border-bottom:1px solid #e6edf7;padding:18px 0;margin:18px 0}
 .pilot-request-meta>div{display:flex;flex-direction:column;gap:8px}
