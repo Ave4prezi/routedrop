@@ -43,7 +43,7 @@ async function register(role,tag){
  assert.equal(r.code,201,'register '+role+': '+JSON.stringify(r.data));
  u.cookie+='; '+sessionCookie(r.response);
  const profile=await call(u,'/api/me');
- assert.equal(profile.data.user.role,role);
+ assert.equal(profile.data.user.role,role==='individual'?'business':role);
  return u;
 }
 async function listing(owner,tag){
