@@ -197,6 +197,15 @@ async function act(e){
  const el=e.target.closest('button');if(!el)return;
  if(el.dataset.tab){if(!$('modal').classList.contains('hidden'))dismiss();switchTab(el.dataset.tab);return;}
  if(el.dataset.profileListing){const x=state.listings.find(item=>Number(item.id)===Number(el.dataset.profileListing));if(x)overlay(premium.profile(x,coverage,state.config));return;}
+ if(el.dataset.addWeekly&&state.config?.unified_pilot){const p=state.myServiceProfiles.profiles.find(x=>Number(x.id)===Number(el.dataset.addWeekly));if(p)overlay(unified.weeklyForm(p));return;}
+ if(el.dataset.serviceProfileStatusId&&state.config?.unified_pilot){
+  const id=Number(el.dataset.serviceProfileStatusId),active=el.dataset.serviceProfileActive==='true';
+  el.disabled=true;try{await api('/api/pilot/service-profiles/'+id+'/status',{method:'PATCH',body:JSON.stringify({active})});message('Test service '+(active?'resumed':'paused')+'.');await studio();}catch(err){message(err.message,true);}finally{if(el.isConnected)el.disabled=false;}return;
+ }
+ if(el.dataset.weeklyStatusId&&state.config?.unified_pilot){
+  const id=Number(el.dataset.weeklyStatusId),active=el.dataset.weeklyActive==='true';
+  el.disabled=true;try{await api('/api/pilot/weekly-rules/'+id+'/status',{method:'PATCH',body:JSON.stringify({active})});message('Weekly schedule '+(active?'resumed':'paused')+'.');await studio();}catch(err){message(err.message,true);}finally{if(el.isConnected)el.disabled=false;}return;
+ }
  if(el.dataset.jobDetail){const x=state.jobs.find(j=>Number(j.id)===Number(el.dataset.jobDetail));if(x)overlay(opportunities.details(x));return;}
  if(el.dataset.jobStatusId&&state.config?.opportunity_pilot){
   const id=Number(el.dataset.jobStatusId),status=el.dataset.jobStatus;
@@ -209,7 +218,7 @@ async function act(e){
   const x=state.listings.find(item=>Number(item.id)===Number(el.dataset.pilotRequest));
   if(!x)return;
   if(!state.me?.user){showLogin();message('Sign in with a customer test account first.');return;}
-  if(state.me.user.role!=='customer'){message('Only test customer accounts can request a service.',true);return;}
+  if(!state.config.unified_pilot&&state.me.user.role!=='customer'){message('Only customer accounts can request a service.',true);return;}
   state.pilotListingId=x.id;overlay(pilot.requestModal(x));return;
  }
  if(el.dataset.pilotAction&&state.config?.workflow_pilot){
@@ -321,6 +330,14 @@ async function act(e){
   if(action==='register')showRegistration();else showLogin();
   return;
  }
+ if(action==='start-provider'){
+  if(!state.me?.user){showRegistration();return;}
+  if(state.me.business){switchTab('business');return;}
+  if(state.config?.unified_pilot)overlay(unified.providerForm());else message('Provider setup requires the private unified pilot.',true);
+  return;
+ }
+ if(action==='new-service-profile'&&state.config?.unified_pilot){overlay(unified.profileForm());return;}
+ if(action==='job-interests'&&state.config?.unified_pilot){overlay(unified.interestsForm(state.jobInterests));return;}
  if(action==='register-individual'){
   if(state.me?.user){message('A separate test account is currently required to switch between customer and provider. Multi-role profiles are planned.',true);return;}
   if(state.demo&&!state.config?.database){overlay('<h2 id="modal-title">Independent-provider preview</h2><p>This database-free design preview does not accept accounts. Try individual-provider registration in the isolated test pilot.</p>');return;}
@@ -348,7 +365,7 @@ async function act(e){
  if(el.dataset.complete){try{await api('/api/bookings/'+Number(el.dataset.complete)+'/complete',{method:'POST'});message('Job marked completed.');refresh();}catch(err){message(err.message,true);}return;}
 }
 async function submit(e){
- if(!['register-form','login-form','listing-form','forgot-form','reset-form','change-password-form','job-form'].includes(e.target.id))return;
+ if(!['register-form','login-form','listing-form','forgot-form','reset-form','change-password-form','job-form','provider-setup-form','service-profile-form','weekly-form','job-interests-form'].includes(e.target.id))return;
  e.preventDefault();
  const form=e.target,d=Object.fromEntries(new FormData(form).entries());
  const err=$('form-error');err.textContent='';
@@ -359,6 +376,24 @@ async function submit(e){
   if(form.id==='change-password-form'){const r=await api('/api/auth/change-password',{method:'POST',body:JSON.stringify({currentPassword:d.currentPassword,newPassword:d.newPassword})});state.me=null;message(r.message);}
   if(form.id==='forgot-form'){const r=await api('/api/auth/forgot-password',{method:'POST',body:JSON.stringify({email:d.email})});message(r.message);}
   if(form.id==='reset-form'){const r=await api('/api/auth/reset-password',{method:'POST',body:JSON.stringify({token:d.token,password:d.password})});history.replaceState(null,'',location.pathname);message(r.message);}
+  if(form.id==='provider-setup-form'){
+   await api('/api/pilot/provider-profile',{method:'POST',body:JSON.stringify(d)});
+   message('Provider tools activated for your existing test account. You can still book and find jobs.');
+  }
+  if(form.id==='service-profile-form'){
+   const amount=Math.round(Number(d.price)*100);
+   if(!Number.isSafeInteger(amount))throw Error('Enter a valid dollar amount.');
+   await api('/api/pilot/service-profiles',{method:'POST',body:JSON.stringify({title:d.title,category:d.category,neighborhood:d.neighborhood,description:d.description,priceCents:amount,durationMinutes:Number(d.durationMinutes)})});
+   message('Persistent service profile created. Add a weekly opening next.');
+  }
+  if(form.id==='weekly-form'){
+   await api('/api/pilot/weekly-rules',{method:'POST',body:JSON.stringify({profileId:Number(d.profileId),dayOfWeek:Number(d.dayOfWeek),localTime:d.localTime})});
+   message('Recurring weekly opening saved in Central time. No payment was collected.');
+  }
+  if(form.id==='job-interests-form'){
+   await api('/api/pilot/job-interests',{method:'PUT',body:JSON.stringify({city:d.city,category:d.category})});
+   message('Job interests saved to this same test account. No application was submitted.');
+  }
   if(form.id==='job-form'){
    await api('/api/pilot/jobs',{method:'POST',body:JSON.stringify(d)});
    message('Fictional job posting saved. No applications are enabled.');
@@ -403,7 +438,7 @@ async function init(){
    const customerIntro=document.querySelector('#bookings .interior-heading p');if(customerIntro)customerIntro.textContent='Track database-backed test requests. This is a private staging environment—not live bookings or real payments.';
    const providerIntro=document.querySelector('#business .interior-heading p');if(providerIntro)providerIntro.textContent='Manage private test listings, unpaid requests and coverage radius with a separate staging database.';
    const footerNote=document.querySelector('footer div:last-child p:last-child');if(footerNote)footerNote.textContent='Private staging only · Test accounts and service requests · No Stripe or production customer data';
-   message('Isolated RouteDrop booking pilot: use test identities only. All payments and payouts are disabled.');
+   message('RouteDrop unified private pilot: book, offer services and find work using one test account. Payments and real applications are disabled.');
   }else if(!state.config.database)message('Private beta: an isolated database must be connected before registration and bookings can work.');
   else if(!state.config.payments)message('Accounts and listings enabled. Stripe payments and payouts are not yet configured.');
   if(new URLSearchParams(location.search).has('subscription'))message('Returned from subscription billing. Open Business Studio to check your subscription status.');
