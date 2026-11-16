@@ -92,6 +92,7 @@ function registerPilotRoutes(app,{pool,safe,requireDb,requireUser,requireProvide
   const id=Number(req.params.id),action=req.body?.action;
   if(!isId(id)||typeof action!=='string')return forbidden(res,'Invalid request or action.',400);
   const provider=['accept','decline','complete'].includes(action);
+  if(provider){const access=await pool.query('SELECT 1 FROM businesses WHERE owner_id=$1',[req.user.id]);if(!access.rowCount)return forbidden(res,'Only a provider account can take this action.',403);}
   const role=provider?'business':'customer';
   const states=transition[role];
   if(!states)return forbidden(res,'This role cannot manage requests.',403);
