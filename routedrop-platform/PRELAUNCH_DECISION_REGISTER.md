@@ -53,13 +53,13 @@ Public contact emails were verified against the firms' websites. No statements f
 
 Next decision: after quotes arrive, record proposed scope, costs, independence, and written engagement approval before granting temporary read-only synthetic preview access. Do not send credentials or real documents through introductory email.
 
-### After-hours security escalation — designated contacts, drill not yet tested
+### After-hours security escalation — direct contact drill reported verified
 
 As confirmed by the project operator on November 15, 2026, two internal first contacts have agreed to be reachable for urgent security incidents **outside the Monday–Friday 9 AM–5 PM Central routine support window**. The primary handles intake, immediate prioritization, and coordination; the backup takes over if the primary is unavailable. This is a role agreement, **not a verified 24/7 monitoring or response service**. Private names and phone numbers must be stored only in a restricted contact roster, not in this public repository.
 
 **Draft playbook, requiring operational rehearsal:** if a serious security incident is suspected, attempt the primary via an agreed direct phone/text route, then the backup if unreachable. Do not use an ordinary shared mailbox as the sole emergency alarm. Preserve timestamps and evidence, minimize further exposure, suspend affected high-risk operations only when authorized, consult an independent security professional and counsel as appropriate, and never claim a breach has been fully assessed by an internal role assignment. No public emergency response SLA is promised.
 
-**Unresolved before real-data pilot:** the primary contact has provided a direct phone number for confidential operational use (number intentionally omitted here); the project operator confirms the backup has a distinct direct phone number, both intentionally omitted here. Actual reachability and backup call/text failover remain untested. Test both contact routes, set actual acknowledgement and failover expectations, arrange an external qualified incident responder, document decision authority and after-hours monitoring, and receive security/privacy counsel review.
+**Unresolved before real-data pilot:** the primary contact has provided a direct phone number for confidential operational use (number intentionally omitted here); the project operator confirms the backup has a distinct direct phone number, both intentionally omitted here. The operator reports that a direct phone call and return call between primary and backup were successfully tested; **reported verified, not independently observed by this application**. A genuine unavailable-primary failover scenario remains untested. Set actual acknowledgement and failover expectations, arrange an external qualified incident responder, document decision authority and after-hours monitoring, and receive security/privacy counsel review.
 
 ### Temporary shared-business support channel proposal — no forwarding
 
