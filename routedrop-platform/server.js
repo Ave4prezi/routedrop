@@ -6,6 +6,7 @@ const cookieParser = require('cookie-parser');
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const { Pool } = require('pg');
+const serviceArea = require('./public/service-area');
 const Stripe = require('stripe');
 const { normalizeSubscriptionEvent, invoiceEvent, selectSubscription, canStartSubscription, subscriptionView, securityPolicy } = require('./subscription-security');
 const { providerReady, emailLink, isActionToken, notification, deliverEmail } = require('./mail');
@@ -59,6 +60,8 @@ const ddl = [
  "CREATE INDEX IF NOT EXISTS bookings_customer ON bookings(customer_id)",
  "CREATE INDEX IF NOT EXISTS bookings_listing ON bookings(listing_id)",
  "CREATE TABLE IF NOT EXISTS stripe_events (id TEXT PRIMARY KEY, received_at TIMESTAMPTZ NOT NULL DEFAULT now())",
+ "ALTER TABLE businesses ADD COLUMN IF NOT EXISTS service_center_code TEXT",
+ "ALTER TABLE businesses ADD COLUMN IF NOT EXISTS service_radius_miles INTEGER",
  "ALTER TABLE businesses ADD COLUMN IF NOT EXISTS subscription_customer_id TEXT UNIQUE",
  "ALTER TABLE businesses ADD COLUMN IF NOT EXISTS subscription_id TEXT",
  "ALTER TABLE businesses ADD COLUMN IF NOT EXISTS subscription_status TEXT NOT NULL DEFAULT 'none'",
@@ -345,13 +348,20 @@ app.get('/api/me',requireDb,safe(async(req,res)=>{
  if(!req.user)return res.json({user:null});
  let business=null;
  if(req.user.role==='business'){
-  const r=await pool.query('SELECT id,name,city,category, (stripe_account_id IS NOT NULL) AS stripe_connected FROM businesses WHERE owner_id=$1',[req.user.id]);
+  const r=await pool.query('SELECT id,name,city,category,service_center_code,service_radius_miles, (stripe_account_id IS NOT NULL) AS stripe_connected FROM businesses WHERE owner_id=$1',[req.user.id]);
   business=r.rows[0]||null;
  }
  res.json({user:req.user,business});
 }));
+app.put('/api/business/service-area',requireDb,requireUser('business'),safe(async(req,res)=>{
+ const v=serviceArea.validate(req.body?.center,req.body?.radiusMiles);
+ if(!v)return forbidden(res,'Select a supported city center and a radius of 5–50 miles in 5-mile steps.',400);
+ const changed=await pool.query('UPDATE businesses SET service_center_code=$1,service_radius_miles=$2 WHERE owner_id=$3 RETURNING service_center_code,service_radius_miles',[v.center,v.radiusMiles,req.user.id]);
+ if(!changed.rowCount)return forbidden(res,'Business account not found.',404);
+ res.json({ok:true,serviceArea:changed.rows[0]});
+}));
 app.get('/api/listings',requireDb,safe(async(req,res)=>{
- const data=await pool.query("SELECT l.id,l.title,l.category,l.neighborhood,l.price_cents,l.slot_start,l.duration_minutes,b.name AS business_name,b.city FROM listings l JOIN businesses b ON b.id=l.business_id WHERE l.status='active' AND l.slot_start>now() AND NOT EXISTS(SELECT 1 FROM bookings k WHERE k.listing_id=l.id AND k.status IN ('awaiting_payment','paid','completed')) ORDER BY l.slot_start ASC LIMIT 100");
+ const data=await pool.query("SELECT l.id,l.title,l.category,l.neighborhood,l.price_cents,l.slot_start,l.duration_minutes,b.name AS business_name,b.city,b.service_center_code,b.service_radius_miles FROM listings l JOIN businesses b ON b.id=l.business_id WHERE l.status='active' AND l.slot_start>now() AND NOT EXISTS(SELECT 1 FROM bookings k WHERE k.listing_id=l.id AND k.status IN ('awaiting_payment','paid','completed')) ORDER BY l.slot_start ASC LIMIT 100");
  res.json({listings:data.rows});
 }));
 app.post('/api/listings',requireDb,requireUser('business'),safe(async(req,res)=>{
