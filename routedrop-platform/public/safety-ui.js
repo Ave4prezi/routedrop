@@ -20,7 +20,7 @@
     '<div class="panel"><h3>My submitted test reviews</h3>'+
     (ownReviews.length?ownReviews.map(x=>'<div class="safety-review-row"><div><strong>'+h(x.headline)+'</strong><p>'+h(x.provider_name)+' · '+h(x.status)+'</p></div>'+
        (['hidden','flagged'].includes(x.status)?'<button class="btn secondary" data-safety-appeal-kind="review" data-safety-appeal-id="'+Number(x.id)+'">Appeal</button>':'')+'</div>').join(''):'<p class="muted">No customer reviews submitted yet.</p>')+'</div>'+
-    (config?.moderation_available?'<div class="panel"><h3>Restricted moderator tools</h3><p>Only allowlisted, email-verified test accounts with a separate moderator key may access the moderation queue. Keys remain in browser memory and are not saved.</p><button class="btn secondary" data-action="moderator-connect">Open restricted moderator queue</button></div>':
+    (config?.moderation_available?'<div class="panel"><h3>Restricted moderator tools</h3><p>Only allowlisted, email-verified test accounts with a separate moderator key AND a registered passkey can access moderation. Passkeys expire for privileged actions after 10 minutes. Keys remain in browser memory, not storage.</p><button class="btn secondary" data-action="moderator-connect">Open restricted moderator queue</button></div>':
      '<div class="panel safety-note"><p>Moderator access is not configured on this service. Reports are saved, but no active review team is available.</p></div>'));
  }
  function screeningForm(){
@@ -35,8 +35,19 @@
    '<form id="safety-appeal-form"><input type="hidden" name="subjectKind" value="'+h(kind)+'"><input type="hidden" name="subjectId" value="'+Number(id)+'">'+
    '<label>Reason (25–500 characters)</label><textarea name="reason" minlength="25" maxlength="500" required></textarea><p id="form-error" class="error"></p><button class="btn" type="submit">Submit appeal</button></form>';
  }
+ function identityPanel(me,identity){
+  const available=!!identity?.available;
+  const label={not_started:'Not started',initializing:'Starting hosted verification',requires_input:'Waiting for Stripe-hosted document review',processing:'Stripe checking documents',verified_test:'Completed in Stripe TEST mode only',failed:'Verification could not be completed',canceled:'Verification canceled'}[identity?.status]||'Not started';
+  return '<div class="panel safety-note"><div class="row"><div><span class="pilot-eyebrow">HOSTED IDENTITY CHECK · DOCUMENTS STAY WITH STRIPE</span><h3>Independent identity verification</h3><p>Status: <strong>'+h(label)+'</strong></p><p class="muted">Verification uses a dedicated Stripe Identity flow. RouteDrop stores only a verification-session reference and result, never documents, selfies, ID numbers, date of birth or verified legal names. Identity alone does not prove business licensing or insurance.</p></div>'+
+   (me?.business&&available&&['not_started','failed','canceled'].includes(identity.status)?'<button class="btn" data-action="identity-start">Start Stripe-hosted test verification</button>':'')+
+   '</div><p class="legal">'+(available?'Stripe Identity TEST mode is available; test responses do not authorize real customer work or a public verified badge.':'No live ID collection is enabled in this preview. A dedicated Stripe test key and signed webhook are required before this can be tested.')+'</p></div>';
+ }
+ function identityConsentForm(){
+  return '<div class="pilot-eyebrow">EXPLICIT CONSENT · STRIPE-HOSTED TEST</div><h2 id="modal-title">Verify your identity with Stripe</h2><p>You will leave RouteDrop for a Stripe-hosted identity verification. Stripe may request a government ID and a selfie. RouteDrop will retain only a reference and verified/failed test status. No real-provider badge or customer bookings are authorized by this test.</p>'+
+  '<form id="safety-identity-form"><label class="safety-checkbox"><input type="checkbox" name="explicitConsent" value="yes" required> I voluntarily agree to Stripe-hosted test identity verification and understand that Stripe processes the information under its privacy notice.</label><p id="form-error" class="error"></p><button class="btn" type="submit">Continue to Stripe Identity</button></form>';
+ }
  function moderatorForm(){
-  return '<div class="pilot-eyebrow">RESTRICTED INTERNAL PILOT</div><h2 id="modal-title">Moderator access</h2><p>Use an allowlisted, email-verified pilot account and a separate key configured privately on the server. The key is not stored or sent to third parties.</p>'+
+  return '<div class="pilot-eyebrow">RESTRICTED INTERNAL PILOT</div><h2 id="modal-title">Moderator access</h2><p>Use your email-verified, allowlisted moderator account, a separate enrollment/access key, and your device's passkey (fingerprint, PIN or security key). No passwordless bypass is allowed. Enrollment is open only during a controlled window.</p>'+
    '<form id="safety-mod-login-form"><label>One-time moderator key</label><input type="password" name="key" required autocomplete="off" minlength="32"><p id="form-error" class="error"></p><button class="btn" type="submit">Access moderation queue</button></form>';
  }
  function decisionForm(kind,id,action){
@@ -57,5 +68,5 @@
     '<h4>Appeals ('+data.appeals.length+')</h4>'+
     (data.appeals.length?data.appeals.map(x=>'<div class="safety-case"><strong>'+h(x.subject_kind)+' #'+Number(x.subject_id)+'</strong><p>'+h(x.reason)+'</p><div class="buttonrow">'+btn('appeal',x.id,'upheld','Uphold decision')+btn('appeal',x.id,'overturned','Overturn on appeal')+'</div></div>').join(''):'<p>No open appeals.</p>')+'</div>';
  }
- root.RouteDropSafetyUI=Object.freeze({overview,screeningForm,appealForm,moderatorForm,decisionForm,queue});
+ root.RouteDropSafetyUI=Object.freeze({overview,screeningForm,appealForm,identityPanel,identityConsentForm,moderatorForm,decisionForm,queue});
 })(window);
