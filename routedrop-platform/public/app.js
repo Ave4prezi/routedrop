@@ -3,7 +3,7 @@
 const $=id=>document.getElementById(id);
 const coverage=window.RouteDropServiceArea;
 const premium=window.RouteDropPremium2;
-const state={config:null,me:null,listings:[],bookings:[],mine:[],tab:'explore',demo:false};
+const state={config:null,me:null,listings:[],bookings:[],mine:[],tab:'explore',demo:false,demoRequests:[],demoCounter:0,demoListingId:null,demoSlot:'afternoon',demoArea:{center:'decatur',radiusMiles:20}};
 const esc=v=>String(v===null||v===undefined?'':v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const money=cents=>new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(Number(cents||0)/100);
 const when=iso=>new Intl.DateTimeFormat('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}).format(new Date(iso));
@@ -63,7 +63,7 @@ async function refresh(){
  if(!state.config)return;
  if(!state.config.database){
   state.demo=true;state.listings=premium.DEMO;renderOffers();
-  $('my-bookings').innerHTML=premium.bookings();$('studio-body').innerHTML=premium.studio(serviceCoveragePanel({service_center_code:'decatur',service_radius_miles:20},true));nav();return;
+  $('my-bookings').innerHTML=premium.bookings(state.demoRequests);$('studio-body').innerHTML=premium.studio(serviceCoveragePanel({service_center_code:state.demoArea.center,service_radius_miles:state.demoArea.radiusMiles},true),state.demoRequests);nav();return;
  }
  try{
   const who=await api('/api/me');state.me=who;nav();
@@ -93,6 +93,7 @@ function updateCoveragePreview(){
  if(!city||!range||!map)return;
  label.textContent=range.value+' miles';range.setAttribute('aria-valuetext',range.value+' miles');
  const v=coverage.validate(city.value,range.value);
+ if(state.demo&&!state.config?.database&&v)state.demoArea={center:v.center,radiusMiles:v.radiusMiles};
  map.innerHTML=v?coverage.mapSvg(v.center,v.radiusMiles):'<p class="muted">Select a city to preview your coverage area.</p>';
  const summary=$('area-live-summary');if(summary)summary.textContent=v?coverage.summary(v.center,v.radiusMiles):'Choose a city to preview coverage.';
  document.querySelectorAll('[data-radius-preset]').forEach(b=>b.setAttribute('aria-pressed',String(Number(b.dataset.radiusPreset)===Number(range.value))));
@@ -165,8 +166,37 @@ function showListing(){
 }
 async function act(e){
  const el=e.target.closest('button');if(!el)return;
- if(el.dataset.tab){switchTab(el.dataset.tab);return;}
+ if(el.dataset.tab){if(!$('modal').classList.contains('hidden'))dismiss();switchTab(el.dataset.tab);return;}
  if(el.dataset.profileListing){const x=state.listings.find(item=>Number(item.id)===Number(el.dataset.profileListing));if(x)overlay(premium.profile(x,coverage));return;}
+ if(el.dataset.demoBook&&state.demo&&!state.config?.database){
+  const x=premium.DEMO.find(item=>item.id===Number(el.dataset.demoBook));
+  if(!x)return;
+  state.demoListingId=x.id;state.demoSlot='afternoon';
+  overlay(premium.demoBookingModal(x,state.demoSlot));
+  return;
+ }
+ if(el.dataset.demoSlot&&state.demo&&!state.config?.database){
+  const slot=el.dataset.demoSlot;
+  if(!Object.hasOwn(premium.WINDOWS,slot))return;
+  state.demoSlot=slot;
+  document.querySelectorAll('[data-demo-slot]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.demoSlot===slot)));
+  return;
+ }
+ if(el.dataset.demoAction&&state.demo&&!state.config?.database){
+  const action=el.dataset.demoAction;
+  const req=state.demoRequests.find(x=>x.id===el.dataset.demoId);
+  if(!req)return;
+  const next={
+   requested:{accept:'accepted',decline:'declined',cancel:'canceled'},
+   accepted:{finish:'completed',cancel:'canceled'},
+   completed:{approve:'confirmed',report:'review'}
+  }[req.status]?.[action];
+  if(!next)return;
+  req.status=next;
+  await refresh();
+  message('Fictional workflow updated: '+premium.STATUSES[next]+'. No booking, charge, dispute, or provider action occurred.');
+  return;
+ }
  if(el.dataset.coverageListing){
    const x=state.listings.find(item=>Number(item.id)===Number(el.dataset.coverageListing));
    if(x)showCoverageFor(x);
@@ -174,6 +204,29 @@ async function act(e){
  }
  const action=el.dataset.action;
  if(action==='search-services'){document.getElementById('available-openings')?.scrollIntoView({behavior:'smooth'});renderOffers();return;}
+ if(action==='demo-back-to-profile'&&state.demo&&!state.config?.database){
+  const x=premium.DEMO.find(item=>item.id===state.demoListingId);
+  if(x)overlay(premium.profile(x,coverage));
+  return;
+ }
+ if(action==='demo-confirm-request'&&state.demo&&!state.config?.database){
+  const x=premium.DEMO.find(item=>item.id===state.demoListingId);
+  if(!x||!Object.hasOwn(premium.WINDOWS,state.demoSlot))return;
+  if(state.demoRequests.some(req=>req.listingId===x.id&&['requested','accepted','completed'].includes(req.status))){
+   message('You already have an active fictional request for this service. See My bookings.',true);
+   dismiss();switchTab('bookings');return;
+  }
+  if(state.demoRequests.length>=8){message('Reset the demo before adding more examples.',true);return;}
+  state.demoRequests.unshift({id:'sample-'+(++state.demoCounter),listingId:x.id,slot:state.demoSlot,status:'requested'});
+  dismiss();switchTab('bookings');
+  message('Example request created in this page only. No actual appointment, account or charge was made.');
+  return;
+ }
+ if(action==='demo-reset'&&state.demo&&!state.config?.database){
+  state.demoRequests=[];state.demoCounter=0;await refresh();
+  message('Fictional requests cleared from this page. Nothing was stored or changed in RouteDrop.');
+  return;
+ }
  if(action==='clear-filters'){$('search').value='';$('category').value='';renderOffers();return;}
  if(el.dataset.radiusPreset){
   const range=$('area-radius');
