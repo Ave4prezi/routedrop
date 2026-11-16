@@ -12,6 +12,7 @@
 <script src="/service-area.js" defer></script><script src="/premium-2-experience.js" defer></script><script src="/app.js" defer></script>
 </head>
 <body>
+<a class="skip-link" href="#available-openings">Skip to services</a>
 <div class="frame">
 <div class="announce" role="note"><span class="announce-dot"></span><strong>PRIVATE DESIGN PREVIEW</strong><span>Illustrative providers and prices only · No real bookings or payments</span></div>
 <header class="topbar">
@@ -24,9 +25,9 @@
  <div id="nav-account" class="navaccount"></div>
 </header>
 <nav class="tabs" aria-label="Primary navigation">
- <button type="button" data-tab="explore" class="active">Explore services</button>
- <button type="button" data-tab="bookings">My bookings</button>
- <button type="button" data-tab="business">Business Studio</button>
+ <button type="button" data-tab="explore" aria-controls="explore" aria-current="page" class="active">Explore services</button>
+ <button type="button" data-tab="bookings" aria-controls="bookings">My bookings</button>
+ <button type="button" data-tab="business" aria-controls="business">Business Studio</button>
 </nav>
 <div id="status" class="status feedback" role="status" aria-live="polite"></div>
 <main>
@@ -48,7 +49,7 @@
  <div class="trust-rail"><div><strong>One place.</strong><span>Many ways to get things done.</span></div><div><strong>Know your area.</strong><span>See where a provider can travel.</span></div><div><strong>Stay in control.</strong><span>Review the work before paying — proposed flow.</span></div></div>
  <section id="available-openings" class="discover">
   <div class="sectionhead"><div><div class="eyebrow">DISCOVER YOUR NEXT FAVORITE PRO</div><h2>Good people. Great work.</h2><p>Browse service examples to see how RouteDrop will introduce local professionals.</p></div><span id="offer-count" class="result-count"></span></div>
-  <div class="category-chips" aria-label="Popular services"><button type="button" data-category-choice="" class="selected">All services</button><button type="button" data-category-choice="Cleaning">Cleaning</button><button type="button" data-category-choice="Car detailing">Car detailing</button><button type="button" data-category-choice="Lawn care">Lawn care</button></div>
+  <div class="category-chips" aria-label="Filter by service"><button type="button" data-category-choice="" class="selected" aria-pressed="true">All services</button><button type="button" data-category-choice="Cleaning" aria-pressed="false">Cleaning</button><button type="button" data-category-choice="Car detailing" aria-pressed="false">Car detailing</button><button type="button" data-category-choice="Lawn care" aria-pressed="false">Lawn care</button></div>
   <div class="filters"><label class="sr-only" for="category">Service category</label><select id="category"><option value="">All categories</option><option>Cleaning</option><option>Car detailing</option><option>Lawn care</option><option>Other</option></select><span class="filter-hint">Select a service to see matching examples</span><button type="button" id="clear-filters" class="btn secondary" data-action="clear-filters">Reset filters</button></div>
   <div class="filter-feedback" role="status" aria-live="polite" id="filter-summary">Browse example services.</div>
   <div id="offers" class="cards"></div>
@@ -57,11 +58,20 @@
   <div class="story-icon">⌖</div><div><div class="eyebrow">GO BEYOND YOUR BLOCK</div><h2>Know how far great service goes.</h2><p>See a business’s approximate service radius before you reach out. No guessing, no private location tracking.</p></div><button type="button" class="btn story-cta" data-tab="business">Explore the radius tool <span aria-hidden="true">↗</span></button>
  </section>
  <section class="journey"><div class="eyebrow">THOUGHTFUL FROM THE FIRST CLICK</div><h2>Every step should feel easy.</h2><div class="journey-grid"><article><span>01</span><h3>Discover</h3><p>Explore services and compare examples with transparent pricing and coverage.</p></article><article><span>02</span><h3>Connect</h3><p>Find an opening and review a provider’s service area before booking.</p></article><article><span>03</span><h3>Confirm</h3><p>In the proposed flow, review completed work and explicitly authorize payment.</p></article></div></section>
+ <section class="trust-standards" id="trust" aria-labelledby="trust-heading">
+  <div class="trust-intro"><div class="eyebrow">TRUST IS BUILT IN THE DETAILS</div><h2 id="trust-heading">Confidence comes from clarity.</h2><p>Here is what you can explore today—and what RouteDrop must complete before serving real customers.</p></div>
+  <div class="trust-standard-grid">
+   <article><span class="trust-stage">AVAILABLE IN THIS DEMO</span><div class="trust-icon" aria-hidden="true">01</div><h3>Clear service details</h3><p>Sample prices, service descriptions and duration are visible up front. All demo businesses and prices are fictional.</p></article>
+   <article><span class="trust-stage">AVAILABLE IN THIS DEMO</span><div class="trust-icon" aria-hidden="true">02</div><h3>See the service radius</h3><p>Explore a business's selected city-center radius. Actual address coverage and travel times must be confirmed separately.</p></article>
+   <article><span class="trust-stage future">REQUIRES LAUNCH APPROVAL</span><div class="trust-icon" aria-hidden="true">03</div><h3>Verification and protected payments</h3><p>Real provider checks, booking support, cancellation terms and customer-authorized payments need operational and legal approval before launch.</p></article>
+  </div>
+  <p class="trust-footnote"><strong>No invented ratings or verification badges.</strong> RouteDrop will only display provider credentials, reviews and safeguards after they can be substantiated.</p>
+ </section>
 </section>
 <section id="bookings" class="page hidden"><div class="interior-heading"><div class="eyebrow">EVERY DETAIL, IN ITS PLACE</div><h1>Your plans, beautifully organized.</h1><p>See the intended booking experience. All private-preview activity is fictional; no real appointments or payments are available.</p></div><div id="my-bookings"></div></section>
 <section id="business" class="page hidden"><div class="interior-heading"><div class="eyebrow">BUILT FOR THE PEOPLE WHO MAKE IT HAPPEN</div><h1>Meet your new business headquarters.</h1><p>A simple space to shape your service area, manage openings and understand your work.</p></div><div id="studio-body"></div></section>
 </main>
-<footer><div><a class="footer-logo" href="/">⌖ RouteDrop</a><p>Local help, beautifully simple.</p></div><div><strong>Designed for confidence</strong><p>Private conceptual preview · No real provider verification, transactions or bookings</p></div></footer>
+<footer><div><a class="footer-logo" href="/">⌖ RouteDrop</a><p>Local help, beautifully simple.</p></div><div><strong>Explore with clarity</strong><p><a href="/#trust">Trust and launch standards</a></p><p>Private conceptual preview · No real provider verification, transactions or bookings</p></div></footer>
 </div>
 <div id="modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="modal-title"><div class="modal-content"><button id="close-modal" class="close" type="button" aria-label="Close dialog">✕</button><div id="modal-body"></div></div></div>
 </body></html>
