@@ -55,24 +55,73 @@ app.use(helmet({
  contentSecurityPolicy: { directives: { defaultSrc:["'self'"], scriptSrc:["'self'"], styleSrc:["'self'","'unsafe-inline'"], imgSrc:["'self'","data:"], connectSrc:["'self'"], objectSrc:["'none'"], frameAncestors:["'none'"], upgradeInsecureRequests: process.env.NODE_ENV==='production' ? [] : null } },
  referrerPolicy: { policy:'no-referrer' }
 }));
-// Optional password gate for an isolated, database-free UX walkthrough only.
+app.use(cookieParser());
+
+// Browser-friendly access for the isolated pilot. Other previews retain Basic auth.
 const previewPass=previewAccessPassword;
 if(previewPass){
+ const username='routedrop-preview';
+ const loginPath='/preview-sign-in';
+ const sessionCookie='__Host-rd_preview';
+ const sessionDuration=8*60*60*1000;
+ const signingKey=crypto.randomBytes(32);
+ const cookieOptions={secure:true,httpOnly:true,sameSite:'strict',path:'/'};
+ const digest=value=>crypto.createHash('sha256').update(value).digest();
+ const same=(received,expected)=>crypto.timingSafeEqual(digest(received),digest(expected));
+ const signature=value=>crypto.createHmac('sha256',signingKey).update(value).digest('hex');
+ const expected=username+':'+previewPass;
+
+ function validSession(token){
+  if(typeof token!=='string'||!/^\d{13}\.[a-f0-9]{64}\.[a-f0-9]{64}$/.test(token))return false;
+  const [expires,nonce,mac]=token.split('.');
+  return Number(expires)>Date.now()&&same(mac,signature(expires+'.'+nonce));
+ }
+
+ function signInPage(res,error=false){
+  return res.set('Cache-Control','no-store').status(error?401:200).type('html').send(`<!doctype html>
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>RouteDrop Private Staging</title>
+<main><h1>RouteDrop Private Staging</h1>
+<p>Sign in with your preview credentials.</p>
+${error?'<p role="alert">The username or password was incorrect.</p>':''}
+<form method="post" action="/preview-sign-in">
+<p><label for="preview-username">Username</label><br><input id="preview-username" name="username" type="text" autocomplete="username" required></p>
+<p><label for="preview-password">Password</label><br><input id="preview-password" name="password" type="password" autocomplete="current-password" required></p>
+<button type="submit">Sign in</button></form></main></html>`);
+ }
+
+ if(workflowPilot){
+  const loginLimiter=rateLimit({windowMs:15*60*1000,limit:12,skipSuccessfulRequests:true,standardHeaders:'draft-7',legacyHeaders:false});
+  app.get(loginPath,(req,res)=>signInPage(res));
+  app.post(loginPath,loginLimiter,express.urlencoded({extended:false,limit:'4kb',parameterLimit:2}),(req,res)=>{
+   const origin=req.get('origin');
+   const siteOrigin=baseUrl ? new URL(baseUrl).origin : 'https://'+req.get('host');
+   if(!req.secure||origin!==siteOrigin)return res.set('Cache-Control','no-store').sendStatus(403);
+   const {username:enteredUsername,password}=req.body||{};
+   if(typeof enteredUsername!=='string'||typeof password!=='string'||!same(enteredUsername+':'+password,expected))return signInPage(res,true);
+   const session=String(Date.now()+sessionDuration)+'.'+random();
+   res.cookie(sessionCookie,session+'.'+signature(session),{...cookieOptions,maxAge:sessionDuration});
+   return res.set('Cache-Control','no-store').redirect(303,'/');
+  });
+ }
+
  app.use((req,res,next)=>{
-  if(identityEnabled && req.path==='/api/pilot/identity/webhook')return next(); // Stripe's signature, NOT Basic auth, protects this raw webhook.
-  const auth=req.get('authorization')||'';
-  let pair='';
-  if(auth.startsWith('Basic ')){
-   try{pair=Buffer.from(auth.slice(6),'base64').toString('utf8');}catch{}
+  if(identityEnabled&&req.path==='/api/pilot/identity/webhook')return next(); // Stripe signature protects this webhook.
+  if(workflowPilot&&validSession(req.cookies[sessionCookie])){
+   res.set('Cache-Control','private, no-store');
+   return next();
   }
-  const received=Buffer.from(pair);
-  const expected=Buffer.from('routedrop-preview:'+previewPass);
-  const valid=received.length===expected.length && crypto.timingSafeEqual(received,expected);
-  if(!valid){res.set('WWW-Authenticate','Basic realm="RouteDrop private radius preview"');return res.status(401).send('Private preview: enter your access credentials.');}
-  next();
+  const auth=req.get('authorization')||'';
+  if(auth.startsWith('Basic ')&&same(Buffer.from(auth.slice(6),'base64'),expected)){
+   res.set('Cache-Control','private, no-store');
+   return next();
+  }
+  res.set('Cache-Control','no-store');
+  if(!workflowPilot)res.set('WWW-Authenticate','Basic realm="RouteDrop private preview"');
+  if(workflowPilot&&req.method==='GET'&&req.accepts('html')&&!req.path.startsWith('/api/')&&req.path!=='/health')return res.redirect(303,loginPath);
+  return res.status(401).send('Private preview: sign in to continue.');
  });
 }
-app.use(cookieParser());
 app.use((req,res,next) => {
  if (req.path.startsWith('/api/')) res.set('Cache-Control', 'no-store');
  next();
