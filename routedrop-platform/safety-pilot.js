@@ -73,13 +73,22 @@ function registerSafetyRoutes(app,{pool,safe,requireDb,requireUser,requireProvid
    res.status(201).json({case:q.rows[0],identity_verified:false,message:'Private-test provider screening requested. This is NOT proof of identity, licensing or insurance.'});
   }catch(e){await client.query('ROLLBACK').catch(()=>{});throw e;}finally{client.release();}
  }));
+ app.get('/api/pilot/safety/my-reviews',requireDb,requireUser(),safe(async(req,res)=>{
+  const q=await pool.query("SELECT rv.id,rv.headline,rv.status,rv.created_at,b.name AS provider_name FROM pilot_service_reviews rv JOIN businesses b ON b.id=rv.business_id WHERE rv.customer_id=$1 ORDER BY rv.created_at DESC LIMIT 50",[req.user.id]);
+  res.set('Cache-Control','no-store').json({reviews:q.rows});
+ }));
  app.get('/api/pilot/safety/moderation',requireDb,requireUser(),requireModerator,moderationLimiter,safe(async(req,res)=>{
-  const [cases,reviews,appeals]=await Promise.all([
+  const [cases,reviews,appeals,providers]=await Promise.all([
    pool.query("SELECT c.id,c.business_id,b.name AS provider_name,c.service_category,c.service_description,c.created_at FROM pilot_screening_cases c JOIN businesses b ON b.id=c.business_id WHERE c.status='pending' ORDER BY c.created_at LIMIT 50"),
    pool.query("SELECT rv.id,rv.business_id,b.name AS provider_name,rv.rating,rv.headline,rv.comment,rv.status,rv.created_at,COUNT(DISTINCT rr.id) FILTER(WHERE rr.resolution='open')::int AS open_reports,COALESCE(string_agg(DISTINCT rr.reason,', ') FILTER(WHERE rr.resolution='open'),'') AS report_reasons FROM pilot_service_reviews rv JOIN businesses b ON b.id=rv.business_id LEFT JOIN pilot_review_reports rr ON rr.review_id=rv.id WHERE rv.status='flagged' OR rr.resolution='open' GROUP BY rv.id,b.id ORDER BY rv.created_at DESC LIMIT 50"),
-   pool.query("SELECT a.id,a.subject_kind,a.subject_id,a.reason,a.created_at FROM pilot_safety_appeals a WHERE a.status='open' ORDER BY a.created_at LIMIT 50")
+   pool.query("SELECT a.id,a.subject_kind,a.subject_id,a.reason,a.created_at FROM pilot_safety_appeals a WHERE a.status='open' ORDER BY a.created_at LIMIT 50"),
+   pool.query("SELECT b.id,b.name,b.pilot_screening_status FROM businesses b WHERE b.pilot_screening_status IN ('suspended','needs_changes') ORDER BY b.id DESC LIMIT 50")
   ]);
-  res.set('Cache-Control','no-store').json({cases:cases.rows,reviews:reviews.rows,appeals:appeals.rows,not_identity_verified:true});
+  res.set('Cache-Control','no-store').json({cases:cases.rows,reviews:reviews.rows,appeals:appeals.rows,providers:providers.rows,not_identity_verified:true});
+ }));
+ app.get('/api/pilot/safety/moderation/audit',requireDb,requireUser(),requireModerator,moderationLimiter,safe(async(req,res)=>{
+  const q=await pool.query("SELECT id,actor_id,subject_kind,subject_id,action,note,created_at FROM pilot_safety_audit ORDER BY id DESC LIMIT 100");
+  res.set('Cache-Control','no-store').json({events:q.rows});
  }));
  app.post('/api/pilot/safety/moderation/reviews/:id',requireDb,requireUser(),requireModerator,moderationLimiter,safe(async(req,res)=>{
   const id=Number(req.params.id),action=req.body?.action,note=validNote(req.body?.note);
