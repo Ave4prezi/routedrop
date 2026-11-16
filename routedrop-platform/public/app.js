@@ -4,7 +4,8 @@ const $=id=>document.getElementById(id);
 const coverage=window.RouteDropServiceArea;
 const premium=window.RouteDropPremium2;
 const pilot=window.RouteDropPilotUI;
-const state={config:null,me:null,listings:[],bookings:[],mine:[],tab:'explore',demo:false,demoRequests:[],demoCounter:0,demoListingId:null,demoSlot:'afternoon',demoArea:{center:'decatur',radiusMiles:20},pilotRequests:[],pilotListingId:null};
+ const opportunities=window.RouteDropOpportunities;
+const state={config:null,me:null,listings:[],bookings:[],mine:[],tab:'explore',demo:false,demoRequests:[],demoCounter:0,demoListingId:null,demoSlot:'afternoon',demoArea:{center:'decatur',radiusMiles:20},pilotRequests:[],pilotListingId:null,jobs:[],jobSearch:''};
 const esc=v=>String(v===null||v===undefined?'':v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const money=cents=>new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(Number(cents||0)/100);
 const when=iso=>new Intl.DateTimeFormat('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}).format(new Date(iso));
@@ -64,7 +65,7 @@ async function refresh(){
  if(!state.config)return;
  if(!state.config.database){
   state.demo=true;state.listings=premium.DEMO;renderOffers();
-  $('my-bookings').innerHTML=premium.bookings(state.demoRequests);$('studio-body').innerHTML=premium.studio(serviceCoveragePanel({service_center_code:state.demoArea.center,service_radius_miles:state.demoArea.radiusMiles},true),state.demoRequests);nav();return;
+  $('my-bookings').innerHTML=premium.bookings(state.demoRequests);$('studio-body').innerHTML=premium.studio(serviceCoveragePanel({service_center_code:state.demoArea.center,service_radius_miles:state.demoArea.radiusMiles},true),state.demoRequests);state.jobs=opportunities.sampleJobs;$('job-board').innerHTML=opportunities.jobs(state.jobs,true,state.jobSearch);nav();return;
  }
  try{
   const who=await api('/api/me');state.me=who;nav();
@@ -80,9 +81,14 @@ async function refresh(){
    if(!state.me.user){$('my-bookings').innerHTML='<div class="empty">Please log in to see your bookings.</div>';return;}
    const r=await api('/api/bookings');state.bookings=r.bookings;renderBookings();
   }else if(state.tab==='business') await studio();
+   else if(state.tab==='jobs') await loadJobs();
  }catch(e){message(e.message,true);}
 }
-function serviceCoveragePanel(b,readonly=false){
+async function loadJobs(){
+  if(!state.config?.opportunity_pilot){state.jobs=opportunities.sampleJobs;$('job-board').innerHTML=opportunities.jobs(state.jobs,true,state.jobSearch);return;}
+  const data=await api('/api/pilot/jobs');state.jobs=data.jobs;$('job-board').innerHTML=opportunities.jobs(state.jobs,false,state.jobSearch);
+ }
+ function serviceCoveragePanel(b,readonly=false){
  const v=coverage.validate(b?.service_center_code,b?.service_radius_miles);
  const city=Object.entries(coverage.CITIES).map(([key,p])=>'<option value="'+key+'"'+(v?.center===key?' selected':'')+'>'+esc(p.name)+', AL</option>').join('');
  const choices='<option value="">Choose your approximate city center</option>'+city;
@@ -134,9 +140,9 @@ async function studio(){
  if(!u){$('studio-body').innerHTML='<div class="empty"><h3>Business account required</h3><p>Create a business account to list open route slots.</p><button class="btn" data-action="register">Register a business</button></div>';return;}
  if(u.role!=='business'){$('studio-body').innerHTML='<div class="empty">You are signed in as a customer. Use a separate business account to publish routes.</div>';return;}
  if(state.config.workflow_pilot){
-  const [listings,requests]=await Promise.all([api('/api/my-listings'),api('/api/pilot/requests')]);
+  const [listings,requests,jobs]=await Promise.all([api('/api/my-listings'),api('/api/pilot/requests'),api('/api/pilot/my-jobs')]);
   state.mine=listings.listings;state.pilotRequests=requests.requests;
-  $('studio-body').innerHTML=pilot.studio(state.me.business,state.mine,state.pilotRequests,serviceCoveragePanel(state.me.business));return;
+  $('studio-body').innerHTML=pilot.studio(state.me.business,state.mine,state.pilotRequests,serviceCoveragePanel(state.me.business))+opportunities.employerPanel(jobs.jobs,state.me.business.provider_kind);return;
  }
  const b=state.me.business,r=await Promise.all([api('/api/my-listings'),api('/api/bookings')]);
  state.mine=r[0].listings;state.bookings=r[1].bookings;
