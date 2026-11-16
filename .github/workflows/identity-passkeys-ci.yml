@@ -49,6 +49,7 @@ jobs:
           node --check routedrop-platform/public/premium-2-experience.js
           node --check routedrop-platform/test/pilot-integration.mjs
           node --check routedrop-platform/test/pilot-browser.mjs
+          node --check routedrop-platform/test/passkey-browser.mjs
           node --check routedrop-platform/test/premium-2-browser.mjs
       - name: Install dependencies without hooks
         working-directory: routedrop-platform
@@ -64,6 +65,8 @@ jobs:
           npx playwright install --with-deps chromium
       - name: Browser test — actual test accounts, booking requests, provider completion, no payments
         run: node routedrop-platform/test/pilot-browser.mjs
+      - name: Browser WebAuthn — virtual authenticator, real signed registration and login, expiry and account isolation
+        run: node routedrop-platform/test/passkey-browser.mjs
       - name: Preserve existing Premium 2.0 demo/browser regression
         run: node routedrop-platform/test/premium-2-browser.mjs
       - name: Preserve desktop/mobile testing screenshots
