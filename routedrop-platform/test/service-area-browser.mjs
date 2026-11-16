@@ -19,7 +19,7 @@ try{
   const errors=[];page.on('pageerror',e=>errors.push(e.message));
   await page.goto(base,{waitUntil:'networkidle'});
   const brand=await page.locator('header .brand').textContent();
-  assert.equal(brand.replace(/\\s+/g,''),'RouteDrop');
+  assert.equal(brand.replace(/\s+/g,''),'RouteDrop');
   await page.getByRole('button',{name:'Business studio'}).click();
   await page.getByRole('heading',{name:/Sample service radius/}).waitFor();
   assert.equal(await page.locator('#area-city').inputValue(),'decatur');
