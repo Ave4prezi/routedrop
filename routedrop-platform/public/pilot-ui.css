@@ -43,3 +43,15 @@
  .pilot-listing-row{align-items:flex-start;flex-direction:column}
  .pilot-listing-row>div:last-child{width:100%;justify-content:space-between}
 }
+
+/* A truthful, accessible, responsive timeline for unpaid private-test requests. */
+.pilot-progress{list-style:none;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;padding:0;margin:16px 0 10px}
+.pilot-progress-step{min-width:0;position:relative;display:flex;flex-direction:column;align-items:flex-start;gap:7px;font-size:11px;line-height:1.4;font-weight:700;color:#7788a1}
+.pilot-progress-step:not(:last-child)::after{content:"";position:absolute;left:24px;top:11px;width:calc(100% - 15px);height:2px;background:#dce6f4}
+.pilot-progress-dot{position:relative;z-index:1;display:grid;place-items:center;width:25px;height:25px;border-radius:50%;border:2px solid #d5dfed;background:#fff;color:#60758f;font-size:11px}
+.pilot-progress-step.done{color:#255a96}.pilot-progress-step.done .pilot-progress-dot{background:#245fa5;border-color:#245fa5;color:#fff}
+.pilot-progress-step.current{color:#174587}.pilot-progress-step.current .pilot-progress-dot{border-color:#2365ba;background:#eaf3ff;color:#174587}
+.pilot-progress-step.terminal{color:#8c5a2d}.pilot-progress-step.terminal .pilot-progress-dot{background:#fff0e4;color:#8c5a2d;border-color:#e0b890}
+.pilot-next-action{padding:12px 14px;margin:12px 0 14px;background:#f4f8ff;border:1px solid #dfebf9;border-radius:12px;font-size:12px;line-height:1.65;color:#345675}
+.pilot-next-action strong{color:#17385d}
+@media(max-width:640px){.pilot-progress{grid-template-columns:repeat(2,minmax(0,1fr));row-gap:14px}.pilot-progress-step:not(:last-child)::after{display:none}}
