@@ -1,7 +1,7 @@
 'use strict';
 (function(){
 const $=id=>document.getElementById(id);
-const state={config:null,me:null,listings:[],bookings:[],deferred:[],refunds:[],mine:[],tab:'explore'};
+const state={config:null,me:null,listings:[],bookings:[],deferred:[],refunds:[],mine:[],tab:'explore',tour:false};
 const esc=v=>String(v===null||v===undefined?'':v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const SERVICE_CATEGORIES=["Cleaning","Lawn care","Landscaping","Painting","Handyman","Pressure washing","Home repairs","Car detailing","Mobile car detailing","Car washing","Mobile mechanic","Tire service","Barber","Hair stylist","Nail technician","Makeup artist","Personal trainer","Massage therapist","Photography","Videography","DJ","Event decorating","Event planning","Catering","Moving","Junk removal","Delivery","Courier","Passenger transportation","IT support","Computer repair","Tutoring","Bookkeeping","Graphic design","Digital marketing","Pet grooming","Pet sitting","Dog walking","Childcare","Home health care","Washing","Other"];
 const categoryOptions=()=>SERVICE_CATEGORIES.map(x=>'<option>'+esc(x)+'</option>').join('');
@@ -17,7 +17,7 @@ async function api(url,options={}){
  return data;
 }
 function message(txt,bad=false){const el=$('status');el.textContent=txt||'';el.classList.toggle('bad',!!bad);}
-function noSetup(){return '<div class="empty"><h3>Private preview setup is still underway</h3><p>The isolated test database is not connected yet. Sign-up, listings and bookings are unavailable. Do not submit real customer or business information.</p><button type="button" class="btn secondary" data-action="demo-onboarding">See the fictional provider walkthrough</button></div>';}
+function noSetup(){return '<div class="empty"><h3>Private preview setup is still underway</h3><p>Real sign-up, bookings and payments are unavailable. You can tour both customer and business screens with invented examples, without a database or account.</p><div class="buttonrow"><button type="button" class="btn" data-action="start-tour">Start guided tour (fictional)</button><button type="button" class="btn secondary" data-action="demo-onboarding">See provider steps</button></div></div>';}
 function overlay(content){$('modal-body').innerHTML=content;$('modal').classList.remove('hidden');}
 function dismiss(){$('modal').classList.add('hidden');$('modal-body').innerHTML='';}
 function nav(){
@@ -33,10 +33,11 @@ function switchTab(tab){
 async function refresh(){
  if(!state.config)return;
  if(!state.config.database){
-   $('offers').innerHTML=noSetup();$('offer-count').textContent='0 test listings';
-   $('filter-summary').textContent='Test listings are unavailable until the isolated database is connected.';
-   $('clear-filters').classList.add('hidden');
-   $('my-bookings').innerHTML=noSetup();$('studio-body').innerHTML=noSetup();
+  if(state.tour){renderGuidedTour();nav();return;}
+  $('offers').innerHTML=noSetup();$('offer-count').textContent='0 test listings';
+  $('filter-summary').textContent='Test listings are unavailable until the isolated database is connected.';
+  $('clear-filters').classList.add('hidden');
+  $('my-bookings').innerHTML=noSetup();$('studio-body').innerHTML=noSetup();
   nav();return;
  }
  try{
@@ -49,9 +50,30 @@ async function refresh(){
   }else if(state.tab==='business') await studio();
  }catch(e){message(e.message,true);}
 }
+const TOUR_OPENINGS=[
+ {id:101,category:'Cleaning',title:'Sample apartment cleaning',business_name:'Demo Cleaning Co.',neighborhood:'Central Decatur',city:'Decatur, AL',slot_start:'2026-12-08T16:00:00.000Z',duration_minutes:120,price_cents:8500},
+ {id:102,category:'Lawn care',title:'Sample lawn care visit',business_name:'Demo Lawn Team',neighborhood:'Southwest Decatur',city:'Decatur, AL',slot_start:'2026-12-09T19:00:00.000Z',duration_minutes:60,price_cents:6500},
+ {id:103,category:'Car detailing',title:'Sample interior detail',business_name:'Demo Auto Detail',neighborhood:'Hartselle',city:'Hartselle, AL',slot_start:'2026-12-10T17:00:00.000Z',duration_minutes:90,price_cents:11000}
+];
+function tourNotice(){return '<div class="tour-notice" role="note"><strong>Guided tour · fictional examples only</strong><span>No registration, real providers, payments or uploads. Actions are disabled.</span><button type="button" class="text-action" data-action="exit-tour">Exit tour</button></div>';}
+function renderGuidedTour(){
+ if(state.config?.database)return;
+ message('Guided tour active: all listings and bookings below are invented. Nothing is saved or charged.');
+ if(state.tab==='explore'){
+  state.listings=TOUR_OPENINGS;
+  renderOffers();
+  $('offers').insertAdjacentHTML('beforebegin','');
+  if(!$('tour-explore-notice')){$('offers').insertAdjacentHTML('beforebegin','<div id="tour-explore-notice">'+tourNotice()+'</div>');}
+ }else if(state.tab==='bookings'){
+  $('my-bookings').innerHTML=tourNotice()+'<div class="panel"><h3>Example customer journey</h3><p class="muted">Demonstration only; no booking exists.</p><div class="record"><strong>1. Request an available service</strong><p>Future approved model: save a card securely, with $0 charged today.</p></div><div class="record"><strong>2. Provider completes the work</strong><p>The provider marks the service complete. No automatic charge occurs.</p></div><div class="record"><strong>3. Customer confirms and pays</strong><p>The customer separately approves the quoted amount after reviewing the finished work.</p></div><p class="muted">Dispute, refund, and payment controls are not available in this tour.</p><button type="button" class="btn secondary" data-action="tour-to-services">View example services</button></div>';
+ }else if(state.tab==='business'){
+  $('studio-body').innerHTML=tourNotice()+'<div class="panel"><h3>Demo Cleaning Co. · fictional provider</h3><p class="muted">Example: Cleaning · Decatur, AL. No real account, licenses, bookings or payouts.</p><div class="record"><strong>1. Review proposed terms</strong><p>No required monthly membership during founding early access. RouteDrop proposes 8% from successfully collected service payments, not an extra customer charge.</p></div><div class="record"><strong>2. Submit credentials after approval</strong><p>Real identity and insurance uploads are disabled until independent security and legal review.</p></div><div class="record"><strong>3. Publish future availability</strong><p>Example: sample apartment cleaning · $85. No live listing is created here.</p></div><div class="record"><strong>4. Get independently approved</strong><p>Required verification and launch authorization must be completed before accepting real bookings.</p></div><div class="record"><strong>5. Complete work and receive payout</strong><p>In the proposed model, the customer confirms completion and approves the charge before fees or provider payouts.</p></div><button type="button" class="btn secondary" data-action="tour-to-services">See customer view</button></div>';
+ }
+}
+
 function clearFilters(){
  $('search').value='';$('category').value='';
- if(state.config?.database)renderOffers();
+ if(state.config?.database||state.tour)renderOffers();
  else {$('filter-summary').textContent='Test listings are unavailable until the isolated database is connected.';$('clear-filters').classList.add('hidden');}
  $('search').focus();
 }
@@ -198,10 +220,13 @@ async function act(e){
  const el=e.target.closest('button');if(!el)return;
  if(el.dataset.tab){switchTab(el.dataset.tab);return;}
  const action=el.dataset.action;
+ if(action==='start-tour'){if(state.config?.database)return message('Tour is available only in database-free private preview.');state.tour=true;switchTab('explore');return;}
+ if(action==='exit-tour'){state.tour=false;switchTab('explore');return;}
+ if(action==='tour-to-services'){switchTab('explore');return;}
  if(action==='register'){if(state.config&&!state.config.database){message('The private beta database is not connected. Explore the fictional onboarding walkthrough instead.');return;}showRegistration();return;}
  if(action==='clear-filters'){clearFilters();return;}
  if(action==='business-tab'){switchTab('business');return;}
- if(action==='register-business'){if(state.config&&!state.config.database){message('Fictional business signup is unavailable until the isolated test database is ready. See the walkthrough in Business Studio.');switchTab('business');return;}showRegistration();const selector=$('register-role');selector.value='business';selector.dispatchEvent(new Event('change',{bubbles:true}));return;}
+ if(action==='register-business'){if(state.config&&!state.config.database){if(!state.tour)state.tour=true;message('Fictional business signup is unavailable until the isolated test database is ready. Explore the fictional Business Studio instead.');switchTab('business');return;}showRegistration();const selector=$('register-role');selector.value='business';selector.dispatchEvent(new Event('change',{bubbles:true}));return;}
  if(action==='demo-onboarding'){
   overlay('<h2 id="modal-title">RouteDrop founding partner preview</h2><p class="muted">Fictional example only. Interactive registration opens when the isolated preview database is connected.</p>'+
    '<div class="record"><strong>1. Register a business</strong><p>Invented: Pine Ridge Cleaning · Decatur, AL · Cleaning</p></div>'+
