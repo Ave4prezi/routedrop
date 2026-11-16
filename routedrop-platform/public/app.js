@@ -22,7 +22,7 @@ function overlay(content){$('modal-body').innerHTML=content;$('modal').classList
 function dismiss(){$('modal').classList.add('hidden');$('modal-body').innerHTML='';}
 function nav(){
  const u=state.me?.user;
- $('nav-account').innerHTML=u?'<span class="muted">'+esc(u.full_name)+'</span>'+(state.config?.email_enabled&&!u.email_verified?'<button data-action="verify-email">Verify email</button>':'')+(state.me?.support_agent?'<button data-action="support-reviews">Support reviews</button>':'')+(state.config?.provider_verification&&state.me?.document_reviewer?'<button data-action="verification-reviews">Provider reviews</button>':'')+(state.config?.provider_launch_gate&&state.me?.launch_approver?'<button data-action="launch-reviews">Launch reviews</button>':'')+'<button data-action="change-password">Change password</button><button data-action="logout">Log out</button>':'<button data-action="login">Log in</button><button data-action="register">Sign up</button>';
+ $('nav-account').innerHTML=u?'<span class="muted">'+esc(u.full_name)+'</span>'+(state.config?.email_enabled&&!u.email_verified?'<button data-action="verify-email">Verify email</button>':'')+(state.me?.support_agent?'<button data-action="support-reviews">Support reviews</button>':'')+(state.config?.provider_verification&&state.me?.document_reviewer?'<button data-action="verification-reviews">Provider reviews</button><button data-action="expiry-reviews">Expiring credentials</button>':'')+(state.config?.provider_launch_gate&&state.me?.launch_approver?'<button data-action="launch-reviews">Launch reviews</button>':'')+'<button data-action="change-password">Change password</button><button data-action="logout">Log out</button>':'<button data-action="login">Log in</button><button data-action="register">Sign up</button>';
 }
 function switchTab(tab){
  state.tab=tab;
@@ -101,7 +101,9 @@ async function studio(){
  if(u.role!=='business'){$('studio-body').innerHTML='<div class="empty">You are signed in as a customer. Use a separate business account to publish routes.</div>';return;}
  const b=state.me.business,r=await Promise.all([api('/api/my-listings'),api('/api/bookings')]);
  state.mine=r[0].listings;state.bookings=r[1].bookings;state.deferred=state.config.deferred_booking?(await api('/api/deferred-bookings')).bookings:[];state.refunds=state.config.deferred_booking?(await api('/api/deferred-refunds')).requests:[];
- const verificationData=state.config.provider_verification?(await api('/api/provider-verification/me')).verification:null;
+ const verificationResult=state.config.provider_verification?await api('/api/provider-verification/me'):null;
+ const verificationData=verificationResult?.verification||null;
+ const expiryReminders=verificationResult?.expiryReminders||[];
 
  const cancellations=await api('/api/business/cancellation-requests');
  const completed=state.bookings.filter(x=>x.status==='completed').concat(state.deferred.filter(x=>x.status==='paid'));
@@ -123,6 +125,7 @@ async function studio(){
  '<div class="panel"><h3>Recent bookings</h3>'+(state.bookings.length?state.bookings.map(x=>'<div class="record"><div><strong>'+esc(x.title)+'</strong><p>'+when(x.slot_start)+' · '+esc(x.status)+'</p></div>'+(x.status==='paid'&&!['pending','processing','needs_review'].includes(x.cancellation_request_status)?'<button class="btn" data-complete="'+x.id+'">Complete</button>':'<strong>'+money(x.price_cents)+'</strong>')+'</div>').join(''):'<p class="muted">No bookings recorded.</p>')+'</div>';
  if(state.config.deferred_booking)$('studio-body').innerHTML+=deferredMarkup(state.deferred,'business')+deferredRefundMarkup(state.refunds,'business');
  if(verificationData)$('studio-body').innerHTML+=verificationPanel(verificationData);
+ if(state.config.provider_launch_gate)$('studio-body').innerHTML+=expiryPanel(expiryReminders);
 }
 
 function verificationPanel(v){
@@ -137,6 +140,20 @@ function verificationPanel(v){
  (v.manualReview?'<p class="muted">This service category also requires a separate policy review.</p>':'')+
  '<div class="buttonrow"><button class="btn" data-action="upload-credential">Submit document for review</button></div>'+
  '<p class="muted">Document upload does not mean approval. RouteDrop reviews submitted evidence before bookings are enabled.</p></div>';
+}
+function expiryPanel(items){
+ return '<div class="panel"><h3>Credential expiration reminders (fictional preview)</h3>'+
+  (items.length?items.map(x=>'<div class="record"><div><strong>'+esc(x.kind.replaceAll('_',' '))+'</strong><p class="muted">'+
+  (x.daysRemaining<=0?'Expired':x.daysRemaining+' day(s) remaining')+' · '+esc(new Date(x.expiresAt).toLocaleDateString('en-US'))+
+  '</p></div></div>').join(''):'<p class="muted">No approved credentials due to expire within 30 days. This dashboard checks dates live; it does not send external email.</p>')+
+  '<p class="muted">Replace fictional evidence and request independent re-review before expiry. Expired credentials automatically block eligible listings.</p></div>';
+}
+async function showExpiryReviews(){
+ const r=await api('/api/provider-operations/expirations');
+ overlay('<h2 id="modal-title">Fictional credential expiry review</h2><p class="muted">Restricted reviewer view. In-app warnings only; do not treat this as regulatory confirmation or an email-delivery guarantee.</p>'+
+ (r.expirations.length?r.expirations.map(x=>'<div class="record"><div><strong>'+esc(x.businessName)+' · '+esc(x.kind.replaceAll('_',' '))+
+ '</strong><p class="muted">Business #'+esc(x.businessId)+' · '+(x.daysRemaining<=0?'Expired':x.daysRemaining+' day(s) remaining')+
+ '</p></div></div>').join(''):'<p>No approvals within the 30-day expiration window.</p>'));
 }
 async function showVerificationUpload(){
  const r=await api('/api/provider-verification/me');
@@ -225,6 +242,7 @@ async function act(e){
  if(action==='create-listing'){showListing();return;}
  if(action==='support-reviews'){try{await showSupportReviews();}catch(err){message(err.message,true);}return;}
  if(action==='verification-reviews'){try{await showVerificationQueue();}catch(err){message(err.message,true);}return;}
+  if(action==='expiry-reviews'){try{await showExpiryReviews();}catch(err){message(err.message,true);}return;}
   if(action==='launch-reviews'){try{await showLaunchQueue();}catch(err){message(err.message,true);}return;}
  if(action==='upload-credential'){try{await showVerificationUpload();}catch(err){message(err.message,true);}return;}
  if(action==='change-password'){showChangePassword();return;}
