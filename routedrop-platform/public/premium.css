@@ -92,3 +92,14 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible{ou
 .tour-notice strong{font-weight:800}.tour-notice span{max-width:48ch;line-height:1.5}
 #tour-explore-notice{grid-column:1/-1}
 @media(max-width:640px){.tour-notice{align-items:flex-start;flex-direction:column}}
+
+/* November premium concept: illustrated fictional owners and distinct service imagery. */
+.tour-photo{aspect-ratio:360/245;overflow:hidden;background:#eef4fc;border-radius:22px 22px 0 0}
+.tour-photo .tour-portrait{width:100%;height:100%;display:block;object-fit:cover}
+.card:has(.tour-photo) .cardbanner{padding:12px 22px;min-height:auto;align-items:center;font-weight:800;display:flex;justify-content:space-between;letter-spacing:.03em}
+.tour-owner{display:flex;align-items:baseline;gap:7px;flex-wrap:wrap;margin:0 0 10px}
+.tour-owner strong{color:#1f4eb0;font-size:12px}.tour-owner small{color:#687d96;font-size:11px}
+.studio-example-owner{display:flex;align-items:center;gap:22px;margin-bottom:20px}
+.studio-example-owner .tour-portrait{flex:0 0 185px;max-width:185px;border-radius:14px;overflow:hidden}
+.studio-example-owner h3{margin:9px 0 4px}.studio-example-owner p{margin:5px 0;line-height:1.55}
+@media(max-width:640px){.studio-example-owner{align-items:flex-start;flex-direction:column;gap:12px}.studio-example-owner .tour-portrait{width:100%;max-width:240px;flex:auto}}
