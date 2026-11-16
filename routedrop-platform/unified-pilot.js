@@ -1,6 +1,7 @@
 'use strict';
 
 // Only loaded behind the private, payment-free ROUTEDROP_WORKFLOW_PILOT gate.
+const trustPilot=require('./trust-pilot');
 // A single existing user session can book, operate a service profile and save job interests.
 const ddl=Object.freeze([
  "CREATE TABLE IF NOT EXISTS pilot_service_profiles (id BIGSERIAL PRIMARY KEY, business_id BIGINT NOT NULL REFERENCES businesses(id) ON DELETE CASCADE, title TEXT NOT NULL, category TEXT NOT NULL, neighborhood TEXT NOT NULL, description TEXT NOT NULL, price_cents INTEGER NOT NULL CHECK(price_cents BETWEEN 500 AND 500000), duration_minutes INTEGER NOT NULL CHECK(duration_minutes BETWEEN 30 AND 480), active BOOLEAN NOT NULL DEFAULT true, created_at TIMESTAMPTZ NOT NULL DEFAULT now())",
@@ -48,7 +49,7 @@ function registerUnifiedRoutes(app,{pool,safe,requireDb,requireUser,requireProvi
  }));
  app.get('/api/pilot/service-profiles',requireDb,safe(async(req,res)=>{
   await syncOpenings(pool);
-  const q=await pool.query("SELECT p.id,p.title,p.category,p.neighborhood,p.description,p.price_cents,p.duration_minutes,b.name AS provider_name,b.provider_kind,b.city,b.service_center_code,b.service_radius_miles,(SELECT l.id FROM listings l WHERE l.pilot_profile_id=p.id AND l.status='active' AND l.slot_start>now() AND NOT EXISTS(SELECT 1 FROM service_requests sr WHERE sr.listing_id=l.id AND sr.status IN ('requested','accepted','completed','confirmed','issue_reported')) ORDER BY l.slot_start ASC LIMIT 1) AS next_listing_id FROM pilot_service_profiles p JOIN businesses b ON b.id=p.business_id WHERE p.active=true ORDER BY p.created_at DESC LIMIT 100");
+  const q=await pool.query("SELECT p.id,p.title,p.category,p.neighborhood,p.description,p.price_cents,p.duration_minutes,b.id AS provider_id,b.name AS provider_name,b.provider_kind,b.city,b.service_center_code,b.service_radius_miles"+trustPilot.ratingFields('b')+",(SELECT l.id FROM listings l WHERE l.pilot_profile_id=p.id AND l.status='active' AND l.slot_start>now() AND NOT EXISTS(SELECT 1 FROM service_requests sr WHERE sr.listing_id=l.id AND sr.status IN ('requested','accepted','completed','confirmed','issue_reported')) ORDER BY l.slot_start ASC LIMIT 1) AS next_listing_id FROM pilot_service_profiles p JOIN businesses b ON b.id=p.business_id WHERE p.active=true ORDER BY p.created_at DESC LIMIT 100");
   res.set('Cache-Control','no-store').json({profiles:q.rows});
  }));
  app.get('/api/pilot/my-service-profiles',requireDb,requireProvider,safe(async(req,res)=>{

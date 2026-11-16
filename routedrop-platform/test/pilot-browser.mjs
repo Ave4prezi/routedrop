@@ -88,6 +88,16 @@ try{
   assert.equal(await business.locator('.opportunity-card:visible').count(),1,'job search filters real test postings');
   await business.screenshot({path:'pilot-jobs-'+variant.name+'.png',fullPage:true});
   await business.getByRole('button',{name:'Business Studio'}).click();
+  await business.locator('[data-action="new-service-profile"]').click();
+  const competing=business.locator('#service-profile-form');
+  await competing.locator('[name="title"]').fill('Full Yard Service '+variant.name);
+  await competing.locator('[name="category"]').selectOption('Lawn care');
+  await competing.locator('[name="neighborhood"]').fill('North Decatur area');
+  await competing.locator('[name="description"]').fill('Fictional full yard care including mowing, trimming, edging and test cleanup.');
+  await competing.locator('[name="price"]').fill('65');
+  await competing.locator('[name="durationMinutes"]').fill('90');
+  await competing.locator('button[type="submit"]').click();
+  await business.locator('#modal').waitFor({state:'hidden'});
 
   await register(customer,'customer',variant.name+'-customer');
   await customer.locator('nav.tabs [data-tab="explore"]').click();
@@ -108,6 +118,21 @@ try{
   await customer.getByRole('button',{name:'My bookings'}).click();
   await customer.locator('[data-pilot-action="confirm"]').first().click();
   await customer.locator('#my-bookings .pilot-request-card .pilot-status').getByText('Customer confirmed',{exact:true}).waitFor();
+  await customer.locator('#my-bookings [data-review-request-id]').first().click();
+  const review=customer.locator('#service-review-form');
+  await review.locator('[name="rating"]').selectOption('5');
+  await review.locator('[name="headline"]').fill('Excellent fictional cleaning');
+  await review.locator('[name="comment"]').fill('This is a test-only review for completed cleaning, including clear communication and careful work.');
+  await review.locator('button[type="submit"]').click();
+  await customer.locator('#modal').waitFor({state:'hidden'});
+  await customer.locator('#my-bookings .trust-unrated').getByText('Test review submitted').first().waitFor();
+  await business.locator('nav.tabs [data-tab="explore"]').click();
+  const businessProfile=business.locator('#profile-cards .unified-profile').filter({hasText:'Full Yard Service '+variant.name});
+  await businessProfile.getByText('5.0').first().waitFor();
+  await businessProfile.locator('[data-view-reviews]').click();
+  await business.getByText('Excellent fictional cleaning').waitFor();
+  await business.locator('#close-modal').click();
+  await business.screenshot({path:'pilot-reviewed-profile-'+variant.name+'.png',fullPage:true});
   const individualContext=await browser.newContext(contextArgs);
   const individual=await individualContext.newPage();
   individual.on('pageerror',e=>errors.push(e.message));
@@ -126,7 +151,7 @@ try{
   await independentForm.locator('[name="durationMinutes"]').fill('60');
   await independentForm.locator('button[type="submit"]').click();
   await individual.locator('#modal').waitFor({state:'hidden'});
-  await customer.getByRole('button',{name:'Explore services'}).click();
+  await customer.locator('nav.tabs [data-tab="explore"]').click();
   await customer.locator('.card').filter({hasText:'Solo Mowing '+variant.name}).getByText('Individual provider · unverified').waitFor();
   await individual.screenshot({path:'pilot-individual-'+variant.name+'.png',fullPage:true});
   // Same account that booked earlier now becomes an independent service provider and job seeker.
@@ -168,11 +193,22 @@ try{
   await seekerForm.locator('button[type="submit"]').click();
   await customer.locator('#modal').waitFor({state:'hidden'});
   await customer.getByText('Saved test interests: Warehousing · Decatur, AL').waitFor();
-  await customer.getByRole('button',{name:'Explore services'}).click();
+  await customer.locator('nav.tabs [data-tab="explore"]').click();
   await customer.locator('#profile-cards .unified-profile').filter({hasText:'Recurring Lawn Service '+variant.name}).waitFor();
   await customer.screenshot({path:'pilot-unified-explore-'+variant.name+'.png',fullPage:true});
+  const soloCard=customer.locator('#profile-cards .unified-profile').filter({hasText:'Recurring Lawn Service '+variant.name});
+  const companyCard=customer.locator('#profile-cards .unified-profile').filter({hasText:'Full Yard Service '+variant.name});
+  await soloCard.locator('[data-compare-id]').check();
+  await companyCard.locator('[data-compare-id]').check();
+  await customer.locator('[data-action="compare-profiles"]').click();
+  await customer.getByRole('heading',{name:'Compare 2 Lawn care services'}).waitFor();
+  const details=await customer.locator('.trust-compare-table').innerText();
+  assert.ok(details.includes('$45.00')&&details.includes('$65.00'),'compare real listed prices side-by-side');
+  assert.ok(details.includes('5.0 / 5')&&details.includes('No reviews yet'),'reviewed business and unrated solo provider must differ');
+  await customer.screenshot({path:'pilot-price-compare-'+variant.name+'.png',fullPage:true});
+  await customer.locator('#close-modal').click();
   // A separate established business account is also a customer of the independent provider.
-  await business.getByRole('button',{name:'Explore services'}).click();
+  await business.locator('nav.tabs [data-tab="explore"]').click();
   await business.locator('#profile-cards .unified-profile').filter({hasText:'Recurring Lawn Service '+variant.name}).locator('[data-pilot-request]').click();
   await business.getByRole('heading',{name:'Request this opening'}).waitFor();
   await business.locator('[data-action="pilot-confirm-request"]').click();
@@ -192,7 +228,7 @@ try{
    const overflow=await p.evaluate(()=>document.documentElement.scrollWidth-window.innerWidth);
    assert.ok(overflow<=2,'no horizontal overflow '+variant.name+': '+overflow);
   }
-  console.log('PASS '+variant.name+' one account customer+provider+job seeker, recurring service, payment-free booking lifecycle');
+  console.log('PASS '+variant.name+' confirmed-only review, honest rating, real-test price compare, unified account and booking lifecycle');
   await businessContext.close();await customerContext.close();await individualContext.close();
  }
 }finally{if(browser)await browser.close();app.kill('SIGTERM');}

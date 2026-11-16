@@ -32,16 +32,8 @@
    '<label>Start time · America/Chicago</label><input type="time" name="localTime" value="09:00" required>'+
    '<p class="legal">Test openings must be accepted by the provider. No customer payments, addresses, or real schedules.</p><p id="form-error" class="error"></p><button type="submit" class="btn">Add weekly time</button></form>';
  }
- function profiles(rows,config){
-  if(!config?.unified_pilot){
-   return '<div class="unified-preview-intro"><span class="pilot-eyebrow">PERMANENT SERVICE PROFILES · DESIGN PREVIEW</span><h2>Local skills, ready when you need them.</h2><p>Browse illustrative provider concepts. Live profiles are disabled in this view.</p></div>'+
-   '<div class="unified-profiles-grid"><article class="unified-profile"><span class="pilot-eyebrow">FICTIONAL INDIVIDUAL</span><h3>Weekend Lawn Refresh</h3><p>Example service in Decatur, AL</p><strong>$45.00 example</strong><p>Schedule: Saturday mornings · illustrative only</p><span class="unified-no-times">No real appointments</span></article></div>';
-  }
-  return '<div class="unified-preview-intro"><span class="pilot-eyebrow">PERMANENT SERVICE PROFILES · PRIVATE TEST</span><h2>Discover local skills.</h2><p>Profiles remain visible between available appointments. All providers shown are fictional and unverified.</p></div>'+
-  '<div class="unified-profiles-grid">'+(rows.length?rows.map(x=>'<article class="unified-profile"><span class="pilot-eyebrow">'+(x.provider_kind==='individual'?'INDIVIDUAL PROVIDER · UNVERIFIED':'TEST BUSINESS · UNVERIFIED')+'</span>'+
-   '<h3>'+h(x.title)+'</h3><p>'+h(x.provider_name)+' · '+h(x.city)+'</p>'+
-   '<p class="unified-profile-about">'+h(x.description)+'</p><div class="unified-profile-facts"><span>'+h(x.category)+'</span><span>'+h(x.neighborhood)+'</span><strong>'+money(x.price_cents)+'</strong></div>'+
-   (x.next_listing_id?'<button class="btn" type="button" data-pilot-request="'+Number(x.next_listing_id)+'">Request next opening</button>':'<span class="unified-no-times">No available times yet</span>')+'</article>').join(''):'<div class="panel"><h3>No test service profiles yet</h3><p class="muted">Create a fictional provider profile in Business Studio to populate this section.</p></div>')+'</div>';
+ function profiles(rows,config,options={}){
+  return root.RouteDropTrustUI.catalog(rows,config,options);
  }
  function studio(my,kind){
   const profiles=my.profiles||[],rules=my.rules||[];

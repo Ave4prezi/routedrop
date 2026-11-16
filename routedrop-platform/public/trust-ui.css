@@ -1,0 +1,35 @@
+/* Private-test provider ratings and like-for-like service price comparison. */
+.trust-toolbar{display:flex;align-items:end;flex-wrap:wrap;gap:14px;background:#f5f9ff;border:1px solid #e1eaf7;border-radius:18px;padding:18px;margin-bottom:13px}
+.trust-toolbar label{display:flex;flex-direction:column;gap:7px;font-size:11px;font-weight:750;color:#40618b}
+.trust-toolbar select{min-width:165px;max-width:100%;padding:11px 12px;border:1px solid #d3e1f2;border-radius:10px;background:#fff;color:#143859;font-size:12px}
+.trust-compare-action{margin-left:auto;display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+.trust-compare-action span{font-size:11px;color:#6c83a3}
+.trust-compare-action .btn:disabled{opacity:.52;cursor:not-allowed}
+.trust-disclaimer{color:#74839b;font-size:11px;line-height:1.6;margin:9px 0 20px}
+.trust-catalog{margin-bottom:30px}
+.trust-service-card{gap:11px}
+.trust-card-overline{display:flex;justify-content:space-between;align-items:start;gap:8px}
+.trust-compare-toggle{display:inline-flex;gap:6px;align-items:center;font-size:11px;color:#2957a7;font-weight:700;white-space:nowrap;cursor:pointer}
+.trust-compare-toggle input{width:16px;height:16px;accent-color:#2563eb}
+.trust-rating{display:inline-flex;align-items:center;gap:5px;color:#805514;font-size:13px;font-weight:800}
+.trust-rating>span{color:#d18e24;font-size:18px}
+.trust-rating small{color:#7186a4;font-size:10px;font-weight:600}
+.trust-unrated{display:inline-block;color:#6d7f98;background:#f0f4fa;padding:7px 10px;border-radius:99px;font-size:11px;font-weight:700}
+.trust-card-specs{display:flex;flex-wrap:wrap;gap:9px;justify-content:space-between;font-size:10px;color:#7890aa;padding-top:5px}
+.trust-reviews-link{align-self:flex-start;border:0;background:transparent;padding:7px 0;color:#1e54b6;text-decoration:underline;text-underline-offset:4px;font-size:11px;font-weight:780}
+.trust-compare-table{width:100%;max-width:100%;overflow-x:auto;margin:17px 0;border:1px solid #dce7f6;border-radius:14px}
+.trust-compare-table table{width:100%;border-collapse:collapse;min-width:490px;font-size:12px}
+.trust-compare-table th,.trust-compare-table td{text-align:left;vertical-align:top;padding:13px 12px;border-bottom:1px solid #e2ebf7;min-width:120px}
+.trust-compare-table th{background:#f4f8ff;color:#274b7c;font-weight:800}
+.trust-compare-table td{color:#385774}
+.trust-compare-table caption{font-size:12px;color:#385674;padding:10px}
+.trust-review-summary{margin:16px 0}
+.trust-review{border-top:1px solid #e2eaf5;padding:17px 0}
+.trust-review h3{font-size:16px;margin:11px 0 5px;color:#153c6c}
+.trust-review p{color:#576f8d;font-size:12px;line-height:1.65;white-space:pre-wrap;overflow-wrap:anywhere}
+.trust-review-top{display:flex;justify-content:space-between;gap:12px;align-items:center}
+.trust-review-top strong{color:#8b5b12}
+.trust-review-top span{font-size:10px;color:#788da8}
+.trust-report{padding:4px 0;border:0;background:transparent;color:#597498;text-decoration:underline;font-size:11px}
+.trust-review-cta{border:1px solid #bed7ff;border-radius:10px;padding:10px 15px;font-size:11px;background:#eff5ff;color:#2354a5;font-weight:800}
+@media(max-width:680px){.trust-toolbar{align-items:stretch}.trust-toolbar label{flex:1 1 140px}.trust-compare-action{width:100%;justify-content:space-between}.trust-compare-action .btn{flex:0 0 auto}.trust-card-overline{flex-wrap:wrap}}

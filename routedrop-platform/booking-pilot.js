@@ -45,6 +45,7 @@ function registerPilotRoutes(app,{pool,safe,requireDb,requireUser,requireProvide
    `SELECT r.id,r.listing_id,r.status,r.price_cents,r.created_at,r.updated_at,
     l.title,l.slot_start,l.duration_minutes,l.neighborhood,l.category,
     b.name AS business_name,b.city,
+    (SELECT rv.id FROM pilot_service_reviews rv WHERE rv.request_id=r.id) AS review_id,
     CASE WHEN r.status IN ('accepted','completed','confirmed','issue_reported')
       THEN cu.full_name ELSE NULL END AS customer_name
     FROM service_requests r

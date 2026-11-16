@@ -25,6 +25,7 @@
    if(role==='customer'){
     if(['requested','accepted'].includes(x.status))actions=action(x.id,'cancel','Cancel request',true);
     if(x.status==='completed')actions=action(x.id,'confirm','Confirm work')+action(x.id,'report','Report an issue',true);
+    if(x.status==='confirmed')actions=x.review_id?'<span class="trust-unrated">Test review submitted</span>':'<button type="button" class="trust-review-cta" data-review-request-id="'+Number(x.id)+'">Rate &amp; review this service</button>';
    } else {
     if(x.status==='requested')actions=action(x.id,'accept','Accept request')+action(x.id,'decline','Decline',true);
     if(x.status==='accepted')actions=action(x.id,'complete','Mark work complete');
