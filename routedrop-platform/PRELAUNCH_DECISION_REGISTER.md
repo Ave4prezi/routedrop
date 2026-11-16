@@ -29,6 +29,30 @@
 - Go-live approver: NOT NAMED
 - Real-provider pilot approval date: NONE
 
+## External review outreach — initiated November 15, 2026 (America/Chicago)
+
+**Outreach was sent; no quote, engagement, approval or real-data access has been granted.** These are ordinary email inquiries without attachments or credentials:
+
+| Review track | Contact / recipient | Action and current status |
+| --- | --- | --- |
+| Legal provider agreement + privacy and refund policy | Steve Sasser, Sasser Law Firm LLC — steve@sasserlawllc.com | Inquiry sent; awaiting reply, availability, fee/retainer and privacy specialization confirmation |
+| Independent application / API security assessment | Cyburity — contact@cyburity.com | Scoped quote and independence-methodology inquiry sent; awaiting response |
+| Independent application / API security assessment | H2L Solutions — info@h2lsolutions.com | Scoped quote and independent-assessment inquiry sent; awaiting response |
+
+Public contact emails were verified against the firms' websites. No statements from any prospective supplier have been received accepting the scope or authorizing access.
+
+### Proposed internal responsibility split — NOT APPOINTMENTS
+
+- **Business/operator accountable owner:** an authorized RouteDrop representative must approve vendor selection, budget, legal entity and release decisions. **UNCONFIRMED.**
+- **Primary support lead:** a named person must accept ownership of customer/provider tickets, published support hours, verified business contact channel and escalations. **UNASSIGNED.**
+- **Backup support/continuity contact:** a different person must accept on-call or coverage responsibilities. **UNASSIGNED.**
+- **Security incident commander:** a qualified named primary (internal or contracted) must accept incident triage, vendor coordination, containment and counsel escalation. **UNASSIGNED.**
+- **Incident backup:** a second independent contact and tested out-of-band communications are required. **UNASSIGNED.**
+- **Privacy/data-rights contact:** an actual owner/inbox must be established and reviewed by counsel before publishing contact details. **UNASSIGNED.**
+- **Independent assessment firm / counsel:** short-listed contacts are only *candidates* and have not accepted or approved anything.
+
+Next decision: after quotes arrive, record proposed scope, costs, independence, and written engagement approval before granting temporary read-only synthetic preview access. Do not send credentials or real documents through introductory email.
+
 ## Safe next actions
 
 1. Identify legal entity, owner/operator authority, support/incident contacts and budget.
