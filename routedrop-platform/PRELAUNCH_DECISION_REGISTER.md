@@ -20,7 +20,7 @@
 
 - Legal entity: NOT CONFIRMED
 - Operator/contract signer: NOT NAMED
-- Primary support contact + hours: **PRIMARY DESIGNATED AND SELF-ACCEPTED (identity kept off public GitHub)**; shared temporary business mailbox proposed but not yet delivery-tested; availability and coverage hours UNCONFIRMED.
+- Primary support contact + hours: **PRIMARY DESIGNATED AND SELF-ACCEPTED (identity kept off public GitHub)**; shared temporary business mailbox proposed; both primary and backup report having access; mailbox owner authorization, RouteDrop-specific send/receive testing, availability and coverage hours UNCONFIRMED.
 - Backup support contact: **BACKUP ACCEPTED VERBALLY IN PERSON, AS REPORTED BY PRIMARY CONTACT (identity kept off public GitHub)** on November 15, 2026; written acknowledgment recommended; availability, secure handoff and alternate contact method UNCONFIRMED.
 - Privacy contact: NOT ASSIGNED
 - Security incident lead + backup: NOT ASSIGNED
@@ -55,9 +55,9 @@ Next decision: after quotes arrive, record proposed scope, costs, independence, 
 
 ### Temporary shared-business support channel proposal — not activated
 
-The project operator proposed temporarily using an existing mailbox belonging to a separate affiliated organization for RouteDrop business/customer support. **This public repo intentionally does not name that mailbox or publish personal contact identities.** The mailbox has **not** been verified for RouteDrop send/receive, shared access, routing, or contractual/privacy permission.
+The project operator proposed temporarily using an existing mailbox belonging to a separate affiliated organization for RouteDrop business/customer support. **This public repo intentionally does not name that mailbox or publish personal contact identities.** Both primary and backup contacts report that they can access the mailbox. **RouteDrop-specific send/receive, routing, mailbox owner authorization, and contractual/privacy permission are still not independently verified.**
 
-Before any real messages are invited: obtain the mailbox owner's consent, test email in both directions, determine separate access/labels or forwarding for RouteDrop conversations, assign primary/backup coverage and hours, prepare a RouteDrop-identifying signature and privacy notice, and approve retention/access terms for information from two separate organizations. Prefer a dedicated RouteDrop-domain mailbox before a public pilot. No real-data support channel is approved solely by this entry.
+Before any real messages are invited: verify organizational authorization to use the shared mailbox, test email in both directions with each authorized operator, set separate labels or forwarding for RouteDrop conversations, assign primary/backup coverage and hours, prepare a RouteDrop-identifying signature and privacy notice, and approve retention/access terms for information from two separate organizations. Prefer a dedicated RouteDrop-domain mailbox before a public pilot. No real-data support channel is approved solely by this entry.
 
 ## Safe next actions
 
