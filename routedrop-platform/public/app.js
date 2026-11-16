@@ -8,6 +8,7 @@ const pilot=window.RouteDropPilotUI;
  const unified=window.RouteDropUnified;
  const trust=window.RouteDropTrustUI;
  const safetyUi=window.RouteDropSafetyUI;
+ const readiness=window.RouteDropReadiness;
  const passkeys=window.RouteDropPasskeys;
 const state={config:null,me:null,listings:[],bookings:[],mine:[],tab:'explore',demo:false,demoRequests:[],demoCounter:0,demoListingId:null,demoSlot:'afternoon',demoArea:{center:'decatur',radiusMiles:20},pilotRequests:[],pilotListingId:null,jobs:[],jobSearch:'',serviceProfiles:[],myServiceProfiles:{profiles:[],rules:[]},jobInterests:null,compareIds:[],profileSort:'default',profileCategory:'',moderatorKey:null,safetyStatus:null,myReviews:[],identityStatus:null};
 const esc=v=>String(v===null||v===undefined?'':v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -165,9 +166,9 @@ async function studio(){
  if(!u){$('studio-body').innerHTML=unified.entry()+'<div class="panel"><h3>One account for every path</h3><p>Sign up with a fictional test identity. You can book services, find work and offer your own services with the same login.</p><button class="btn" data-action="register">Create one account</button></div>';return;}
  if(state.config.unified_pilot){
   if(!state.me.business){$('studio-body').innerHTML=unified.entry()+'<div class="panel"><h3>Activate your provider profile</h3><p>Start as an individual without registering a company. Your existing customer bookings and job interests remain on this account.</p><button class="btn" data-action="start-provider">Create provider profile</button></div>';return;}
-  const [listings,requests,jobs,profiles]=await Promise.all([api('/api/my-listings'),api('/api/pilot/requests?view=provider'),api('/api/pilot/my-jobs'),api('/api/pilot/my-service-profiles')]);
-  state.mine=listings.listings;state.pilotRequests=requests.requests;state.myServiceProfiles=profiles;
-  $('studio-body').innerHTML=unified.entry()+pilot.studio(state.me.business,state.mine,state.pilotRequests,serviceCoveragePanel(state.me.business))+unified.studio(profiles,state.me.business.provider_kind)+opportunities.employerPanel(jobs.jobs,state.me.business.provider_kind);return;
+  const [listings,requests,jobs,profiles,screening,identity]=await Promise.all([api('/api/my-listings'),api('/api/pilot/requests?view=provider'),api('/api/pilot/my-jobs'),api('/api/pilot/my-service-profiles'),api('/api/pilot/safety/provider'),api('/api/pilot/identity/status')]);
+  state.mine=listings.listings;state.pilotRequests=requests.requests;state.myServiceProfiles=profiles;state.safetyStatus=screening;state.identityStatus=identity;
+  $('studio-body').innerHTML=unified.entry()+readiness.providerChecklist(state.me,screening,identity,state.config)+pilot.studio(state.me.business,state.mine,state.pilotRequests,serviceCoveragePanel(state.me.business))+unified.studio(profiles,state.me.business.provider_kind)+opportunities.employerPanel(jobs.jobs,state.me.business.provider_kind);return;
  }
  if(u.role!=='business'){$('studio-body').innerHTML='<div class="empty">A business account is required to publish routes outside the private pilot.</div>';return;}
  const b=state.me.business,r=await Promise.all([api('/api/my-listings'),api('/api/bookings')]);
