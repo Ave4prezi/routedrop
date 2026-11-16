@@ -52,6 +52,7 @@ jobs:
           node --check routedrop-platform/test/passkey-browser.mjs
           node --check routedrop-platform/test/identity-webhook-http.mjs
           node --check routedrop-platform/test/premium-2-browser.mjs
+          node --check routedrop-platform/test/service-area-browser.mjs
       - name: Install dependencies without hooks
         working-directory: routedrop-platform
         run: npm install --ignore-scripts --no-audit --no-fund
@@ -70,6 +71,8 @@ jobs:
         run: node routedrop-platform/test/pilot-browser.mjs
       - name: Browser WebAuthn — virtual authenticator, real signed registration and login, expiry and account isolation
         run: node routedrop-platform/test/passkey-browser.mjs
+      - name: Desktop/mobile service-area diagram and no-save preview regression
+        run: node routedrop-platform/test/service-area-browser.mjs
       - name: Preserve existing Premium 2.0 demo/browser regression
         run: node routedrop-platform/test/premium-2-browser.mjs
       - name: Preserve desktop/mobile testing screenshots
