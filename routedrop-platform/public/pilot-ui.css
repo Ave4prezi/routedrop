@@ -1,0 +1,45 @@
+/* Real, private, payment-free RouteDrop booking pilot; design harmonizes with Premium 2.0 */
+.pilot-eyebrow{color:#3469c4;font-size:10px;letter-spacing:.12em;font-weight:900}
+.pilot-banner{background:linear-gradient(125deg,#0b2850,#1a51a7);color:#fff;border-radius:24px;padding:33px 37px;margin-bottom:23px;box-shadow:0 18px 43px #0d31632a}
+.pilot-banner .eyebrow{color:#a6ceff}.pilot-banner h2{font-size:clamp(27px,3vw,37px);letter-spacing:-.055em;line-height:1.2;margin:11px 0;color:#fff}
+.pilot-banner p{font-size:12px;line-height:1.75;color:#d0def5;max-width:690px;margin:0}
+.pilot-summary{border:1px solid #e1eaf7;background:#f5f9ff;border-radius:17px;padding:18px;display:flex;flex-direction:column;gap:9px;margin:19px 0}
+.pilot-summary>strong{font-size:20px;line-height:1.2;letter-spacing:-.05em;color:#163b6b}
+.pilot-summary>span{font-size:12px;color:#6e82a0}
+.pilot-summary>div{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:11px 0 0;border-top:1px solid #e0e8f5}
+.pilot-summary small{font-size:11px;color:#7588a3}
+.pilot-summary>div strong{font-size:17px;color:#174ca7;white-space:nowrap}
+.pilot-primary{width:100%;margin-top:15px;min-height:48px}
+.pilot-heading{display:flex;align-items:center;justify-content:space-between;gap:16px;margin:24px 0 16px}
+.pilot-heading h2{font-size:27px;color:#11355f;letter-spacing:-.05em;margin:0}
+.pilot-heading span{font-size:11px;font-weight:800;color:#3668b1;background:#edf4ff;border:1px solid #dbe8fa;border-radius:20px;padding:8px 12px}
+.pilot-requests{display:grid;gap:18px;margin-bottom:26px}
+.pilot-request-card{background:white;border:1px solid #e0e9f5;border-radius:21px;box-shadow:0 11px 35px #1539660b;padding:25px}
+.pilot-card-heading{display:flex;gap:16px;align-items:flex-start;justify-content:space-between;flex-wrap:wrap}
+.pilot-card-heading h3{font-size:22px;letter-spacing:-.045em;color:#16395f;margin:8px 0}
+.pilot-card-heading p{font-size:12px;color:#7990aa;margin:0}
+.pilot-status{white-space:nowrap;font-size:10px;font-weight:850;color:#1856ae;background:#e9f2ff;border-radius:30px;padding:9px 12px}
+.pilot-status.muted-status{background:#fff0e4;color:#8c5a2d}
+.pilot-request-meta{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;border-top:1px solid #e6edf7;border-bottom:1px solid #e6edf7;padding:18px 0;margin:18px 0}
+.pilot-request-meta>div{display:flex;flex-direction:column;gap:8px}
+.pilot-request-meta small{font-size:9px;font-weight:900;color:#8a9ab0;letter-spacing:.09em}
+.pilot-request-meta strong{font-size:13px;line-height:1.5;color:#274b79}
+.pilot-safe-note{font-size:11px!important;line-height:1.6;color:#778aa5;margin:12px 0}
+.pilot-actions{display:flex;flex-wrap:wrap;gap:9px;margin-top:18px}.pilot-actions .btn{min-height:42px}
+.pilot-provider-bar .buttonrow{margin-top:15px}
+.pilot-listing-row{border-top:1px solid #e2eafa;padding:17px 0;display:flex;align-items:center;justify-content:space-between;gap:20px}
+.pilot-listing-row strong{color:#27476b;font-size:14px}
+.pilot-listing-row p{font-size:11px;line-height:1.6;color:#7f90a8;margin:5px 0}
+.pilot-listing-row>div:last-child{display:flex;align-items:center;gap:11px;flex-shrink:0}
+.pilot-listing-row .btn{font-size:11px}
+.pilot-empty{max-width:none;padding:30px!important}
+@media(max-width:640px){
+ .pilot-banner{padding:25px 22px;border-radius:19px}.pilot-banner h2{font-size:30px}
+ .pilot-heading h2{font-size:23px}
+ .pilot-request-card{padding:19px}.pilot-card-heading h3{font-size:19px}
+ .pilot-request-meta{grid-template-columns:1fr 1fr}
+ .pilot-request-meta>div:first-child{grid-column:1/-1}
+ .pilot-actions{display:grid;grid-template-columns:1fr}.pilot-actions .btn{width:100%}
+ .pilot-listing-row{align-items:flex-start;flex-direction:column}
+ .pilot-listing-row>div:last-child{width:100%;justify-content:space-between}
+}

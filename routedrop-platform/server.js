@@ -7,11 +7,14 @@ const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const { Pool } = require('pg');
 const serviceArea = require('./public/service-area');
+const bookingPilot = require('./booking-pilot');
+const { mountStagingSignIn } = require('./staging-access');
 const Stripe = require('stripe');
 const { normalizeSubscriptionEvent, invoiceEvent, selectSubscription, canStartSubscription, subscriptionView, securityPolicy } = require('./subscription-security');
 const { providerReady, emailLink, isActionToken, notification, deliverEmail } = require('./mail');
 const { livePaymentsAllowed, checkoutOutcome, refundableAmount, disputeState, cancellationEligibility, refundStatus, refundOperation } = require('./payment-safeguards');
 
+const supportModule = require('./support-alerts');
 const app = express();
 app.disable('x-powered-by');
 app.set('trust proxy', 1);
@@ -20,12 +23,19 @@ const baseUrl = (process.env.PUBLIC_URL || '').replace(/\/+$/, '');
 const databaseUrl = process.env.DATABASE_URL || '';
 const stripeKey = process.env.STRIPE_SECRET_KEY || '';
 const stripeWebhookSecret = process.env.STRIPE_WEBHOOK_SECRET || '';
+const previewAccessPassword = process.env.ROUTEDROP_PREVIEW_ACCESS_PASSWORD || '';
+const pilotRequested = process.env.ROUTEDROP_WORKFLOW_PILOT === 'true';
+if (pilotRequested && (!previewAccessPassword || stripeKey || stripeWebhookSecret || process.env.ROUTEDROP_LIVE_APPROVED === 'true')) {
+ throw Error('Booking pilot requires private preview authentication, no Stripe keys and no live-payment approval.');
+}
+const workflowPilot = pilotRequested;
 const stripe = stripeKey ? new Stripe(stripeKey) : null;
 const liveKey = /^(sk|rk)_live_/.test(stripeKey);
 const paymentsApproved = livePaymentsAllowed(stripeKey,process.env.ROUTEDROP_LIVE_APPROVED);
 const emailReady = providerReady(process.env);
-const paymentsReady = !!(stripe && stripeWebhookSecret && paymentsApproved);
+const paymentsReady = !workflowPilot && !!(stripe && stripeWebhookSecret && paymentsApproved);
 const pool = databaseUrl ? new Pool({ connectionString: databaseUrl, max: 5, idleTimeoutMillis: 30000, connectionTimeoutMillis: 10000, ssl: databaseUrl.includes('localhost') ? false : { rejectUnauthorized: false } }) : null;
+const supportAlerts = supportModule.createSupportAlerts({pool});
 const safe = fn => (req, res, next) => Promise.resolve(fn(req, res)).catch(next);
 const hash = value => crypto.createHash('sha256').update(value).digest('hex');
 const random = () => crypto.randomBytes(32).toString('hex');
@@ -39,9 +49,17 @@ app.use(helmet({
  contentSecurityPolicy: { directives: { defaultSrc:["'self'"], scriptSrc:["'self'"], styleSrc:["'self'","'unsafe-inline'"], imgSrc:["'self'","data:"], connectSrc:["'self'"], objectSrc:["'none'"], frameAncestors:["'none'"], upgradeInsecureRequests: process.env.NODE_ENV==='production' ? [] : null } },
  referrerPolicy: { policy:'no-referrer' }
 }));
-// Optional password gate for an isolated, database-free UX walkthrough only.
-const previewPass=process.env.ROUTEDROP_PREVIEW_ACCESS_PASSWORD || '';
-if(previewPass){
+app.use(cookieParser());
+const previewPass=previewAccessPassword;
+if(workflowPilot){
+ mountStagingSignIn(app,{
+  enabled:true,
+  password:previewPass,
+  username:'routedrop-preview',
+  publicPaths:[],
+  title:'RouteDrop Private Booking Pilot'
+ });
+}else if(previewPass){
  app.use((req,res,next)=>{
   const auth=req.get('authorization')||'';
   let pair='';
@@ -55,7 +73,6 @@ if(previewPass){
   next();
  });
 }
-app.use(cookieParser());
 app.use((req,res,next) => {
  if (req.path.startsWith('/api/')) res.set('Cache-Control', 'no-store');
  next();
@@ -101,16 +118,21 @@ const ddl = [
  "CREATE TABLE IF NOT EXISTS notification_outbox (id BIGSERIAL PRIMARY KEY, event_key TEXT UNIQUE NOT NULL, recipient TEXT NOT NULL, subject TEXT NOT NULL, body TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','sending','sent','failed')), attempts INTEGER NOT NULL DEFAULT 0, available_at TIMESTAMPTZ NOT NULL DEFAULT now(), sent_at TIMESTAMPTZ, last_error TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())",
  "CREATE INDEX IF NOT EXISTS notification_outbox_due ON notification_outbox(status,available_at)"
 ];
+ddl.push(...supportModule.ddl);
+if(workflowPilot)ddl.push(...bookingPilot.ddl);
 async function startDatabase() {
  if (!pool) return;
  try {
   for (const statement of ddl) await pool.query(statement);
   ready = true;
   console.log('RouteDrop PostgreSQL ready');
+  console.log('RouteDrop support sender configured:',emailReady);
+  await supportAlerts.queue(pool,'setup','v1');
+  supportAlerts.process().catch(e=>console.error('Support alert worker unavailable'));
  } catch(err) { ready=false; console.error('Database unavailable:',err.message); }
 }
 function requireDb(req,res,next) { if (!ready) return forbidden(res,'Accounts are not yet enabled. The private beta database is pending setup.',503); next(); }
-function setCookie(res,token) { res.cookie('__Host-rd_session',token,{secure:process.env.NODE_ENV==='production',httpOnly:true,sameSite:'lax',path:'/',maxAge:7*24*60*60*1000}); }
+function setCookie(res,token) { res.cookie('__Host-rd_session',token,{secure:true,httpOnly:true,sameSite:'lax',path:'/',maxAge:7*24*60*60*1000}); }
 async function sessionUser(req,res,next) {
  try {
   req.user=null;
@@ -215,7 +237,7 @@ app.get('/api/config',(req,res)=>{
  if(!req.cookies.routedrop_csrf || !/^[a-f0-9]{64}$/.test(req.cookies.routedrop_csrf)){
   res.cookie('routedrop_csrf',random(),{secure:process.env.NODE_ENV==='production',httpOnly:false,sameSite:'lax',path:'/',maxAge:7*24*60*60*1000});
  }
- res.json({database:ready,payments:paymentsReady,status:ready?'beta':'setup_required',email_enabled:emailReady,payments_mode:liveKey?(paymentsApproved?'live':'live_locked'):'test',public_url:baseUrl});
+ res.json({database:ready,payments:paymentsReady,workflow_pilot:workflowPilot&&ready,status:ready?'beta':'setup_required',email_enabled:emailReady,payments_mode:liveKey?(paymentsApproved?'live':'live_locked'):'test',public_url:baseUrl});
 });
 async function issueEmailAction(userId,email,purpose) {
  if(!emailReady||!baseUrl)return false;
@@ -263,7 +285,7 @@ async function processNotificationOutbox(){
   }
  }catch(e){console.error('RouteDrop notification worker error',e.message);}finally{outboxBusy=false;}
 }
-setInterval(()=>{processNotificationOutbox().catch(e=>console.error('Mail worker error',e.message));},30000).unref();
+setInterval(()=>{if(ready)supportAlerts.process().catch(e=>console.error('Support alert worker unavailable'));processNotificationOutbox().catch(e=>console.error('Mail worker error',e.message));},30000).unref();
 app.post('/api/auth/request-verification',requireDb,requireUser(),authLimiter,safe(async(req,res)=>{
  if(!emailReady)return forbidden(res,'Email sending is not configured yet.',503);
  const q=await pool.query("SELECT email,email_verified_at FROM users WHERE id=$1",[req.user.id]);
@@ -307,7 +329,7 @@ app.post('/api/auth/reset-password',requireDb,authLimiter,safe(async(req,res)=>{
   await client.query('DELETE FROM sessions WHERE user_id=$1',[q.rows[0].user_id]);
   await client.query('DELETE FROM email_action_tokens WHERE user_id=$1',[q.rows[0].user_id]);
   await client.query('COMMIT');
-  res.clearCookie('__Host-rd_session',{path:'/'});
+  res.clearCookie('__Host-rd_session',{secure:true,httpOnly:true,sameSite:'lax',path:'/'});
   res.json({ok:true,message:'Password changed. Please log in again.'});
  }catch(e){await client.query('ROLLBACK').catch(()=>{});throw e;}finally{client.release();}
 }));
@@ -351,13 +373,13 @@ app.post('/api/auth/change-password',requireDb,requireUser(),authLimiter,safe(as
   await client.query('DELETE FROM email_action_tokens WHERE user_id=$1',[req.user.id]);
   await client.query('COMMIT');
  }catch(e){await client.query('ROLLBACK').catch(()=>{});throw e;}finally{client.release();}
- res.clearCookie('__Host-rd_session',{path:'/'});
+ res.clearCookie('__Host-rd_session',{secure:true,httpOnly:true,sameSite:'lax',path:'/'});
  res.json({ok:true,message:'Password updated. Sign in again with your new password.'});
 }));
 app.post('/api/logout',requireDb,requireUser(),safe(async(req,res)=>{
  const token=req.cookies['__Host-rd_session'];
  if(token)await pool.query('DELETE FROM sessions WHERE token_hash=$1',[hash(token)]);
- res.clearCookie('__Host-rd_session',{path:'/'});
+ res.clearCookie('__Host-rd_session',{secure:true,httpOnly:true,sameSite:'lax',path:'/'});
  res.json({ok:true});
 }));
 app.get('/api/me',requireDb,safe(async(req,res)=>{
@@ -376,8 +398,10 @@ app.put('/api/business/service-area',requireDb,requireUser('business'),safe(asyn
  if(!changed.rowCount)return forbidden(res,'Business account not found.',404);
  res.json({ok:true,serviceArea:changed.rows[0]});
 }));
+if(workflowPilot && pool)bookingPilot.registerPilotRoutes(app,{pool,safe,requireDb,requireUser,forbidden,supportAlerts,emailReady});
 app.get('/api/listings',requireDb,safe(async(req,res)=>{
- const data=await pool.query("SELECT l.id,l.title,l.category,l.neighborhood,l.price_cents,l.slot_start,l.duration_minutes,b.name AS business_name,b.city,b.service_center_code,b.service_radius_miles FROM listings l JOIN businesses b ON b.id=l.business_id WHERE l.status='active' AND l.slot_start>now() AND NOT EXISTS(SELECT 1 FROM bookings k WHERE k.listing_id=l.id AND k.status IN ('awaiting_payment','paid','completed')) ORDER BY l.slot_start ASC LIMIT 100");
+ const pilotExclusion=workflowPilot?" AND NOT EXISTS(SELECT 1 FROM service_requests r WHERE r.listing_id=l.id AND r.status IN ('requested','accepted','completed','confirmed','issue_reported'))":"";
+ const data=await pool.query("SELECT l.id,l.title,l.category,l.neighborhood,l.price_cents,l.slot_start,l.duration_minutes,b.name AS business_name,b.city,b.service_center_code,b.service_radius_miles FROM listings l JOIN businesses b ON b.id=l.business_id WHERE l.status='active' AND l.slot_start>now() AND NOT EXISTS(SELECT 1 FROM bookings k WHERE k.listing_id=l.id AND k.status IN ('awaiting_payment','paid','completed'))"+pilotExclusion+" ORDER BY l.slot_start ASC LIMIT 100");
  res.json({listings:data.rows});
 }));
 app.post('/api/listings',requireDb,requireUser('business'),safe(async(req,res)=>{

@@ -3,7 +3,8 @@
 const $=id=>document.getElementById(id);
 const coverage=window.RouteDropServiceArea;
 const premium=window.RouteDropPremium2;
-const state={config:null,me:null,listings:[],bookings:[],mine:[],tab:'explore',demo:false,demoRequests:[],demoCounter:0,demoListingId:null,demoSlot:'afternoon',demoArea:{center:'decatur',radiusMiles:20}};
+const pilot=window.RouteDropPilotUI;
+const state={config:null,me:null,listings:[],bookings:[],mine:[],tab:'explore',demo:false,demoRequests:[],demoCounter:0,demoListingId:null,demoSlot:'afternoon',demoArea:{center:'decatur',radiusMiles:20},pilotRequests:[],pilotListingId:null};
 const esc=v=>String(v===null||v===undefined?'':v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const money=cents=>new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(Number(cents||0)/100);
 const when=iso=>new Intl.DateTimeFormat('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}).format(new Date(iso));
@@ -70,6 +71,12 @@ async function refresh(){
   if(state.tab==='explore'){
    const r=await api('/api/listings');state.listings=r.listings;renderOffers();
   }else if(state.tab==='bookings'){
+   if(state.config.workflow_pilot){
+    if(!state.me.user){$('my-bookings').innerHTML='<div class="empty"><h3>Test account required</h3><p>Create a customer test account or sign in to see requests.</p><button type="button" class="btn" data-action="register">Create test account</button></div>';return;}
+    if(state.me.user.role!=='customer'){$('my-bookings').innerHTML='<div class="empty">Business accounts manage incoming requests in Business Studio.</div>';return;}
+    state.pilotRequests=(await api('/api/pilot/requests')).requests;
+    $('my-bookings').innerHTML=pilot.customer(state.pilotRequests);return;
+   }
    if(!state.me.user){$('my-bookings').innerHTML='<div class="empty">Please log in to see your bookings.</div>';return;}
    const r=await api('/api/bookings');state.bookings=r.bookings;renderBookings();
   }else if(state.tab==='business') await studio();
@@ -126,6 +133,11 @@ async function studio(){
  const u=state.me?.user;
  if(!u){$('studio-body').innerHTML='<div class="empty"><h3>Business account required</h3><p>Create a business account to list open route slots.</p><button class="btn" data-action="register">Register a business</button></div>';return;}
  if(u.role!=='business'){$('studio-body').innerHTML='<div class="empty">You are signed in as a customer. Use a separate business account to publish routes.</div>';return;}
+ if(state.config.workflow_pilot){
+  const [listings,requests]=await Promise.all([api('/api/my-listings'),api('/api/pilot/requests')]);
+  state.mine=listings.listings;state.pilotRequests=requests.requests;
+  $('studio-body').innerHTML=pilot.studio(state.me.business,state.mine,state.pilotRequests,serviceCoveragePanel(state.me.business));return;
+ }
  const b=state.me.business,r=await Promise.all([api('/api/my-listings'),api('/api/bookings')]);
  state.mine=r[0].listings;state.bookings=r[1].bookings;
  const subscription=await api('/api/business/subscription');
@@ -143,10 +155,10 @@ async function studio(){
  '<div class="panel"><h3>Recent bookings</h3>'+(state.bookings.length?state.bookings.map(x=>'<div class="record"><div><strong>'+esc(x.title)+'</strong><p>'+when(x.slot_start)+' · '+esc(x.status)+'</p></div>'+(x.status==='paid'&&!['pending','processing','needs_review'].includes(x.cancellation_request_status)?'<button class="btn" data-complete="'+x.id+'">Complete</button>':'<strong>'+money(x.price_cents)+'</strong>')+'</div>').join(''):'<p class="muted">No bookings recorded.</p>')+'</div>';
 }
 function showRegistration(){
- overlay('<h2 id="modal-title">Create your account</h2><p>Join RouteDrop as a customer or service professional.</p><form id="register-form"><label>Account type</label><select name="role" id="register-role"><option value="customer">Customer</option><option value="business">Business owner</option></select><label>Your full name</label><input name="name" minlength="2" maxlength="90" required autocomplete="name"><label>Email address</label><input name="email" type="email" maxlength="254" required autocomplete="email"><label>Password (12+ characters)</label><input name="password" type="password" minlength="12" maxlength="128" required autocomplete="new-password"><div id="business-fields" class="hidden"><label>Business name</label><input name="businessName" maxlength="120"><label>City</label><input name="city" maxlength="100" value="Decatur, AL"><label>Service category</label><select name="category"><option>Washing</option><option>Lawn care</option><option>Car detailing</option><option>Cleaning</option><option>Other</option></select></div><p class="legal">Use a unique password. Verification will be required for payments when email delivery is enabled.</p><p id="form-error" class="error"></p><button type="submit" class="btn">Register</button></form>');
+ overlay('<h2 id="modal-title">'+(state.config?.workflow_pilot?'Create a test account':'Create your account')+'</h2><p>'+(state.config?.workflow_pilot?'Use a fictional name and test email address. This isolated system saves account data for testing; never enter a real customer’s personal details.':'Join RouteDrop as a customer or service professional.')+'</p><form id="register-form"><label>Account type</label><select name="role" id="register-role"><option value="customer">Customer</option><option value="business">Business owner</option></select><label>Your full name</label><input name="name" minlength="2" maxlength="90" required autocomplete="name"><label>Email address</label><input name="email" type="email" maxlength="254" required autocomplete="email"><label>Password (12+ characters)</label><input name="password" type="password" minlength="12" maxlength="128" required autocomplete="new-password"><div id="business-fields" class="hidden"><label>Business name</label><input name="businessName" maxlength="120"><label>City</label><input name="city" maxlength="100" value="Decatur, AL"><label>Service category</label><select name="category"><option>Washing</option><option>Lawn care</option><option>Car detailing</option><option>Cleaning</option><option>Other</option></select></div><p class="legal">Use a unique password. Verification will be required for payments when email delivery is enabled.</p><p id="form-error" class="error"></p><button type="submit" class="btn">Register</button></form>');
 }
 function showLogin(){
- overlay('<h2 id="modal-title">Welcome back</h2><p>Log in to your RouteDrop account.</p><form id="login-form"><label>Email</label><input type="email" name="email" maxlength="254" autocomplete="email" required><label>Password</label><input type="password" name="password" autocomplete="current-password" required><p id="form-error" class="error"></p><button class="btn" type="submit">Log in</button><button type="button" class="btn secondary" data-action="forgot-password">Forgot password?</button></form>');
+ overlay('<h2 id="modal-title">Welcome back</h2><p>'+(state.config?.workflow_pilot?'Sign in with your RouteDrop pilot test credentials only. No real customer accounts or payments are supported.':'Log in to your RouteDrop account.')+'</p><form id="login-form"><label>Email</label><input type="email" name="email" maxlength="254" autocomplete="email" required><label>Password</label><input type="password" name="password" autocomplete="current-password" required><p id="form-error" class="error"></p><button class="btn" type="submit">Log in</button><button type="button" class="btn secondary" data-action="forgot-password">Forgot password?</button></form>');
 }
 function showChangePassword(){
  overlay('<h2 id="modal-title">Change password</h2><p>Use a unique password with at least 12 characters. Updating it will sign you out of all sessions.</p><form id="change-password-form"><label>Current password</label><input name="currentPassword" type="password" autocomplete="current-password" required><label>New password</label><input name="newPassword" type="password" minlength="12" maxlength="128" autocomplete="new-password" required><p id="form-error" class="error"></p><button class="btn" type="submit">Update password</button></form>');
@@ -162,12 +174,35 @@ async function verifyEmailToken(token){
  catch(e){message('Email verification failed: '+e.message,true);}
 }
 function showListing(){
- overlay('<h2 id="modal-title">Publish an available opening</h2><p>Publish one real service time window. Bookings are held until payment confirmation.</p><form id="listing-form"><label>Service title</label><input name="title" required maxlength="120" placeholder="Driveway cleaning"><label>Category</label><select name="category"><option>Washing</option><option>Lawn care</option><option>Car detailing</option><option>Cleaning</option><option>Other</option></select><label>Service neighborhood</label><input name="neighborhood" maxlength="100" required placeholder="Southeast Decatur"><label>Price in USD</label><input name="price" required type="number" step="0.01" min="5" max="5000"><label>Date & time</label><input name="slotStart" required type="datetime-local"><label>Duration (minutes)</label><input name="durationMinutes" required type="number" min="30" max="480" value="60" step="15"><p id="form-error" class="error"></p><button class="btn" type="submit">Publish route</button></form>');
+ overlay('<h2 id="modal-title">Publish an available opening</h2><p>'+(state.config?.workflow_pilot?'Publish fictional service information for this isolated account test. Requests are unpaid and need provider approval.':'Publish one real service time window. Bookings are held until payment confirmation.')+'</p><form id="listing-form"><label>Service title</label><input name="title" required maxlength="120" placeholder="Driveway cleaning"><label>Category</label><select name="category"><option>Washing</option><option>Lawn care</option><option>Car detailing</option><option>Cleaning</option><option>Other</option></select><label>Service neighborhood</label><input name="neighborhood" maxlength="100" required placeholder="Southeast Decatur"><label>Price in USD</label><input name="price" required type="number" step="0.01" min="5" max="5000"><label>Date & time</label><input name="slotStart" required type="datetime-local"><label>Duration (minutes)</label><input name="durationMinutes" required type="number" min="30" max="480" value="60" step="15"><p id="form-error" class="error"></p><button class="btn" type="submit">Publish route</button></form>');
 }
 async function act(e){
  const el=e.target.closest('button');if(!el)return;
  if(el.dataset.tab){if(!$('modal').classList.contains('hidden'))dismiss();switchTab(el.dataset.tab);return;}
- if(el.dataset.profileListing){const x=state.listings.find(item=>Number(item.id)===Number(el.dataset.profileListing));if(x)overlay(premium.profile(x,coverage));return;}
+ if(el.dataset.profileListing){const x=state.listings.find(item=>Number(item.id)===Number(el.dataset.profileListing));if(x)overlay(premium.profile(x,coverage,state.config));return;}
+ if(el.dataset.pilotRequest&&state.config?.workflow_pilot){
+  const x=state.listings.find(item=>Number(item.id)===Number(el.dataset.pilotRequest));
+  if(!x)return;
+  if(!state.me?.user){showLogin();message('Sign in with a customer test account first.');return;}
+  if(state.me.user.role!=='customer'){message('Only test customer accounts can request a service.',true);return;}
+  state.pilotListingId=x.id;overlay(pilot.requestModal(x));return;
+ }
+ if(el.dataset.pilotAction&&state.config?.workflow_pilot){
+  const id=Number(el.dataset.pilotId),action=el.dataset.pilotAction;
+  if(!Number.isSafeInteger(id)||id<1)return;
+  el.disabled=true;
+  try{await api('/api/pilot/requests/'+id+'/action',{method:'POST',body:JSON.stringify({action})});message('Test request updated. No payment was made.');await refresh();}
+  catch(err){message(err.message,true);}finally{if(el.isConnected)el.disabled=false;}
+  return;
+ }
+ if(el.dataset.pilotListingId&&state.config?.workflow_pilot){
+  const id=Number(el.dataset.pilotListingId),status=el.dataset.pilotListingStatus;
+  if(!Number.isSafeInteger(id)||!['active','paused'].includes(status))return;
+  el.disabled=true;
+  try{await api('/api/pilot/listings/'+id+'/status',{method:'PATCH',body:JSON.stringify({status})});message('Test listing '+status+'.');await refresh();}
+  catch(err){message(err.message,true);}finally{if(el.isConnected)el.disabled=false;}
+  return;
+ }
  if(el.dataset.demoBook&&state.demo&&!state.config?.database){
   const x=premium.DEMO.find(item=>item.id===Number(el.dataset.demoBook));
   if(!x)return;
@@ -203,10 +238,19 @@ async function act(e){
    return;
  }
  const action=el.dataset.action;
+ if(action==='pilot-confirm-request'&&state.config?.workflow_pilot){
+  if(!Number.isSafeInteger(Number(state.pilotListingId)))return;
+  el.disabled=true;
+  try{
+   await api('/api/pilot/requests',{method:'POST',body:JSON.stringify({listingId:Number(state.pilotListingId)})});
+   dismiss();message('Request saved in the isolated test database. No payment was collected.');switchTab('bookings');
+  }catch(err){message(err.message,true);}finally{if(el.isConnected)el.disabled=false;}
+  return;
+ }
  if(action==='search-services'){document.getElementById('available-openings')?.scrollIntoView({behavior:'smooth'});renderOffers();return;}
  if(action==='demo-back-to-profile'&&state.demo&&!state.config?.database){
   const x=premium.DEMO.find(item=>item.id===state.demoListingId);
-  if(x)overlay(premium.profile(x,coverage));
+  if(x)overlay(premium.profile(x,coverage,state.config));
   return;
  }
  if(action==='demo-confirm-request'&&state.demo&&!state.config?.database){
@@ -312,7 +356,13 @@ async function init(){
   const actionParams=new URLSearchParams(location.search);
   if(actionParams.has('reset')){const token=actionParams.get('reset');history.replaceState(null,'',location.pathname);showResetPassword(token);}
   else if(actionParams.has('verify')){const token=actionParams.get('verify');history.replaceState(null,'',location.pathname);await verifyEmailToken(token);}
-  if(!state.config.database)message('Private beta: an isolated database must be connected before registration and bookings can work.');
+  if(state.config.workflow_pilot){
+   const notice=document.querySelector('.announce');if(notice)notice.innerHTML='<strong>ISOLATED ACCOUNT TEST</strong><span>Test accounts and unpaid requests only · No payments or production customers</span>';
+   const customerIntro=document.querySelector('#bookings .interior-heading p');if(customerIntro)customerIntro.textContent='Track database-backed test requests. This is a private staging environment—not live bookings or real payments.';
+   const providerIntro=document.querySelector('#business .interior-heading p');if(providerIntro)providerIntro.textContent='Manage private test listings, unpaid requests and coverage radius with a separate staging database.';
+   const footerNote=document.querySelector('footer div:last-child p:last-child');if(footerNote)footerNote.textContent='Private staging only · Test accounts and service requests · No Stripe or production customer data';
+   message('Isolated RouteDrop booking pilot: use test identities only. All payments and payouts are disabled.');
+  }else if(!state.config.database)message('Private beta: an isolated database must be connected before registration and bookings can work.');
   else if(!state.config.payments)message('Accounts and listings enabled. Stripe payments and payouts are not yet configured.');
   if(new URLSearchParams(location.search).has('subscription'))message('Returned from subscription billing. Open Business Studio to check your subscription status.');
   if(new URLSearchParams(location.search).has('payment'))message('Returned from checkout. Payment status is confirmed only through the Stripe webhook; check My bookings.');

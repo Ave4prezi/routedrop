@@ -17,10 +17,10 @@ function notification(kind,details){
  };
  return messages[kind]||null;
 }
-async function deliverEmail({to,subject,text},env=process.env,send=fetch){
+async function deliverEmail({to,subject,text,idempotencyKey},env=process.env,send=fetch){
  if(!providerReady(env))throw Error('Email sender is not configured');
  if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)||!subject||!text)throw Error('Invalid email message');
- const response=await send('https://api.resend.com/emails',{method:'POST',headers:{Authorization:'Bearer '+env.RESEND_API_KEY,'Content-Type':'application/json'},body:JSON.stringify({from:env.ROUTEDROP_EMAIL_FROM,to:[to],subject,text}) ,signal:AbortSignal.timeout(10000)});
+ const response=await send('https://api.resend.com/emails',{method:'POST',headers:{Authorization:'Bearer '+env.RESEND_API_KEY,'Content-Type':'application/json',...(idempotencyKey?{'Idempotency-Key':idempotencyKey}:{})},body:JSON.stringify({from:env.ROUTEDROP_EMAIL_FROM,to:[to],subject,text}) ,signal:AbortSignal.timeout(10000)});
  if(!response.ok)throw Error('Email provider rejected message ('+response.status+')');
  return true;
 }
