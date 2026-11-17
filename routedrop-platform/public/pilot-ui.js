@@ -29,6 +29,7 @@
     if(x.status==='requested')actions=action(x.id,'accept','Accept request')+action(x.id,'decline','Decline',true);
     if(x.status==='accepted')actions=action(x.id,'complete','Mark work complete');
    }
+   actions += '<a class="btn secondary" href="mailto:routedropsupport@gmail.com?subject=RouteDrop%20'+(x.status==='issue_reported'?'dispute':'support')+'%20-%20Request%20'+encodeURIComponent(x.id)+'">Contact support / disputes</a>';
    return '<article class="pilot-request-card"><div class="pilot-card-heading"><div><div class="pilot-eyebrow">REQUEST #'+esc(x.id)+' · TEST ACCOUNT</div><h3>'+esc(x.title)+'</h3><p>'+esc(x.business_name)+' · '+esc(x.neighborhood)+'</p></div><span class="pilot-status'+(DANGER.has(x.status)?' muted-status':'')+'">'+esc(status)+'</span></div>'+
    '<div class="pilot-request-meta"><div><small>SCHEDULED OPENING</small><strong>'+esc(date(x.slot_start))+'</strong></div><div><small>LISTED PRICE</small><strong>'+money(x.price_cents)+'</strong></div><div><small>PAYMENT STATUS</small><strong>Not collected</strong></div></div>'+
    (role==='business'&&x.customer_name?'<p class="pilot-safe-note">Test customer: '+esc(x.customer_name)+'</p>':'')+
