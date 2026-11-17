@@ -35,12 +35,13 @@ function nextState(role,current,action){
 const statuses=Object.freeze(['requested','accepted','completed','confirmed','declined','canceled','issue_reported']);
 const isId=value=>Number.isSafeInteger(Number(value))&&Number(value)>0;
 
-function registerPilotRoutes(app,{pool,safe,requireDb,requireUser,forbidden}){
+function registerPilotRoutes(app,{pool,safe,requireDb,requireUser,forbidden,supportAlerts,emailReady}){
  if(!pool)throw Error('Pilot routes require a distinct PostgreSQL database');
  app.get('/api/pilot/requests',requireDb,requireUser(),safe(async(req,res)=>{
   const where=req.user.role==='customer'?'r.customer_id=$1':'b.owner_id=$1';
   const result=await pool.query(
    `SELECT r.id,r.listing_id,r.status,r.price_cents,r.created_at,r.updated_at,
+    (SELECT status FROM support_alert_outbox WHERE event_key='pilot-'||r.id::text) AS support_alert_status,
     l.title,l.slot_start,l.duration_minutes,l.neighborhood,l.category,
     b.name AS business_name,b.city,
     CASE WHEN r.status IN ('accepted','completed','confirmed','issue_reported')
@@ -52,7 +53,7 @@ function registerPilotRoutes(app,{pool,safe,requireDb,requireUser,forbidden}){
     WHERE ${where} ORDER BY r.created_at DESC LIMIT 100`,
    [req.user.id]
   );
-  res.set('Cache-Control','no-store').json({requests:result.rows});
+  res.set('Cache-Control','no-store').json({requests:result.rows.map(r=>({...r,support_alert_status:r.support_alert_status==='sent'?'sent':!emailReady&&r.support_alert_status?'unconfigured':r.support_alert_status}))});
  }));
 
  app.post('/api/pilot/requests',requireDb,requireUser('customer'),safe(async(req,res)=>{
@@ -103,9 +104,16 @@ function registerPilotRoutes(app,{pool,safe,requireDb,requireUser,forbidden}){
    `UPDATE service_requests r SET status=$1,updated_at=now()
     WHERE r.id=$2 AND r.status=$3 AND r.customer_id=$4
     RETURNING r.id,r.status`;
-  const result=await pool.query(query,[to,id,from,req.user.id]);
-  if(!result.rowCount)return forbidden(res,'Request unavailable, unchanged, or outside your permissions.',409);
-  res.json({ok:true,request:result.rows[0],message:'Service request updated. No payment was collected.'});
+  const client=await pool.connect();
+  try{
+   await client.query('BEGIN');
+   const result=await client.query(query,[to,id,from,req.user.id]);
+   if(!result.rowCount){await client.query('ROLLBACK');return forbidden(res,'Request unavailable, unchanged, or outside your permissions.',409);}
+   if(to==='issue_reported')await supportAlerts.queue(client,'pilot',id);
+   await client.query('COMMIT');
+   if(to==='issue_reported')supportAlerts.process().catch(()=>{});
+   res.json({ok:true,request:result.rows[0],message:to==='issue_reported'?'Issue recorded. '+(emailReady?'A support email is queued.':'Email delivery is not configured yet; please use Contact support / disputes.'):'Service request updated. No payment was collected.'});
+  }catch(e){await client.query('ROLLBACK').catch(()=>{});throw e;}finally{client.release();}
  }));
 
  app.patch('/api/pilot/listings/:id/status',requireDb,requireUser('business'),safe(async(req,res)=>{

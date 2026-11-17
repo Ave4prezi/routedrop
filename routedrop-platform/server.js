@@ -14,6 +14,7 @@ const { normalizeSubscriptionEvent, invoiceEvent, selectSubscription, canStartSu
 const { providerReady, emailLink, isActionToken, notification, deliverEmail } = require('./mail');
 const { livePaymentsAllowed, checkoutOutcome, refundableAmount, disputeState, cancellationEligibility, refundStatus, refundOperation } = require('./payment-safeguards');
 
+const supportModule = require('./support-alerts');
 const app = express();
 app.disable('x-powered-by');
 app.set('trust proxy', 1);
@@ -34,6 +35,7 @@ const paymentsApproved = livePaymentsAllowed(stripeKey,process.env.ROUTEDROP_LIV
 const emailReady = providerReady(process.env);
 const paymentsReady = !workflowPilot && !!(stripe && stripeWebhookSecret && paymentsApproved);
 const pool = databaseUrl ? new Pool({ connectionString: databaseUrl, max: 5, idleTimeoutMillis: 30000, connectionTimeoutMillis: 10000, ssl: databaseUrl.includes('localhost') ? false : { rejectUnauthorized: false } }) : null;
+const supportAlerts = supportModule.createSupportAlerts({pool});
 const safe = fn => (req, res, next) => Promise.resolve(fn(req, res)).catch(next);
 const hash = value => crypto.createHash('sha256').update(value).digest('hex');
 const random = () => crypto.randomBytes(32).toString('hex');
@@ -116,6 +118,7 @@ const ddl = [
  "CREATE TABLE IF NOT EXISTS notification_outbox (id BIGSERIAL PRIMARY KEY, event_key TEXT UNIQUE NOT NULL, recipient TEXT NOT NULL, subject TEXT NOT NULL, body TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','sending','sent','failed')), attempts INTEGER NOT NULL DEFAULT 0, available_at TIMESTAMPTZ NOT NULL DEFAULT now(), sent_at TIMESTAMPTZ, last_error TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())",
  "CREATE INDEX IF NOT EXISTS notification_outbox_due ON notification_outbox(status,available_at)"
 ];
+ddl.push(...supportModule.ddl);
 if(workflowPilot)ddl.push(...bookingPilot.ddl);
 async function startDatabase() {
  if (!pool) return;
@@ -123,6 +126,9 @@ async function startDatabase() {
   for (const statement of ddl) await pool.query(statement);
   ready = true;
   console.log('RouteDrop PostgreSQL ready');
+  console.log('RouteDrop support sender configured:',emailReady);
+  await supportAlerts.queue(pool,'setup','v1');
+  supportAlerts.process().catch(e=>console.error('Support alert worker unavailable'));
  } catch(err) { ready=false; console.error('Database unavailable:',err.message); }
 }
 function requireDb(req,res,next) { if (!ready) return forbidden(res,'Accounts are not yet enabled. The private beta database is pending setup.',503); next(); }
@@ -279,7 +285,7 @@ async function processNotificationOutbox(){
   }
  }catch(e){console.error('RouteDrop notification worker error',e.message);}finally{outboxBusy=false;}
 }
-setInterval(()=>{processNotificationOutbox().catch(e=>console.error('Mail worker error',e.message));},30000).unref();
+setInterval(()=>{if(ready)supportAlerts.process().catch(e=>console.error('Support alert worker unavailable'));processNotificationOutbox().catch(e=>console.error('Mail worker error',e.message));},30000).unref();
 app.post('/api/auth/request-verification',requireDb,requireUser(),authLimiter,safe(async(req,res)=>{
  if(!emailReady)return forbidden(res,'Email sending is not configured yet.',503);
  const q=await pool.query("SELECT email,email_verified_at FROM users WHERE id=$1",[req.user.id]);
@@ -392,7 +398,7 @@ app.put('/api/business/service-area',requireDb,requireUser('business'),safe(asyn
  if(!changed.rowCount)return forbidden(res,'Business account not found.',404);
  res.json({ok:true,serviceArea:changed.rows[0]});
 }));
-if(workflowPilot && pool)bookingPilot.registerPilotRoutes(app,{pool,safe,requireDb,requireUser,forbidden});
+if(workflowPilot && pool)bookingPilot.registerPilotRoutes(app,{pool,safe,requireDb,requireUser,forbidden,supportAlerts,emailReady});
 app.get('/api/listings',requireDb,safe(async(req,res)=>{
  const pilotExclusion=workflowPilot?" AND NOT EXISTS(SELECT 1 FROM service_requests r WHERE r.listing_id=l.id AND r.status IN ('requested','accepted','completed','confirmed','issue_reported'))":"";
  const data=await pool.query("SELECT l.id,l.title,l.category,l.neighborhood,l.price_cents,l.slot_start,l.duration_minutes,b.name AS business_name,b.city,b.service_center_code,b.service_radius_miles FROM listings l JOIN businesses b ON b.id=l.business_id WHERE l.status='active' AND l.slot_start>now() AND NOT EXISTS(SELECT 1 FROM bookings k WHERE k.listing_id=l.id AND k.status IN ('awaiting_payment','paid','completed'))"+pilotExclusion+" ORDER BY l.slot_start ASC LIMIT 100");

@@ -33,7 +33,7 @@
    return '<article class="pilot-request-card"><div class="pilot-card-heading"><div><div class="pilot-eyebrow">REQUEST #'+esc(x.id)+' · TEST ACCOUNT</div><h3>'+esc(x.title)+'</h3><p>'+esc(x.business_name)+' · '+esc(x.neighborhood)+'</p></div><span class="pilot-status'+(DANGER.has(x.status)?' muted-status':'')+'">'+esc(status)+'</span></div>'+
    '<div class="pilot-request-meta"><div><small>SCHEDULED OPENING</small><strong>'+esc(date(x.slot_start))+'</strong></div><div><small>LISTED PRICE</small><strong>'+money(x.price_cents)+'</strong></div><div><small>PAYMENT STATUS</small><strong>Not collected</strong></div></div>'+
    (role==='business'&&x.customer_name?'<p class="pilot-safe-note">Test customer: '+esc(x.customer_name)+'</p>':'')+
-   '<p class="pilot-safe-note">'+(x.status==='confirmed'?'Customer confirmed completion. No payment was collected.':x.status==='issue_reported'?'Issue noted in the test database. No support escalation or refund was initiated.':'This is an unpaid test request. No customer address, payment method or identity check is included.')+'</p>'+
+   '<p class="pilot-safe-note">'+(x.status==='confirmed'?'Customer confirmed completion. No payment was collected.':x.status==='issue_reported'?('Issue recorded. '+(x.support_alert_status==='sent'?'Support email accepted for delivery.':x.support_alert_status==='pending'||x.support_alert_status==='sending'?'Support email queued.': 'Support email is unavailable. Please use Contact support / disputes below.')+' No refund was initiated.'):'This is an unpaid test request. No customer address, payment method or identity check is included.')+'</p>'+
    (actions?'<div class="buttonrow pilot-actions">'+actions+'</div>':'')+'</article>';
   }).join('')+'</div>';
  }
