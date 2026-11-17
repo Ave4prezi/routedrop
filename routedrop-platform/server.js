@@ -14,6 +14,7 @@ const postService = require('./post-service');
 const stripeInboxModule = require('./stripe-webhook-inbox');
 const {mountStagingSignIn} = require('./staging-access');
 
+const supportModule = require('./support-alerts');
 const app = express();
 app.disable('x-powered-by');
 app.set('trust proxy', 1);
@@ -32,6 +33,7 @@ const deferredEnabled = process.env.ROUTEDROP_DEFERRED_BETA_ENABLED === 'true' &
 // Explicit opt-in for isolated TEST staging only: never changes a live/production webhook.
 const webhookInboxEnabled = deferredEnabled && process.env.ROUTEDROP_STAGING_LOCK === 'true' && process.env.ROUTEDROP_WEBHOOK_INBOX_ENABLED === 'true';
 const pool = databaseUrl ? new Pool({ connectionString: databaseUrl, max: 5, idleTimeoutMillis: 30000, connectionTimeoutMillis: 10000, ssl: databaseUrl.includes('localhost') ? false : { rejectUnauthorized: false } }) : null;
+const supportAlerts = supportModule.createSupportAlerts({pool});
 const safe = fn => (req, res, next) => Promise.resolve(fn(req, res)).catch(next);
 const hash = value => crypto.createHash('sha256').update(value).digest('hex');
 const random = () => crypto.randomBytes(32).toString('hex');
@@ -90,6 +92,7 @@ const ddl = [
  "CREATE TABLE IF NOT EXISTS notification_outbox (id BIGSERIAL PRIMARY KEY, event_key TEXT UNIQUE NOT NULL, recipient TEXT NOT NULL, subject TEXT NOT NULL, body TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','sending','sent','failed')), attempts INTEGER NOT NULL DEFAULT 0, available_at TIMESTAMPTZ NOT NULL DEFAULT now(), sent_at TIMESTAMPTZ, last_error TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())",
  "CREATE INDEX IF NOT EXISTS notification_outbox_due ON notification_outbox(status,available_at)"
 ]; 
+ddl.push(...supportModule.ddl);
 if (deferredEnabled) ddl.push(...postService.sql);
 if (webhookInboxEnabled) ddl.push(...stripeInboxModule.schema);
 async function startDatabase() {
@@ -98,6 +101,9 @@ async function startDatabase() {
   for (const statement of ddl) await pool.query(statement);
   ready = true;
   console.log('RouteDrop PostgreSQL ready');
+  console.log('RouteDrop support sender configured:',emailReady);
+  await supportAlerts.queue(pool,'setup','v1');
+  supportAlerts.process().catch(e=>console.error('Support alert worker unavailable'));
   if (webhookInboxEnabled) startWebhookInboxWorker();
  } catch(err) { ready=false; console.error('Database unavailable:',err.message); }
 }
@@ -260,6 +266,7 @@ async function enqueueNotification(db,eventKey,to,kind,details) {
  await db.query("INSERT INTO notification_outbox(event_key,recipient,subject,body) VALUES ($1,$2,$3,$4) ON CONFLICT(event_key) DO NOTHING",[eventKey,to,msg.subject,msg.body]);
 }
 async function queueDeferredEmail(db,bookingId,kind) {
+ if(kind==='payment_dispute')await supportAlerts.queue(db,'payment_dispute',bookingId);
  if (!emailReady) return;
  const query = await db.query(
   "SELECT d.id,d.price_cents,l.title,l.slot_start,cu.email AS customer_email,cu.full_name AS customer_name,bu.email AS business_email FROM deferred_bookings d JOIN listings l ON l.id=d.listing_id JOIN businesses b ON b.id=l.business_id JOIN users cu ON cu.id=d.customer_id JOIN users bu ON bu.id=b.owner_id WHERE d.id=$1",
@@ -297,7 +304,7 @@ async function processNotificationOutbox(){
   }
  }catch(e){console.error('RouteDrop notification worker error',e.message);}finally{outboxBusy=false;}
 }
-setInterval(()=>{processNotificationOutbox().catch(e=>console.error('Mail worker error',e.message));},30000).unref();
+setInterval(()=>{if(ready)supportAlerts.process().catch(e=>console.error('Support alert worker unavailable'));processNotificationOutbox().catch(e=>console.error('Mail worker error',e.message));},30000).unref();
 app.post('/api/auth/request-verification',requireDb,requireUser(),authLimiter,safe(async(req,res)=>{
  if(!emailReady)return forbidden(res,'Email sending is not configured yet.',503);
  const q=await pool.query("SELECT email,email_verified_at FROM users WHERE id=$1",[req.user.id]);
@@ -619,7 +626,7 @@ app.post('/api/bookings/:id/complete',requireDb,requireUser('business'),safe(asy
  if(!r.rowCount)return forbidden(res,'No eligible paid booking found.',409);
  res.json({ok:true});
 }));
-postService.install(app,{pool,stripe,baseUrl,enabled:deferredEnabled,requireDb,requireUser,safe,limiter:checkoutLimiter,forbidden,queueDeferredEmail});
+postService.install(app,{pool,stripe,baseUrl,enabled:deferredEnabled,requireDb,requireUser,safe,limiter:checkoutLimiter,forbidden,queueDeferredEmail,supportAlerts});
 app.use(express.static('routedrop-platform/public',{fallthrough:false,maxAge:'15m'}));
 app.use((err,req,res,next)=>{console.error('RouteDrop request error',err.message);res.status(500).json({error:'Unexpected server error.'});});
 app.listen(port,'0.0.0.0',()=>console.log('RouteDrop beta listening on '+port));

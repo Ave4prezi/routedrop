@@ -1,4 +1,5 @@
 'use strict';
+const supportModule=require('./support-alerts');
 
 // Isolated RouteDrop beta: zero-upfront booking + customer-authorized post-service charge.
 // This module is inert unless the caller explicitly enables it with a Stripe TEST key.
@@ -59,6 +60,7 @@ function verifiedCharge(pi, booking) {
    typeof pi.id === 'string' && pi.id.startsWith('pi_');
 }
 const sql = [
+ ...supportModule.ddl,
  "ALTER TABLE users ADD COLUMN IF NOT EXISTS deferred_stripe_customer_id TEXT",
  "CREATE UNIQUE INDEX IF NOT EXISTS unique_deferred_stripe_customer ON users(deferred_stripe_customer_id) WHERE deferred_stripe_customer_id IS NOT NULL",
  "CREATE TABLE IF NOT EXISTS deferred_bookings (id BIGSERIAL PRIMARY KEY, listing_id BIGINT NOT NULL REFERENCES listings(id), customer_id BIGINT NOT NULL REFERENCES users(id), stripe_customer_id TEXT NOT NULL, setup_session_id TEXT UNIQUE, setup_intent_id TEXT UNIQUE, payment_method_id TEXT, payment_intent_id TEXT UNIQUE, status TEXT NOT NULL DEFAULT 'awaiting_card' CHECK (status IN ('awaiting_card','requested','accepted','work_completed','payment_processing','paid','payment_failed','recovery_pending','needs_review','disputed','refunded','canceled')), price_cents INTEGER NOT NULL CHECK (price_cents BETWEEN 500 AND 500000), fee_cents INTEGER NOT NULL CHECK (fee_cents>=0), consent_terms TEXT NOT NULL, consent_at TIMESTAMPTZ NOT NULL DEFAULT now(), hold_expires_at TIMESTAMPTZ NOT NULL, accepted_at TIMESTAMPTZ, completed_at TIMESTAMPTZ, confirmed_at TIMESTAMPTZ, paid_at TIMESTAMPTZ, dispute_reason TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())",
@@ -161,7 +163,7 @@ async function handleStripeEvent(event, client, stripe, queueDeferredEmail=async
   for(const row of changed.rows||[])await queueDeferredEmail(client,row.id,'refund');
  }
 }
-function install(app, {pool,stripe,baseUrl,enabled,requireDb,requireUser,safe,limiter,forbidden,queueDeferredEmail=async()=>{}}) {
+function install(app, {pool,stripe,baseUrl,enabled,requireDb,requireUser,safe,limiter,forbidden,queueDeferredEmail=async()=>{},supportAlerts=supportModule.createSupportAlerts({pool})}) {
  const guard=(req,res,next)=>enabled ? next() : forbidden(res,'Deferred booking is disabled in this beta.',503);
  const customer=[guard,requireDb,requireUser('customer'),limiter];
  const business=[guard,requireDb,requireUser('business'),limiter];
@@ -246,6 +248,7 @@ function install(app, {pool,stripe,baseUrl,enabled,requireDb,requireUser,safe,li
    if(!q.rowCount){await client.query('ROLLBACK');return forbidden(res,'This booking cannot be disputed from its current status.',409);}
    await client.query("INSERT INTO deferred_dispute_reviews(booking_id,state,original_reason) VALUES($1,'open',$2) ON CONFLICT(booking_id) DO UPDATE SET state='open',original_reason=EXCLUDED.original_reason,resolution_note=NULL,reviewed_by=NULL,reviewed_at=NULL,customer_accepted_at=NULL,updated_at=now()",[id,reason]);
    await client.query("INSERT INTO deferred_dispute_events(booking_id,actor_id,action,note) VALUES($1,$2,'reported',$3)",[id,req.user.id,reason]);
+   await supportAlerts.queue(client,'dispute',id);
    await client.query('COMMIT');
   }catch(err){await client.query('ROLLBACK').catch(()=>{});throw err;}finally{client.release();}
   await queueDeferredEmail(pool,id,'disputed').catch(err=>console.error('Deferred booking notification unavailable',err.message));
