@@ -10,7 +10,7 @@ const pilot=window.RouteDropPilotUI;
  const safetyUi=window.RouteDropSafetyUI;
  const readiness=window.RouteDropReadiness;
  const passkeys=window.RouteDropPasskeys;
-const state={config:null,me:null,listings:[],bookings:[],mine:[],tab:'explore',demo:false,demoRequests:[],demoCounter:0,demoListingId:null,demoSlot:'afternoon',demoArea:{center:'decatur',radiusMiles:20},pilotRequests:[],pilotListingId:null,jobs:[],jobSearch:'',serviceProfiles:[],myServiceProfiles:{profiles:[],rules:[]},jobInterests:null,compareIds:[],profileSort:'default',profileCategory:'',moderatorKey:null,safetyStatus:null,myReviews:[],identityStatus:null};
+const state={config:null,me:null,listings:[],bookings:[],mine:[],tab:'explore',demo:false,demoRequests:[],demoCounter:0,demoListingId:null,demoSlot:'afternoon',demoArea:{center:'decatur',radiusMiles:20},pilotRequests:[],pilotListingId:null,jobs:[],dayTasks:[],jobSearch:'',serviceProfiles:[],myServiceProfiles:{profiles:[],rules:[]},jobInterests:null,compareIds:[],profileSort:'default',profileCategory:'',moderatorKey:null,safetyStatus:null,myReviews:[],identityStatus:null};
 const esc=v=>String(v===null||v===undefined?'':v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const money=cents=>new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(Number(cents||0)/100);
 const when=iso=>new Intl.DateTimeFormat('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}).format(new Date(iso));
@@ -112,7 +112,8 @@ async function loadJobs(){
   if(!state.config?.opportunity_pilot){state.jobs=opportunities.sampleJobs;$('job-board').innerHTML=opportunities.jobs(state.jobs,true,state.jobSearch);return;}
   const [data,interests]=await Promise.all([api('/api/pilot/jobs'),state.me?.user&&state.config.unified_pilot?api('/api/pilot/job-interests'):Promise.resolve({interests:null})]);
   state.jobs=data.jobs;state.jobInterests=interests.interests;
-  $('job-board').innerHTML=unified.entry()+unified.seekerPanel(state.me,state.jobInterests)+opportunities.jobs(state.jobs,false,state.jobSearch);
+  const dayData=state.me?.user?await api('/api/pilot/day-work'):{tasks:[]};state.dayTasks=dayData.tasks;
+  $('job-board').innerHTML=opportunities.dayWork(state.dayTasks,!!state.me?.user)+unified.entry()+unified.seekerPanel(state.me,state.jobInterests)+opportunities.jobs(state.jobs,false,state.jobSearch);
  }
  function serviceCoveragePanel(b,readonly=false){
  const v=coverage.validate(b?.service_center_code,b?.service_radius_miles);
@@ -250,6 +251,14 @@ async function act(e){
  }
  if(el.dataset.safetyDecisionKind&&state.moderatorKey){
   overlay(safetyUi.decisionForm(el.dataset.safetyDecisionKind,Number(el.dataset.safetyDecisionId),el.dataset.safetyDecisionAction));return;
+ }
+ if(el.dataset.dayAction){
+  el.disabled=true;
+  try{
+   const id=Number(el.dataset.dayId),action=el.dataset.dayAction;
+   if(action==='interests'){const r=await api('/api/pilot/day-work/'+id+'/interests');overlay(opportunities.dayWorkers(id,r.interests));}
+   else{await api('/api/pilot/day-work/'+id+'/'+action,{method:'POST',body:JSON.stringify({workerId:el.dataset.workerId})});dismiss();await loadJobs();message('Test task updated. No payment was collected.');}
+  }catch(err){message(err.message,true);}finally{el.disabled=false;}return;
  }
  if(el.dataset.jobDetail){const x=state.jobs.find(j=>Number(j.id)===Number(el.dataset.jobDetail));if(x)overlay(opportunities.details(x));return;}
  if(el.dataset.jobStatusId&&state.config?.opportunity_pilot){
@@ -403,6 +412,7 @@ async function act(e){
   if(state.demo&&!state.config?.database){overlay('<h2 id="modal-title">Independent-provider preview</h2><p>This database-free design preview does not accept accounts. Try individual-provider registration in the isolated test pilot.</p>');return;}
   showRegistration('individual');return;
  }
+ if(action==='post-day-work'){if(!state.me?.user){showLogin();return;}overlay(opportunities.dayWorkForm());return;}
  if(action==='post-job'){if(state.config?.opportunity_pilot)overlay(opportunities.form());else message('Real job posting is disabled in this preview.',true);return;}
  if(action==='create-listing'){showListing();return;}
  if(action==='change-password'){showChangePassword();return;}
@@ -425,7 +435,7 @@ async function act(e){
  if(el.dataset.complete){try{await api('/api/bookings/'+Number(el.dataset.complete)+'/complete',{method:'POST'});message('Job marked completed.');refresh();}catch(err){message(err.message,true);}return;}
 }
 async function submit(e){
- if(!['register-form','login-form','listing-form','forgot-form','reset-form','change-password-form','job-form','provider-setup-form','service-profile-form','weekly-form','job-interests-form','service-review-form','review-report-form','safety-screening-form','safety-appeal-form','safety-mod-login-form','safety-moderation-form','safety-identity-form'].includes(e.target.id))return;
+ if(!['register-form','login-form','listing-form','forgot-form','reset-form','change-password-form','job-form','day-work-form','provider-setup-form','service-profile-form','weekly-form','job-interests-form','service-review-form','review-report-form','safety-screening-form','safety-appeal-form','safety-mod-login-form','safety-moderation-form','safety-identity-form'].includes(e.target.id))return;
  e.preventDefault();
  const form=e.target,d=Object.fromEntries(new FormData(form).entries());
  const err=$('form-error');err.textContent='';
@@ -494,6 +504,7 @@ async function submit(e){
    await api('/api/pilot/job-interests',{method:'PUT',body:JSON.stringify({city:d.city,category:d.category})});
    message('Job interests saved to this same test account. No application was submitted.');
   }
+  if(form.id==='day-work-form'){d.startsAt=new Date(d.startsAt).toISOString();d.endsAt=new Date(d.endsAt).toISOString();await api('/api/pilot/day-work',{method:'POST',body:JSON.stringify(d)});message('Fictional task posted. No payment collected.');}
   if(form.id==='job-form'){
    await api('/api/pilot/jobs',{method:'POST',body:JSON.stringify(d)});
    message('Fictional job posting saved. No applications are enabled.');
