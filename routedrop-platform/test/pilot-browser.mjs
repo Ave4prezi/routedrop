@@ -17,6 +17,12 @@ let browser;
 const suffix=Date.now();
 async function register(page,role,tag){
  await page.goto(base,{waitUntil:'networkidle'});
+ if(new URL(page.url()).pathname==='/preview-sign-in'){
+  await page.getByLabel('Username',{exact:true}).fill('routedrop-preview');
+  await page.getByLabel('Password',{exact:true}).fill(pass);
+  await page.getByRole('button',{name:'Sign in',exact:true}).click();
+  await page.waitForURL(base+'/');
+ }
  await page.locator('#nav-account [data-action="register"]').click();
  const f=page.locator('#register-form');
  await f.locator('select[name="role"]').selectOption(role);
@@ -242,6 +248,32 @@ try{
   await business.locator('#my-bookings .pilot-request-card').filter({hasText:'Recurring Lawn Service '+variant.name}).getByText('Customer confirmed',{exact:true}).waitFor();
   await customer.getByRole('button',{name:'My bookings'}).click();
   await customer.locator('#my-bookings .pilot-request-card').filter({hasText:'Private Pilot Cleaning '+variant.name}).getByText('Customer confirmed',{exact:true}).waitFor();
+  // Day-work tasks use the same signed-in account, independently of service bookings.
+  await customer.locator('nav.tabs [data-tab="jobs"]').click();
+  await customer.getByRole('button',{name:'+ Post a test task'}).click();
+  const dayForm=customer.locator('#day-work-form');
+  await dayForm.locator('[name="title"]').fill('Fictional yard cleanup '+variant.name);
+  await dayForm.locator('[name="city"]').fill('Hartselle, AL');
+  await dayForm.locator('[name="payDisplay"]').fill('Example: $50 total');
+  await dayForm.locator('[name="startsAt"]').fill(new Date(Date.now()+36*3600000).toISOString().slice(0,16));
+  await dayForm.locator('[name="endsAt"]').fill(new Date(Date.now()+38*3600000).toISOString().slice(0,16));
+  await dayForm.locator('[name="summary"]').fill('Fictional yard cleanup for private day-work testing.');
+  await dayForm.locator('button[type="submit"]').click();
+  await customer.locator('#modal').waitFor({state:'hidden'});
+  const dayTask=p=>p.locator('#job-board article').filter({has:p.getByRole('heading',{name:'Fictional yard cleanup '+variant.name,exact:true})});
+  await business.locator('nav.tabs [data-tab="jobs"]').click();
+  await dayTask(business).getByRole('button',{name:'I’m interested',exact:true}).click();
+  await dayTask(business).getByRole('button',{name:'Withdraw interest'}).waitFor();
+  await dayTask(customer).getByRole('button',{name:'View interested workers'}).click();
+  await customer.getByRole('button',{name:'Select worker',exact:true}).click();
+  await customer.locator('#modal').waitFor({state:'hidden'});
+  await business.locator('nav.tabs [data-tab="jobs"]').click();
+  await dayTask(business).getByRole('button',{name:'Mark work complete'}).click();
+  await dayTask(business).getByText('awaiting confirmation',{exact:true}).waitFor();
+  await customer.locator('nav.tabs [data-tab="jobs"]').click();
+  await dayTask(customer).getByRole('button',{name:'Confirm work completed'}).click();
+  await dayTask(customer).getByText('completed',{exact:true}).waitFor();
+  await customer.screenshot({path:'pilot-day-work-'+variant.name+'.png',fullPage:true});
   assert.deepEqual(payments,[],'no Stripe or checkout requests');
   assert.deepEqual(errors,[],'no browser errors');
   for(const p of [business,customer]){

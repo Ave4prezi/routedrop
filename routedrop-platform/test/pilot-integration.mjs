@@ -36,12 +36,14 @@ function sessionCookie(resp){
 }
 async function register(role,tag){
  // Private staging must reject unauthenticated requests, including health and JS.
- const privateHome=await fetch(base+'/');
- assert.equal(privateHome.status,401,'private preview homepage is not public');
- assert.match(privateHome.headers.get('www-authenticate')||'',/Basic/i);
+ const privateHome=await fetch(base+'/',{redirect:'manual'});
+ assert.equal(privateHome.status,303,'unauthenticated visitors are sent to secure preview sign-in');
+ assert.equal(privateHome.headers.get('location'),'/preview-sign-in');
+ const signIn=await fetch(base+'/preview-sign-in');
+ assert.match(await signIn.text(),/autocomplete="current-password"/,'standard password sign-in remains available');
  const privateHealth=await fetch(base+'/health');
  assert.equal(privateHealth.status,401,'private staging health metadata requires private access');
- const privateCode=await fetch(base+'/pilot-ui.js');
+ const privateCode=await fetch(base+'/pilot-ui.js',{headers:{accept:'application/javascript'}});
  assert.equal(privateCode.status,401,'the isolated client bundle cannot be scraped without preview authentication');
  const securedHealth=await call(null,'/health');
  assert.match(securedHealth.response.headers.get('content-security-policy')||'',/default-src 'self'/);
