@@ -11,7 +11,7 @@ try{
  let ready=false;
  for(let i=0;i<110;i++){try{const r=await fetch(url+'/health');if(r.ok){const j=await r.json();assert.equal(j.payments,'not configured');assert.equal(j.database,'not configured');ready=true;break;}}catch{}await new Promise(r=>setTimeout(r,100));}
  assert.ok(ready,'server failed: '+err);
- browser=await chromium.launch({headless:true});
+ browser=await chromium.launch({headless:true,...(process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH?{executablePath:process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH}:{})});
  for(const v of [{name:'desktop',width:1440,height:900},{name:'mobile',width:390,height:844}]){
   const page=await browser.newPage({viewport:{width:v.width,height:v.height}});
   const problems=[],mutationRequests=[];page.on('pageerror',e=>problems.push(e.message));page.on('request',r=>{if(!['GET','HEAD'].includes(r.method()))mutationRequests.push({method:r.method(),url:r.url()});});

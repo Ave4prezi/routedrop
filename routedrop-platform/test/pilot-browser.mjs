@@ -47,7 +47,7 @@ try{
   await new Promise(resolve=>setTimeout(resolve,100));
  }
  assert.ok(ready,'server ready with test database: '+stderr);
- browser=await chromium.launch({headless:true});
+ browser=await chromium.launch({headless:true,...(process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH?{executablePath:process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH}:{})});
  for(const variant of [{name:'desktop',width:1440,height:900},{name:'mobile',width:390,height:844}]){
   const contextArgs={viewport:{width:variant.width,height:variant.height},httpCredentials:{username:'routedrop-preview',password:pass}};
   const businessContext=await browser.newContext(contextArgs);
@@ -130,7 +130,7 @@ try{
   await customer.getByRole('button',{name:'My bookings'}).click();
   await customer.locator('[data-pilot-action="confirm"]').first().click();
   await customer.locator('#my-bookings .pilot-request-card .pilot-status').getByText('Customer confirmed',{exact:true}).waitFor();
-  await customer.locator('#my-bookings .pilot-progress [aria-current="step"]').first().getByText('Confirmed',{exact:true}).waitFor();
+  await customer.locator('#my-bookings .pilot-progress .pilot-progress-step.done').getByText('Confirmed',{exact:true}).waitFor();
   await customer.locator('#my-bookings [data-review-request-id]').first().click();
   const review=customer.locator('#service-review-form');
   await review.locator('[name="rating"]').selectOption('5');

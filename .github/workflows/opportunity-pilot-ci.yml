@@ -52,7 +52,11 @@ jobs:
         working-directory: routedrop-platform
         run: |
           npm install --ignore-scripts --no-save --no-audit --no-fund playwright@1.56.1
-          npx playwright install --with-deps chromium
+          if command -v google-chrome >/dev/null 2>&1; then
+            echo "PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=$(command -v google-chrome)" >> "$GITHUB_ENV"
+          else
+            npx playwright install --with-deps chromium
+          fi
       - name: Browser test — actual test accounts, booking requests, provider completion, no payments
         run: node routedrop-platform/test/pilot-browser.mjs
       - name: Preserve existing Premium 2.0 demo/browser regression
