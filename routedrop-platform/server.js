@@ -9,6 +9,7 @@ const { Pool } = require('pg');
 const serviceArea = require('./public/service-area');
 const bookingPilot = require('./booking-pilot');
 const opportunityPilot = require('./opportunity-pilot');
+const dayWorkPilot = require('./day-work-pilot');
 const unifiedPilot = require('./unified-pilot');
 const trustPilot = require('./trust-pilot');
 const safetyPilot = require('./safety-pilot');
@@ -179,7 +180,7 @@ const ddl = [
  "CREATE TABLE IF NOT EXISTS notification_outbox (id BIGSERIAL PRIMARY KEY, event_key TEXT UNIQUE NOT NULL, recipient TEXT NOT NULL, subject TEXT NOT NULL, body TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','sending','sent','failed')), attempts INTEGER NOT NULL DEFAULT 0, available_at TIMESTAMPTZ NOT NULL DEFAULT now(), sent_at TIMESTAMPTZ, last_error TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())",
  "CREATE INDEX IF NOT EXISTS notification_outbox_due ON notification_outbox(status,available_at)"
 ];
-if(workflowPilot)ddl.push(...bookingPilot.ddl,...opportunityPilot.ddl,...unifiedPilot.ddl,...trustPilot.ddl,...safetyPilot.ddl,...identityPilot.ddl,...moderatorPasskeys.ddl);
+if(workflowPilot)ddl.push(...bookingPilot.ddl,...opportunityPilot.ddl,...dayWorkPilot.ddl,...unifiedPilot.ddl,...trustPilot.ddl,...safetyPilot.ddl,...identityPilot.ddl,...moderatorPasskeys.ddl);
 async function startDatabase() {
  if (!pool) return;
  try {
@@ -496,6 +497,7 @@ app.put('/api/business/service-area',requireDb,requireProvider,safe(async(req,re
 }));
 if(workflowPilot && pool){
  bookingPilot.registerPilotRoutes(app,{pool,safe,requireDb,requireUser,requireProvider,forbidden});
+ dayWorkPilot.registerDayWorkRoutes(app,{pool,safe,requireDb,requireUser,forbidden});
  opportunityPilot.registerOpportunityRoutes(app,{pool,safe,requireDb,requireUser,requireProvider,forbidden});
  unifiedPilot.registerUnifiedRoutes(app,{pool,safe,requireDb,requireUser,requireProvider,forbidden});
  trustPilot.registerTrustRoutes(app,{pool,safe,requireDb,requireUser,forbidden,safetyPilot});

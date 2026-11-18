@@ -9,12 +9,13 @@ function record(status){
  neighborhood:'Test neighborhood',slot_start:'2026-11-26T16:00:00Z',price_cents:6500,
  duration_minutes:60,customer_name:'Fictional Customer',review_id:null,status};
 }
-test('booking progress uses four stages and only marks the current stage as current',()=>{
+test('booking progress uses four stages and marks all stages done after confirmation',()=>{
  for(const [status,step] of [['requested','Requested'],['accepted','Accepted'],['completed','Work complete'],['confirmed','Confirmed']]){
   const html=ui.progress(status);
   assert.equal((html.match(/<li /g)||[]).length,4);
-  assert.equal((html.match(/aria-current="step"/g)||[]).length,1);
-  assert.match(html,new RegExp('aria-current="step"[^>]*><span[^>]*>'));
+  assert.equal((html.match(/aria-current="step"/g)||[]).length,status==='confirmed'?0:1);
+  if(status==='confirmed')assert.equal((html.match(/pilot-progress-step done/g)||[]).length,4);
+  else assert.match(html,new RegExp('aria-current="step"[^>]*><span[^>]*>'));
   assert.match(html,new RegExp(step));
  }
 });

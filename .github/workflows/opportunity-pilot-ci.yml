@@ -3,6 +3,7 @@ on:
   push:
     branches:
       - feature/individual-providers-jobs-20261116
+      - feature/day-work-pilot-20261118
 permissions:
   contents: read
 jobs:
