@@ -20,6 +20,16 @@ try{
   if(prospect){await page.getByLabel('Username',{exact:true}).fill('sam-demo');await page.getByLabel('Password',{exact:true}).fill(demoPass);await page.getByRole('button',{name:'Sign in',exact:true}).click();await page.waitForURL(url+'/');await page.getByText('PRIVATE INTERACTIVE DEMO',{exact:true}).waitFor();}
   assert.equal((await page.locator('header .brand').textContent()).replace(/\s+/g,''),'RouteDrop');
   await page.getByRole('heading',{name:/Local help/}).waitFor();
+  if(v.name==='mobile'){
+   for(const width of [320,360,390,540,760]){
+    await page.setViewportSize({width,height:v.height});
+    const nav=await page.locator('nav.tabs').evaluate(el=>({width:innerWidth,clipped:el.scrollWidth>el.clientWidth+1,buttons:[...el.querySelectorAll('button')].map(b=>({left:b.getBoundingClientRect().left,right:b.getBoundingClientRect().right,clipped:b.scrollWidth>b.clientWidth+1}))}));
+    assert.equal(nav.clipped,false,'navigation must not require horizontal scrolling at '+width);
+    for(const button of nav.buttons){assert.ok(button.left>=0&&button.right<=nav.width+1,'every top tab fits at '+width);assert.equal(button.clipped,false,'tab label remains complete at '+width);}
+   }
+   await page.setViewportSize({width:v.width,height:v.height});
+  }
+
   await page.getByText('BrightNest Cleaning Co.').waitFor();
   assert.equal(await page.locator('.provider-photo').count(),3);
   assert.equal(await page.locator('#nav-account [data-action="login"], #nav-account [data-action="register"]').count(),0,'no unusable account forms offered in preview');
