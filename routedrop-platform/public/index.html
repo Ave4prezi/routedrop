@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="theme-color" content="#081a35">
+<meta name="theme-color" content="#0e1718">
 <meta name="description" content="RouteDrop connects neighborhoods with local service professionals. Explore the fictional private preview and business coverage tools.">
 <title>RouteDrop — Local help, beautifully simple</title>
 <link rel="stylesheet" href="/styles.css">
@@ -16,6 +16,7 @@
 <link rel="stylesheet" href="/trust-ui.css">
 <link rel="stylesheet" href="/safety-ui.css">
 <link rel="stylesheet" href="/provider-readiness.css">
+<link rel="stylesheet" href="/route-theme.css">
 <script src="/service-area.js" defer></script><script src="/premium-2-experience.js" defer></script><script src="/pilot-ui.js" defer></script><script src="/opportunity-ui.js" defer></script><script src="/trust-ui.js" defer></script><script src="/unified-ui.js" defer></script><script src="/safety-ui.js" defer></script><script src="/provider-readiness.js" defer></script><script src="/passkey-client.js" defer></script><script src="/app.js" defer></script>
 </head>
 <body>
@@ -41,23 +42,27 @@
 <div id="status" class="status feedback" role="status" aria-live="polite"></div>
 <main>
 <section id="explore" class="page">
- <section class="hero">
+ <section class="hero route-hero">
   <div class="hero-copy">
-   <div class="eyebrow"><span class="eyebrow-spark">✦</span> THE NEIGHBORHOOD, REIMAGINED</div>
-   <h1>Local help.<br><em>A better way.</em></h1>
-   <p class="hero-description">Meet the professionals who keep your day moving. Explore local services, see coverage and discover what the RouteDrop experience can become.</p>
-   <div class="hero-search"><label for="search" class="sr-only">Search services or neighborhoods</label><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" stroke="currentColor" stroke-width="2"/><path d="m16 16 5 5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><input id="search" type="search" placeholder="What service do you need?" autocomplete="off"><button class="hero-find" type="button" data-action="search-services">Explore services <span aria-hidden="true">↗</span></button></div>
-   <div class="hero-notes"><span><span class="mini-check">✓</span> Clear example pricing</span><span><span class="mini-check">✓</span> Coverage radius maps</span><span><span class="mini-check">✓</span> Payment after confirmation — proposed</span></div>
+   <div class="eyebrow">THE LOCAL SERVICE MARKETPLACE, REIMAGINED</div>
+   <h1>Good crews.<br>Nearby jobs.<br><em>Better timing.</em></h1>
+   <p class="hero-description">A place for local pros to share open appointments, customers to find nearby help, and people to offer their skills.</p>
+   <div class="route-hero-actions"><button class="btn" type="button" data-action="search-services">Explore open slots</button><button class="btn secondary" type="button" data-tab="business">I run a service business</button></div>
+   <p class="route-hero-caption">Private preview · Sample services and test requests only</p>
+   <div class="hero-search"><label for="search" class="sr-only">Search services or neighborhoods</label><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" stroke="currentColor" stroke-width="2"/><path d="m16 16 5 5" stroke="currentColor" stroke-width="2"/></svg><input id="search" type="search" placeholder="What service do you need?" autocomplete="off"><button class="hero-find" type="button" data-action="search-services">Search services</button></div>
   </div>
-  <div class="hero-scene" role="img" aria-label="Editorial-style fictional service professional photos">
-   <div class="hero-photo hero-photo-main"></div><div class="hero-photo hero-photo-secondary"></div>
-   <div class="floating-service"><span class="floating-icon">✦</span><div><small>Made for your neighborhood</small><strong>The right help. Right around you.</strong></div></div>
-   <div class="hero-decor"></div>
+  <div class="route-hero-art" role="img" aria-label="Concept illustration: We're already in the area, with fictional route opening and route matched messages. Not live availability or location tracking.">
+   <div class="art-grid"></div><div class="map-ring map-ring-one"></div><div class="map-ring map-ring-two"></div><div class="map-ring map-ring-three"></div>
+   <div class="map-road map-road-one"></div><div class="map-road map-road-two"></div>
+   <div class="art-pin art-pin-a" aria-hidden="true">⌖</div><div class="art-pin art-pin-b" aria-hidden="true">⌖</div>
+   <div class="floating-card floating-card-top"><div class="float-icon" aria-hidden="true">ϟ</div><div><span>SAMPLE ROUTE OPENING</span><strong>Tomorrow, 1:30 PM</strong><small>Decatur · Example availability</small></div></div>
+   <div class="center-route"><div class="route-corner">ON YOUR BLOCK</div><div class="route-orbit" aria-hidden="true">⌖</div><h3>We're already<br>in the area.</h3><span>Make the most of every stop.</span></div>
+   <div class="floating-card floating-card-bottom"><div class="float-icon green" aria-hidden="true">✓</div><div><span>THE ROUTEDROP IDEA</span><strong>One less wasted trip</strong><small>More work, less backtracking</small></div></div>
   </div>
  </section>
  <div class="trust-rail"><div><strong>One place.</strong><span>Many ways to get things done.</span></div><div><strong>Know your area.</strong><span>See where a provider can travel.</span></div><div><strong>Stay in control.</strong><span>Review the work before paying — proposed flow.</span></div></div>
  <section id="available-openings" class="discover">
-  <div class="sectionhead"><div><div class="eyebrow">DISCOVER YOUR NEXT FAVORITE PRO</div><h2>Good people. Great work.</h2><p>Browse service examples to see how RouteDrop will introduce local professionals.</p></div><span id="offer-count" class="result-count"></span></div>
+  <div class="sectionhead"><div><div class="eyebrow">THE OPEN ROUTE BOARD</div><h2>Available around you.</h2><p>Browse service examples to see how RouteDrop will introduce local professionals.</p></div><span id="offer-count" class="result-count"></span></div>
   <div class="category-chips" aria-label="Filter by service"><button type="button" data-category-choice="" class="selected" aria-pressed="true">All services</button><button type="button" data-category-choice="Cleaning" aria-pressed="false">Cleaning</button><button type="button" data-category-choice="Car detailing" aria-pressed="false">Car detailing</button><button type="button" data-category-choice="Lawn care" aria-pressed="false">Lawn care</button></div>
   <div class="filters"><label class="sr-only" for="category">Service category</label><select id="category"><option value="">All categories</option><option>Cleaning</option><option>Car detailing</option><option>Lawn care</option><option>Other</option></select><span class="filter-hint">Select a service to see matching examples</span><button type="button" id="clear-filters" class="btn secondary" data-action="clear-filters">Reset filters</button></div>
   <div class="filter-feedback" role="status" aria-live="polite" id="filter-summary">Browse example services.</div>
@@ -83,7 +88,7 @@
 <section id="safety" class="page hidden"><div class="interior-heading"><div class="eyebrow">SAFER LOCAL OPPORTUNITIES</div><h1>Trust starts with accountability.</h1><p>Provider screening, review integrity, fraud mitigation and fair moderation in the private test environment. Real ID checks are not active.</p></div><div id="safety-body"></div></section>
 <section id="business" class="page hidden"><div class="interior-heading"><div class="eyebrow">BUILT FOR THE PEOPLE WHO MAKE IT HAPPEN</div><h1>Meet your new business headquarters.</h1><p>A simple space to shape your service area, manage openings and understand your work.</p></div><div id="studio-body"></div></section>
 </main>
-<footer><div><a class="footer-logo" href="/">⌖ RouteDrop</a><p>Local help, beautifully simple.</p></div><div><strong>Explore with clarity</strong><p><a href="/#trust">Trust and launch standards</a></p><p>Private conceptual preview · No real provider verification, transactions or bookings</p></div></footer>
+<footer><div><a class="footer-logo" href="/">⌖ RouteDrop</a><p>Helping businesses find more work and customers find more businesses.</p></div><div><strong>Explore with clarity</strong><p><a href="/#trust">Trust and launch standards</a></p><p>Private conceptual preview · No real provider verification, transactions or bookings</p></div></footer>
 </div>
 <div id="modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="modal-title"><div class="modal-content"><button id="close-modal" class="close" type="button" aria-label="Close dialog">✕</button><div id="modal-body"></div></div></div>
 </body></html>
