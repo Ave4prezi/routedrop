@@ -1,0 +1,27 @@
+name: RouteDrop private-pilot UI safety
+on:
+  push:
+    branches:
+      - test/private-pilot-pricing-clarity-20261115
+permissions:
+  contents: read
+jobs:
+  pricing-clarity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    defaults:
+      run:
+        working-directory: routedrop-platform
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install dependencies without running payment-related scripts
+        run: npm install --ignore-scripts --no-audit --no-fund
+      - name: Verify browser script syntax and pilot pricing logic
+        run: |
+          node --check public/app.js
+          node --test test/private-pilot-pricing-ui.test.js
+      - name: Check existing non-database regressions
+        run: node --test test/*.test.js
