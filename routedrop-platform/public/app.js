@@ -96,7 +96,12 @@ async function refresh(){
   if(state.tab==='explore'){
    const [r,p]=await Promise.all([api('/api/listings'),state.config.unified_pilot?api('/api/pilot/service-profiles'):Promise.resolve({profiles:[]})]);state.listings=r.listings;state.serviceProfiles=p.profiles;renderOffers();renderCatalog();
   }else if(state.tab==='bookings'){
-   if(state.config.workflow_pilot){
+   if(state.config.prospect_demo){
+   const notice=document.querySelector('.announce');if(notice)notice.innerHTML='<strong>PRIVATE INTERACTIVE DEMO</strong><span>Fictional services only · No signup, charges or real notifications</span>';
+   const intro=document.createElement('section');intro.className='panel';intro.innerHTML='<h2>Try an open appointment.</h2><p>Explore a sample service, request an opening, then switch to Business Studio to accept it. You can mark the sample work complete and confirm it in My bookings. Everything stays in this browser tab and resets when you reload.</p><div class="buttonrow"><button class="btn" data-tab="explore">Explore sample services</button><button class="btn secondary" data-tab="business">Try provider view</button></div>';
+   $('explore').prepend(intro);
+   message('Welcome to your private RouteDrop demo. Try both customer and provider views with fictional examples.');
+  }else if(state.config.workflow_pilot){
     if(!state.me.user){$('my-bookings').innerHTML='<div class="empty"><h3>Test account required</h3><p>Create a customer test account or sign in to see requests.</p><button type="button" class="btn" data-action="register">Create test account</button></div>';return;}
     state.pilotRequests=(await api('/api/pilot/requests?view=customer')).requests;
     $('my-bookings').innerHTML=pilot.customer(state.pilotRequests);return;
@@ -564,7 +569,12 @@ async function init(){
   const actionParams=new URLSearchParams(location.search);
   if(actionParams.has('reset')){const token=actionParams.get('reset');history.replaceState(null,'',location.pathname);showResetPassword(token);}
   else if(actionParams.has('verify')){const token=actionParams.get('verify');history.replaceState(null,'',location.pathname);await verifyEmailToken(token);}
-  if(state.config.workflow_pilot){
+  if(state.config.prospect_demo){
+   const notice=document.querySelector('.announce');if(notice)notice.innerHTML='<strong>PRIVATE INTERACTIVE DEMO</strong><span>Fictional services only · No signup, charges or real notifications</span>';
+   const intro=document.createElement('section');intro.className='panel';intro.innerHTML='<h2>Try an open appointment.</h2><p>Explore a sample service, request an opening, then switch to Business Studio to accept it. You can mark the sample work complete and confirm it in My bookings. Everything stays in this browser tab and resets when you reload.</p><div class="buttonrow"><button class="btn" data-tab="explore">Explore sample services</button><button class="btn secondary" data-tab="business">Try provider view</button></div>';
+   $('explore').prepend(intro);
+   message('Welcome to your private RouteDrop demo. Try both customer and provider views with fictional examples.');
+  }else if(state.config.workflow_pilot){
    const notice=document.querySelector('.announce');if(notice)notice.innerHTML='<strong>ISOLATED ACCOUNT TEST</strong><span>Test accounts and unpaid requests only · No payments or production customers</span>';
    const customerIntro=document.querySelector('#bookings .interior-heading p');if(customerIntro)customerIntro.textContent='Track database-backed test requests. This is a private staging environment—not live bookings or real payments.';
    const providerIntro=document.querySelector('#business .interior-heading p');if(providerIntro)providerIntro.textContent='Manage private test listings, unpaid requests and coverage radius with a separate staging database.';

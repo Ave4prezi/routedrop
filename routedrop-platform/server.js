@@ -20,6 +20,7 @@ const { normalizeSubscriptionEvent, invoiceEvent, selectSubscription, canStartSu
 const { providerReady, emailLink, isActionToken, notification, deliverEmail } = require('./mail');
 const { livePaymentsAllowed, checkoutOutcome, refundableAmount, disputeState, cancellationEligibility, refundStatus, refundOperation } = require('./payment-safeguards');
 
+const prospectDemo = require('./prospect-demo').prospectDemoConfig();
 const app = express();
 app.disable('x-powered-by');
 app.set('trust proxy', 1);
@@ -61,7 +62,7 @@ app.use(cookieParser());
 // Browser-friendly access for the isolated pilot. Other previews retain Basic auth.
 const previewPass=previewAccessPassword;
 if(previewPass){
- const username='routedrop-preview';
+ const username=prospectDemo.username;
  const loginPath='/preview-sign-in';
  const sessionCookie='__Host-rd_preview';
  const formCookie='__Host-rd_preview_form';
@@ -85,9 +86,9 @@ if(previewPass){
   res.cookie(formCookie,formToken,{...cookieOptions,maxAge:15*60*1000});
   return res.set({'Cache-Control':'no-store','Referrer-Policy':'same-origin'}).status(status).type('html').send(`<!doctype html>
 <html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>RouteDrop Private Staging</title>
-<main><h1>RouteDrop Private Staging</h1>
-<p>Sign in with your preview credentials.</p>
+<title>${prospectDemo.enabled?'RouteDrop Private Demo':'RouteDrop Private Staging'}</title>
+<main><h1>${prospectDemo.enabled?'RouteDrop Private Demo':'RouteDrop Private Staging'}</h1>
+<p>${prospectDemo.enabled?'Use your demo access below. Explore fictional examples; no signup, payment or real customer notifications.':'Sign in with your preview credentials.'}</p>
 ${error?'<p role="alert">'+error+'</p>':''}
 <form method="post" action="/preview-sign-in">
 <input type="hidden" name="formToken" value="${formToken}">
@@ -329,7 +330,7 @@ app.get('/api/config',(req,res)=>{
  if(!req.cookies.routedrop_csrf || !/^[a-f0-9]{64}$/.test(req.cookies.routedrop_csrf)){
   res.cookie('routedrop_csrf',random(),{secure:process.env.NODE_ENV==='production',httpOnly:false,sameSite:'lax',path:'/',maxAge:7*24*60*60*1000});
  }
- res.json({database:ready,payments:paymentsReady,workflow_pilot:workflowPilot&&ready,opportunity_pilot:workflowPilot&&ready,unified_pilot:workflowPilot&&ready,safety_pilot:workflowPilot&&ready,identity_test_available:identityEnabled&&ready,moderation_available:workflowPilot&&ready&&!!passkeyOptions&&safetyPilot.moderatorConfigured(),moderator_passkeys_required:true,status:ready?'beta':'setup_required',email_enabled:emailReady,payments_mode:liveKey?(paymentsApproved?'live':'live_locked'):'test',public_url:baseUrl});
+ res.json({prospect_demo:prospectDemo.enabled,database:ready,payments:paymentsReady,workflow_pilot:workflowPilot&&ready,opportunity_pilot:workflowPilot&&ready,unified_pilot:workflowPilot&&ready,safety_pilot:workflowPilot&&ready,identity_test_available:identityEnabled&&ready,moderation_available:workflowPilot&&ready&&!!passkeyOptions&&safetyPilot.moderatorConfigured(),moderator_passkeys_required:true,status:ready?'beta':'setup_required',email_enabled:emailReady,payments_mode:liveKey?(paymentsApproved?'live':'live_locked'):'test',public_url:baseUrl});
 });
 async function issueEmailAction(userId,email,purpose) {
  if(!emailReady||!baseUrl)return false;

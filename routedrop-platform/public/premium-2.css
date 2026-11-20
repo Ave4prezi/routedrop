@@ -144,3 +144,9 @@ footer a[href="#trust"],footer a[href="/#trust"]{color:#adcfff;font-size:11px;te
  .hero-search input{min-height:44px}
 }
 @media(prefers-reduced-motion:reduce){.navaccount button,.hero-find,.tabs button,.category-chips button{transition:none!important;transform:none!important}}
+
+/* Keep every primary destination visible on phones and narrow tablets. */
+@media(max-width:760px){
+ nav.tabs{flex-wrap:wrap;gap:0 8px;padding:6px 17px;overflow:visible}
+ nav.tabs button{flex:1 1 calc(33.333% - 8px);min-width:0;white-space:normal;overflow-wrap:break-word;line-height:1.35;padding:12px 6px}
+}
