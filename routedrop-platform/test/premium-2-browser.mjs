@@ -19,7 +19,7 @@ try{
   await page.goto(url,{waitUntil:'networkidle'});
   if(prospect){await page.getByLabel('Username',{exact:true}).fill('sam-demo');await page.getByLabel('Password',{exact:true}).fill(demoPass);await page.getByRole('button',{name:'Sign in',exact:true}).click();await page.waitForURL(url+'/');await page.getByText('PRIVATE INTERACTIVE DEMO',{exact:true}).waitFor();}
   assert.equal((await page.locator('header .brand').textContent()).replace(/\s+/g,''),'RouteDrop');
-  await page.getByRole('heading',{name:/Local help/}).waitFor();
+  await page.getByRole('heading',{name:/Good crews/}).waitFor();
   if(v.name==='mobile'){
    for(const width of [320,360,390,540,760]){
     await page.setViewportSize({width,height:v.height});
@@ -36,13 +36,12 @@ try{
   assert.equal(await page.locator('#nav-account [data-tab]').count(),2,'show meaningful customer/provider tours');
   assert.equal(await page.locator('#trust .trust-standard-grid article').count(),3,'trust milestones should be visible');
   assert.match(await page.locator('#trust').innerText(),/REQUIRES LAUNCH APPROVAL/);
-  const sprite=await page.locator('.hero-photo-main').evaluate(async el=>{
-    const bg=getComputedStyle(el).backgroundImage;
-    const src=bg.match(new RegExp('data:image/webp;base64,[A-Za-z0-9+/=]+'))?.[0];
-    if(!src)return {ok:false};
-    const img=new Image();img.src=src;await img.decode();return {ok:img.naturalWidth>0&&img.naturalHeight>0};
-  });
-  assert.equal(sprite.ok,true,'inline hero photo must decode');
+  await page.locator('.center-route').getByText("We're already",{exact:false}).waitFor();
+  assert.equal(await page.locator('.route-hero-art .floating-card').count(),2);
+  assert.match(await page.locator('.route-hero-art').getAttribute('aria-label'),/Not live availability/);
+  const colors=await page.locator('.route-hero').evaluate(el=>({bg:getComputedStyle(el).backgroundColor,overflow:document.documentElement.scrollWidth>innerWidth+1}));
+  assert.equal(colors.bg,'rgb(14, 23, 24)');
+  assert.equal(colors.overflow,false,'route theme must fit viewport');
   await page.getByRole('button',{name:'Trust & Safety'}).click();
   await page.getByRole('heading',{name:'Confidence must be earned.'}).waitFor();
   assert.equal(await page.locator('.safety-grid .safety-panel').count(),3,'visible trust, fraud and moderation pillars');

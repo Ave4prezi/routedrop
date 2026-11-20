@@ -5,6 +5,7 @@ on:
       - feature/individual-providers-jobs-20261116
       - feature/day-work-pilot-20261118
       - feature/prospect-demo-20261120
+      - feature/premium-pilot-integration-20261120
 permissions:
   contents: read
 jobs:

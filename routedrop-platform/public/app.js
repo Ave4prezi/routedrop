@@ -99,7 +99,7 @@ async function refresh(){
    if(state.config.prospect_demo){
    const notice=document.querySelector('.announce');if(notice)notice.innerHTML='<strong>PRIVATE INTERACTIVE DEMO</strong><span>Fictional services only · No signup, charges or real notifications</span>';
    const intro=document.createElement('section');intro.className='panel';intro.innerHTML='<h2>Try an open appointment.</h2><p>Explore a sample service, request an opening, then switch to Business Studio to accept it. You can mark the sample work complete and confirm it in My bookings. Everything stays in this browser tab and resets when you reload.</p><div class="buttonrow"><button class="btn" data-tab="explore">Explore sample services</button><button class="btn secondary" data-tab="business">Try provider view</button></div>';
-   $('explore').prepend(intro);
+   document.querySelector('#explore .hero').after(intro);
    message('Welcome to your private RouteDrop demo. Try both customer and provider views with fictional examples.');
   }else if(state.config.workflow_pilot){
     if(!state.me.user){$('my-bookings').innerHTML='<div class="empty"><h3>Test account required</h3><p>Create a customer test account or sign in to see requests.</p><button type="button" class="btn" data-action="register">Create test account</button></div>';return;}
@@ -572,7 +572,7 @@ async function init(){
   if(state.config.prospect_demo){
    const notice=document.querySelector('.announce');if(notice)notice.innerHTML='<strong>PRIVATE INTERACTIVE DEMO</strong><span>Fictional services only · No signup, charges or real notifications</span>';
    const intro=document.createElement('section');intro.className='panel';intro.innerHTML='<h2>Try an open appointment.</h2><p>Explore a sample service, request an opening, then switch to Business Studio to accept it. You can mark the sample work complete and confirm it in My bookings. Everything stays in this browser tab and resets when you reload.</p><div class="buttonrow"><button class="btn" data-tab="explore">Explore sample services</button><button class="btn secondary" data-tab="business">Try provider view</button></div>';
-   $('explore').prepend(intro);
+   document.querySelector('#explore .hero').after(intro);
    message('Welcome to your private RouteDrop demo. Try both customer and provider views with fictional examples.');
   }else if(state.config.workflow_pilot){
    const notice=document.querySelector('.announce');if(notice)notice.innerHTML='<strong>ISOLATED ACCOUNT TEST</strong><span>Test accounts and unpaid requests only · No payments or production customers</span>';
