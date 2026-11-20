@@ -4,6 +4,7 @@ on:
     branches:
       - feature/individual-providers-jobs-20261116
       - feature/day-work-pilot-20261118
+      - feature/prospect-demo-20261120
 permissions:
   contents: read
 jobs:
@@ -61,6 +62,8 @@ jobs:
         run: node routedrop-platform/test/pilot-browser.mjs
       - name: Preserve existing Premium 2.0 demo/browser regression
         run: node routedrop-platform/test/premium-2-browser.mjs
+      - name: Prospect demo — private sign-in, isolated customer/provider tours
+        run: TEST_PROSPECT_DEMO=true node routedrop-platform/test/premium-2-browser.mjs
       - name: Preserve desktop/mobile testing screenshots
         if: always()
         uses: actions/upload-artifact@v4
@@ -69,5 +72,6 @@ jobs:
           path: |
             pilot-*.png
             premium-2-*.png
+            prospect-demo-*.png
           retention-days: 7
           if-no-files-found: ignore

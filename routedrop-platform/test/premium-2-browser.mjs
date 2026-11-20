@@ -5,17 +5,19 @@ import net from 'node:net';
 import {chromium} from 'playwright';
 const srv=net.createServer();srv.listen(0,'127.0.0.1');await once(srv,'listening');const port=srv.address().port;await new Promise(r=>srv.close(r));
 const url='http://127.0.0.1:'+port;
-const app=spawn(process.execPath,['routedrop-platform/server.js'],{env:{...process.env,PORT:String(port),NODE_ENV:'test',DATABASE_URL:'',STRIPE_SECRET_KEY:'',STRIPE_WEBHOOK_SECRET:'',ROUTEDROP_PREVIEW_ACCESS_PASSWORD:'',ROUTEDROP_LIVE_APPROVED:'false'},stdio:['ignore','pipe','pipe']});
+const prospect=process.env.TEST_PROSPECT_DEMO==='true',demoPass='browser-test-fixture-not-a-real-password';
+const app=spawn(process.execPath,['routedrop-platform/server.js'],{env:{...process.env,PORT:String(port),NODE_ENV:'test',DATABASE_URL:'',STRIPE_SECRET_KEY:'',STRIPE_WEBHOOK_SECRET:'',ROUTEDROP_PROSPECT_DEMO:prospect?'true':'false',ROUTEDROP_WORKFLOW_PILOT:prospect?'true':'false',ROUTEDROP_PREVIEW_USERNAME:prospect?'sam-demo':'routedrop-preview',ROUTEDROP_PREVIEW_ACCESS_PASSWORD:prospect?demoPass:'',ROUTEDROP_LIVE_APPROVED:'false'},stdio:['ignore','pipe','pipe']});
 let err='';app.stderr.on('data',x=>{err+=x.toString()});let browser;
 try{
  let ready=false;
- for(let i=0;i<110;i++){try{const r=await fetch(url+'/health');if(r.ok){const j=await r.json();assert.equal(j.payments,'not configured');assert.equal(j.database,'not configured');ready=true;break;}}catch{}await new Promise(r=>setTimeout(r,100));}
+ for(let i=0;i<110;i++){try{const r=await fetch(url+'/health',{headers:prospect?{authorization:'Basic '+Buffer.from('sam-demo:'+demoPass).toString('base64')}:{}});if(r.ok){const j=await r.json();assert.equal(j.payments,'not configured');assert.equal(j.database,'not configured');ready=true;break;}}catch{}await new Promise(r=>setTimeout(r,100));}
  assert.ok(ready,'server failed: '+err);
  browser=await chromium.launch({headless:true,...(process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH?{executablePath:process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH}:{})});
  for(const v of [{name:'desktop',width:1440,height:900},{name:'mobile',width:390,height:844}]){
   const page=await browser.newPage({viewport:{width:v.width,height:v.height}});
-  const problems=[],mutationRequests=[];page.on('pageerror',e=>problems.push(e.message));page.on('request',r=>{if(!['GET','HEAD'].includes(r.method()))mutationRequests.push({method:r.method(),url:r.url()});});
+  const problems=[],mutationRequests=[];page.on('pageerror',e=>problems.push(e.message));page.on('request',r=>{if(!['GET','HEAD'].includes(r.method())&&!r.url().endsWith('/preview-sign-in'))mutationRequests.push({method:r.method(),url:r.url()});});
   await page.goto(url,{waitUntil:'networkidle'});
+  if(prospect){await page.getByLabel('Username',{exact:true}).fill('sam-demo');await page.getByLabel('Password',{exact:true}).fill(demoPass);await page.getByRole('button',{name:'Sign in',exact:true}).click();await page.waitForURL(url+'/');await page.getByText('PRIVATE INTERACTIVE DEMO',{exact:true}).waitFor();}
   assert.equal((await page.locator('header .brand').textContent()).replace(/\s+/g,''),'RouteDrop');
   await page.getByRole('heading',{name:/Local help/}).waitFor();
   await page.getByText('BrightNest Cleaning Co.').waitFor();
@@ -134,7 +136,7 @@ try{
   assert.ok(size.page<=size.viewport+2,'no unexpected horizontal overflow: '+JSON.stringify(size));
   assert.deepEqual(mutationRequests,[],'demo interactions must not create, mutate, book, charge, or persist via the backend');
   assert.deepEqual(problems,[],'no browser page errors');
-  await page.screenshot({path:'premium-2-'+v.name+'.png',fullPage:true});
+  await page.screenshot({path:(prospect?'prospect-demo-':'premium-2-')+v.name+'.png',fullPage:true});
   console.log('PASS '+v.name+' premium UI + in-memory fictional booking request/accept/complete/confirm/cancel, coverage retention, no backend writes');
   await page.close();
  }
