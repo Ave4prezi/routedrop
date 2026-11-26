@@ -7,6 +7,7 @@ const FEE_RATE = 0.08;
 const paymentFee = cents => Math.round(cents*FEE_RATE);
 const legitimateAmount = cents => Number.isSafeInteger(cents) && cents >= 500 && cents <= 500000;
 const validId = value => Number.isSafeInteger(Number(value)) && Number(value) > 0;
+const referenceMatches = (pi,booking) => booking.payment_reference ? pi.metadata?.routedrop_payment_reference===booking.payment_reference : !pi.metadata?.routedrop_payment_reference;
 function payable(booking) {
  return booking && booking.status === 'work_completed' && !!booking.payment_method_id &&
   legitimateAmount(Number(booking.price_cents)) && Number(booking.fee_cents) === paymentFee(Number(booking.price_cents)) &&
@@ -21,8 +22,8 @@ function chargeParameters(booking, accountId) {
    customer:booking.stripe_customer_id, payment_method:booking.payment_method_id,
    payment_method_types:['card'], off_session:true, confirm:true,
    application_fee_amount:Number(booking.fee_cents), transfer_data:{destination:accountId},
-   metadata:{routedrop_deferred_booking_id:String(booking.id)} },
-  options: { idempotencyKey:'routedrop-deferred-charge-v1-'+booking.id }
+   metadata:{routedrop_deferred_booking_id:String(booking.id),...(booking.payment_reference?{routedrop_payment_reference:booking.payment_reference}:{})} },
+  options: { idempotencyKey:'routedrop-deferred-charge-v1-'+(booking.payment_reference||booking.id) }
  };
 }
 function recoveryEligible(booking,pi) {
@@ -34,7 +35,7 @@ function recoveryEligible(booking,pi) {
   pi.currency==='usd' && Number(pi.amount)===Number(booking.price_cents) &&
   Number(pi.application_fee_amount)===Number(booking.fee_cents) &&
   pi.transfer_data?.destination===booking.provider_stripe_account_id &&
-  String(pi.metadata?.routedrop_deferred_booking_id)===String(booking.id);
+  String(pi.metadata?.routedrop_deferred_booking_id)===String(booking.id) && referenceMatches(pi,booking);
 }
 function verifiedRecoveryCharge(pi,booking) {
  return pi && pi.status==='succeeded' && pi.currency==='usd' &&
@@ -43,7 +44,7 @@ function verifiedRecoveryCharge(pi,booking) {
   pi.customer===booking.stripe_customer_id &&
   Number(pi.application_fee_amount)===Number(booking.fee_cents) &&
   pi.transfer_data?.destination===booking.provider_stripe_account_id &&
-  String(pi.metadata?.routedrop_deferred_recovery_booking_id)===String(booking.id) &&
+  String(pi.metadata?.routedrop_deferred_recovery_booking_id)===String(booking.id) && referenceMatches(pi,booking) &&
   typeof pi.id==='string' && pi.id.startsWith('pi_') &&
   typeof pi.payment_method==='string' && pi.payment_method.startsWith('pm_');
 }
@@ -55,7 +56,7 @@ function verifiedCharge(pi, booking) {
    pi.payment_method === booking.payment_method_id &&
    Number(pi.application_fee_amount) === Number(booking.fee_cents) &&
    pi.transfer_data?.destination === (booking.provider_stripe_account_id || booking.stripe_account_id) &&
-   String(pi.metadata?.routedrop_deferred_booking_id) === String(booking.id) &&
+   String(pi.metadata?.routedrop_deferred_booking_id) === String(booking.id) && referenceMatches(pi,booking) &&
    typeof pi.id === 'string' && pi.id.startsWith('pi_');
 }
 const sql = [
@@ -63,6 +64,10 @@ const sql = [
  "CREATE UNIQUE INDEX IF NOT EXISTS unique_deferred_stripe_customer ON users(deferred_stripe_customer_id) WHERE deferred_stripe_customer_id IS NOT NULL",
  "CREATE TABLE IF NOT EXISTS deferred_bookings (id BIGSERIAL PRIMARY KEY, listing_id BIGINT NOT NULL REFERENCES listings(id), customer_id BIGINT NOT NULL REFERENCES users(id), stripe_customer_id TEXT NOT NULL, setup_session_id TEXT UNIQUE, setup_intent_id TEXT UNIQUE, payment_method_id TEXT, payment_intent_id TEXT UNIQUE, status TEXT NOT NULL DEFAULT 'awaiting_card' CHECK (status IN ('awaiting_card','requested','accepted','work_completed','payment_processing','paid','payment_failed','recovery_pending','needs_review','disputed','refunded','canceled')), price_cents INTEGER NOT NULL CHECK (price_cents BETWEEN 500 AND 500000), fee_cents INTEGER NOT NULL CHECK (fee_cents>=0), consent_terms TEXT NOT NULL, consent_at TIMESTAMPTZ NOT NULL DEFAULT now(), hold_expires_at TIMESTAMPTZ NOT NULL, accepted_at TIMESTAMPTZ, completed_at TIMESTAMPTZ, confirmed_at TIMESTAMPTZ, paid_at TIMESTAMPTZ, dispute_reason TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())",
  "CREATE UNIQUE INDEX IF NOT EXISTS one_active_deferred_booking_per_slot ON deferred_bookings(listing_id) WHERE status IN ('awaiting_card','requested','accepted','work_completed','payment_processing','payment_failed','recovery_pending','needs_review','disputed','paid','refunded')",
+ "ALTER TABLE deferred_bookings ADD COLUMN IF NOT EXISTS payment_reference TEXT",
+ "ALTER TABLE deferred_bookings ALTER COLUMN payment_reference SET DEFAULT gen_random_uuid()::text",
+ "CREATE TABLE IF NOT EXISTS deferred_payment_reconciliation (event_id TEXT PRIMARY KEY, payment_intent_id TEXT NOT NULL, booking_id BIGINT NOT NULL, reason TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now())",
+ "CREATE UNIQUE INDEX IF NOT EXISTS deferred_booking_payment_reference_unique ON deferred_bookings(payment_reference) WHERE payment_reference IS NOT NULL",
  "ALTER TABLE deferred_bookings ADD COLUMN IF NOT EXISTS provider_stripe_account_id TEXT",
  "ALTER TABLE deferred_bookings ADD COLUMN IF NOT EXISTS refunded_cents INTEGER NOT NULL DEFAULT 0",
  "ALTER TABLE deferred_bookings ADD COLUMN IF NOT EXISTS stripe_dispute_status TEXT",
@@ -124,12 +129,20 @@ async function handleStripeEvent(event, client, stripe, queueDeferredEmail=async
   const id=Number(obj.metadata.routedrop_deferred_booking_id);
   const query=await client.query("SELECT d.*,b.stripe_account_id FROM deferred_bookings d JOIN listings l ON l.id=d.listing_id JOIN businesses b ON b.id=l.business_id WHERE d.id=$1 FOR UPDATE OF d",[id]);
   const booking=query.rows[0];
-  if (!booking || !['payment_processing','needs_review','payment_failed'].includes(booking.status) || (booking.payment_intent_id && booking.payment_intent_id!==obj.id)) return;
+  if (!booking || !referenceMatches(obj,booking) || (booking.payment_intent_id && booking.payment_intent_id!==obj.id)) {
+   if(typeof event.id==='string') await client.query("INSERT INTO deferred_payment_reconciliation(event_id,payment_intent_id,booking_id,reason) VALUES($1,$2,$3,$4) ON CONFLICT(event_id) DO NOTHING",[event.id,obj.id,id,'unmatched_booking_or_payment_reference']);
+   return;
+  }
+  if (!['payment_processing','needs_review','payment_failed'].includes(booking.status)) return;
   if (event.type==='payment_intent.succeeded') {
    if (!verifiedCharge(obj,booking)) throw Error('Unexpected deferred payment properties');
    await client.query("UPDATE deferred_bookings SET status='paid',payment_intent_id=$2,paid_at=now() WHERE id=$1 AND status IN ('payment_processing','needs_review','payment_failed')",[id,obj.id]);
    await queueDeferredEmail(client,id,'paid');
-  } else if (obj.customer===booking.stripe_customer_id && Number(obj.amount)===Number(booking.price_cents)) {
+  } else if (obj.customer===booking.stripe_customer_id && Number(obj.amount)===Number(booking.price_cents) &&
+      obj.currency==='usd' && obj.payment_method===booking.payment_method_id &&
+      Number(obj.application_fee_amount)===Number(booking.fee_cents) &&
+      obj.transfer_data?.destination===(booking.provider_stripe_account_id || booking.stripe_account_id) &&
+      obj.id.startsWith('pi_')) {
    await client.query("UPDATE deferred_bookings SET status='payment_failed',payment_intent_id=$2 WHERE id=$1 AND status IN ('payment_processing','needs_review','payment_failed')",[id,obj.id]);
    await queueDeferredEmail(client,id,'failed');
   }
@@ -423,11 +436,11 @@ function install(app, {pool,stripe,baseUrl,enabled,verificationEnabled=false,ver
     mode:'payment',payment_method_types:['card'],customer:booking.stripe_customer_id,
     client_reference_id:String(id),
     line_items:[{price_data:{currency:'usd',unit_amount:booking.price_cents,product_data:{name:'RouteDrop service payment · Booking '+id}},quantity:1}],
-    payment_intent_data:{application_fee_amount:booking.fee_cents,transfer_data:{destination:booking.provider_stripe_account_id},metadata:{routedrop_deferred_recovery_booking_id:String(id)}},
+    payment_intent_data:{application_fee_amount:booking.fee_cents,transfer_data:{destination:booking.provider_stripe_account_id},metadata:{routedrop_deferred_recovery_booking_id:String(id),...(booking.payment_reference?{routedrop_payment_reference:booking.payment_reference}:{})}},
     metadata:{deferred_recovery_booking_id:String(id)},
     success_url:baseUrl+'/?recovery=return',cancel_url:baseUrl+'/?recovery=cancel',
     expires_at:Math.floor(Date.now()/1000)+30*60
-   },{idempotencyKey:'routedrop-deferred-recovery-checkout-v1-'+id});
+   },{idempotencyKey:'routedrop-deferred-recovery-checkout-v1-'+(booking.payment_reference||id)});
    const updated=await pool.query("UPDATE deferred_bookings SET recovery_checkout_session_id=$2 WHERE id=$1 AND status='recovery_pending' AND recovery_checkout_session_id IS NULL RETURNING id",[id,session.id]);
    if(!updated.rowCount){
     await stripe.checkout.sessions.expire(session.id).catch(()=>{});
