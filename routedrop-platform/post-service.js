@@ -131,7 +131,11 @@ async function handleStripeEvent(event, client, stripe, queueDeferredEmail=async
    if (!verifiedCharge(obj,booking)) throw Error('Unexpected deferred payment properties');
    await client.query("UPDATE deferred_bookings SET status='paid',payment_intent_id=$2,paid_at=now() WHERE id=$1 AND status IN ('payment_processing','needs_review','payment_failed')",[id,obj.id]);
    await queueDeferredEmail(client,id,'paid');
-  } else if (obj.customer===booking.stripe_customer_id && Number(obj.amount)===Number(booking.price_cents)) {
+  } else if (obj.customer===booking.stripe_customer_id && Number(obj.amount)===Number(booking.price_cents) &&
+      obj.currency==='usd' && obj.payment_method===booking.payment_method_id &&
+      Number(obj.application_fee_amount)===Number(booking.fee_cents) &&
+      obj.transfer_data?.destination===(booking.provider_stripe_account_id || booking.stripe_account_id) &&
+      obj.id.startsWith('pi_')) {
    await client.query("UPDATE deferred_bookings SET status='payment_failed',payment_intent_id=$2 WHERE id=$1 AND status IN ('payment_processing','needs_review','payment_failed')",[id,obj.id]);
    await queueDeferredEmail(client,id,'failed');
   }
