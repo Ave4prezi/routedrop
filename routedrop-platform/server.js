@@ -64,6 +64,7 @@ const authLimiter = rateLimit({ windowMs:15*60*1000, limit:12, standardHeaders:'
 const checkoutLimiter = rateLimit({windowMs:15*60*1000, limit:15, standardHeaders:'draft-7', legacyHeaders:false});
 
 const schema = String.raw; // no dynamic SQL interpolation in schema below
+const dayWork = require('./day-work-pilot');
 const ddl = [
  "CREATE TABLE IF NOT EXISTS users (id BIGSERIAL PRIMARY KEY, email TEXT UNIQUE NOT NULL, full_name TEXT NOT NULL, password_hash TEXT NOT NULL, role TEXT NOT NULL CHECK(role IN ('customer','business')), created_at TIMESTAMPTZ NOT NULL DEFAULT now())",
  "CREATE TABLE IF NOT EXISTS businesses (id BIGSERIAL PRIMARY KEY, owner_id BIGINT UNIQUE NOT NULL REFERENCES users(id) ON DELETE CASCADE, name TEXT NOT NULL, city TEXT NOT NULL, category TEXT NOT NULL, stripe_account_id TEXT UNIQUE, created_at TIMESTAMPTZ NOT NULL DEFAULT now())",
@@ -99,6 +100,7 @@ const ddl = [
  "CREATE INDEX IF NOT EXISTS notification_outbox_due ON notification_outbox(status,available_at)"
 ]; 
 if (deferredEnabled || previewOnly || paymentSandboxOnly) ddl.push(...postService.sql);
+if (paymentSandboxOnly) ddl.push(...dayWork.ddl);
 if (verificationEnabled) ddl.push(...verification.schema);
 async function startDatabase() {
  if (!pool) return;
@@ -606,6 +608,7 @@ app.post('/api/bookings/:id/complete',requireDb,requireUser('business'),safe(asy
  if(!r.rowCount)return forbidden(res,'No eligible paid booking found.',409);
  res.json({ok:true});
 }));
+if (paymentSandboxOnly) dayWork.registerDayWorkRoutes(app,{pool,safe,requireDb,requireUser,forbidden});
 verification.install(app,{pool,enabled:verificationEnabled,requireDb,requireUser,safe,forbidden});
 postService.install(app,{pool,stripe,baseUrl,enabled:deferredEnabled,verificationEnabled,verifyListing:verification.eligibleListing,requireDb,requireUser,safe,limiter:checkoutLimiter,forbidden,queueDeferredEmail});
 app.use(express.static('routedrop-platform/public',{fallthrough:false,maxAge:'15m'}));
