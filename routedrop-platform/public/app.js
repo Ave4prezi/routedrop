@@ -47,7 +47,10 @@ async function refresh(){
  }
  try{
   const who=await api('/api/me');state.me=who;nav();
-  if(state.tab==='explore'){
+  if(state.tab==='work' && state.config.payment_sandbox){
+   const tasks=who.user?(await api('/api/pilot/day-work')).tasks:[];
+   if(state.tab==='work') $('work-board').innerHTML=window.RouteDropDayWork.dayWork(tasks,Boolean(who.user));
+  }else if(state.tab==='explore'){
    const r=await api('/api/listings');state.listings=r.listings;renderOffers();
   }else if(state.tab==='bookings'){
    if(!state.me.user){$('my-bookings').innerHTML='<div class="empty">Please log in to see your bookings.</div>';return;}
@@ -195,6 +198,27 @@ async function act(e){
  const el=e.target.closest('button');if(!el)return;
  if(el.dataset.tab){switchTab(el.dataset.tab);return;}
  const action=el.dataset.action;
+ if(action==='post-day-work'){
+  if(!state.me?.user){showLogin();message('Sign in to post a job.');return;}
+  overlay(window.RouteDropDayWork.dayWorkForm());
+  return;
+ }
+ if(el.dataset.dayAction){
+  const path='/api/pilot/day-work/'+el.dataset.dayId;
+  el.disabled=true;
+  try{
+   if(el.dataset.dayAction==='interests'){
+    const result=await api(path+'/interests');
+    overlay(window.RouteDropDayWork.dayWorkers(el.dataset.dayId,result.interests));
+   }else{
+    await api(path+'/'+el.dataset.dayAction,{method:'POST',body:JSON.stringify({workerId:el.dataset.workerId})});
+    dismiss();
+    await refresh();
+    message('Job updated.');
+   }
+  }catch(error){message(error.message,true);}finally{el.disabled=false;}
+  return;
+ }
  if(action==='register'){showRegistration();return;}
  if(action==='register-business'){showRegistration();const selector=$('register-role');selector.value='business';selector.dispatchEvent(new Event('change',{bubbles:true}));return;}
  if(action==='demo-onboarding'){
@@ -305,13 +329,22 @@ async function act(e){
  if(el.dataset.complete){try{await api('/api/bookings/'+Number(el.dataset.complete)+'/complete',{method:'POST'});message('Job marked completed.');refresh();}catch(err){message(err.message,true);}return;}
 }
 async function submit(e){
- if(!['register-form','login-form','listing-form','forgot-form','reset-form','change-password-form','credential-upload-form'].includes(e.target.id))return;
+ if(!['day-work-form','register-form','login-form','listing-form','forgot-form','reset-form','change-password-form','credential-upload-form'].includes(e.target.id))return;
  e.preventDefault();
  const form=e.target,d=Object.fromEntries(new FormData(form).entries());
  if(state.config?.private_preview&&!state.config?.database){const err=$('form-error');if(err)err.textContent='This preview is read-only until its isolated database is connected. Use the onboarding walkthrough for now.';return;}
  const err=$('form-error');err.textContent='';
  const submit=form.querySelector('button[type=submit]');submit.disabled=true;
  try{
+  if(form.id==='day-work-form'){
+   d.startsAt=new Date(d.startsAt).toISOString();
+   d.endsAt=new Date(d.endsAt).toISOString();
+   await api('/api/pilot/day-work',{method:'POST',body:JSON.stringify(d)});
+   dismiss();
+   switchTab('work');
+   message('Job posted. Workers can now express interest.');
+   return;
+  }
   if(form.id==='credential-upload-form'){
    const file=form.querySelector('[name=document]').files[0];
    if(!file||file.size>2*1024*1024||file.size<24)throw Error('Choose a PDF, PNG, or JPEG between 24 bytes and 2 MB.');
@@ -343,6 +376,7 @@ async function init(){
  $('category').addEventListener('change',renderOffers);
  try {
   state.config=await api('/api/config');
+  document.querySelectorAll('[data-work-entry]').forEach(el=>el.classList.toggle('hidden',!(state.config.payment_sandbox && state.config.database)));
   const actionParams=new URLSearchParams(location.search);
   if(actionParams.has('reset')){const token=actionParams.get('reset');history.replaceState(null,'',location.pathname);showResetPassword(token);}
   else if(actionParams.has('verify')){const token=actionParams.get('verify');history.replaceState(null,'',location.pathname);await verifyEmailToken(token);}
